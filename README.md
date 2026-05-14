@@ -343,6 +343,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  <strong>Built with 🛡️ by <a href="https://github.com/andresramirez">Andrés Ramírez</a></strong><br>
+  <strong>Built with 🛡️ by <a href="https://github.com/andresramirez">Samuel Esteban Urrego Valencia</a></strong><br>
   <em>"Security shouldn't be an afterthought — it should be a single import."</em>
 </p>
