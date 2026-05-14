@@ -1,0 +1,62 @@
+[project]
+name = "araxys"
+version = "0.1.0"
+description = "Plug & play security library for FastAPI — rate limiting, honeypots, JWT, API keys, and more."
+readme = "README.md"
+authors = [
+    { name = "Andres Felipe Ramirez Muñoz", email = "andres.ramirez@porcicarnes.com" },
+]
+requires-python = ">=3.13"
+license = { text = "MIT" }
+keywords = ["fastapi", "security", "rate-limiting", "jwt", "middleware", "honeypot"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "Typing :: Typed",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+    "fastapi>=0.115.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "pyjwt[crypto]>=2.8",
+    "bleach>=6.0",
+    "cryptography>=44.0",
+    "structlog>=24.0",
+]
+
+[project.optional-dependencies]
+redis = ["redis>=5.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "fakeredis>=2.21",
+    "ruff>=0.11",
+    "mypy>=1.10",
+    "pre-commit>=4.0",
+    "uvicorn>=0.30",
+]
+all = ["araxys[redis]"]
+
+[build-system]
+requires = ["uv_build>=0.11.8,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
