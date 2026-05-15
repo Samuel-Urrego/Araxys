@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Plug & Play Security for FastAPI</strong><br>
-  <em>Rate limiting · Honeypots · JWT · API Keys · Encrypted Audit Logging</em>
+  <em>CORS · CSRF · IP Blocking · Rate Limiting · Honeypots · JWT · API Keys · Brute Force · Sessions · OTEL · Prometheus · Encrypted Audit</em>
 </p>
 
 <p align="center">
@@ -13,14 +13,17 @@
   <img src="https://img.shields.io/badge/Pydantic-v2-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic">
   <img src="https://img.shields.io/badge/uv-package%20manager-DE5FE9?style=for-the-badge&logo=uv&logoColor=white" alt="uv">
   <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="License">
+  <img src="https://img.shields.io/badge/version-0.3.0-blue?style=for-the-badge" alt="Version">
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/encryption-AES--256--GCM-DC143C?style=flat-square" alt="AES-256-GCM">
   <img src="https://img.shields.io/badge/JWT-OAuth2%20compliant-000000?style=flat-square&logo=jsonwebtokens&logoColor=white" alt="JWT">
   <img src="https://img.shields.io/badge/Redis-optional-DC382D?style=flat-square&logo=redis&logoColor=white" alt="Redis">
+  <img src="https://img.shields.io/badge/OpenTelemetry-optional-8B5CF6?style=flat-square&logo=opentelemetry&logoColor=white" alt="OTEL">
+  <img src="https://img.shields.io/badge/Prometheus-optional-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/structlog-logging-4B8BBE?style=flat-square" alt="structlog">
-  <img src="https://img.shields.io/badge/tests-71%20passed-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-312%20passed-brightgreen?style=flat-square" alt="Tests">
 </p>
 
 ---
@@ -44,11 +47,19 @@ shield = AraxysShield(app, AraxysConfig(secret_key="your-32-char-secret-key-here
 
 | Module | Description | Status |
 |--------|------------|--------|
+| 🚦 **CORS** | Per-origin policy with fail-closed default | ✅ v0.3 |
+| 🛑 **IP Access Control** | Allow/block/hybrid modes with CIDR support | ✅ v0.3 |
+| 🍪 **CSRF Protection** | Double-submit cookie with constant-time validation | ✅ v0.3 |
+| 🔒 **Brute Force** | Account lockout + password policy + HIBP check | ✅ v0.3 |
+| 👥 **Session Management** | Max concurrent enforcement + revocation | ✅ v0.3 |
+| 📡 **OpenTelemetry** | Graceful span tracing (opt-in, no-op fallback) | ✅ v0.3 |
+| 📨 **Webhooks** | Security event delivery with retry | ✅ v0.3 |
+| 📊 **Prometheus Metrics** | 9 counters + histogram + /metrics endpoint | ✅ v0.3 |
 | 🚦 **Rate Limiting** | Dynamic sliding window with escalating bans | ✅ Ready |
 | 🍯 **Honeypots** | Fake endpoints that auto-ban bots | ✅ Ready |
 | 🔑 **API Keys** | Scoped keys with SHA-256 hashing & expiration | ✅ Ready |
 | 🎟️ **JWT Auth** | Access + Refresh tokens with rotation & revocation | ✅ Ready |
-| 🛡️ **Secure Headers** | HSTS, CSP, X-Frame-Options & more (OWASP) | ✅ Ready |
+| 🛡️ **Secure Headers** | HSTS, CSP, X-Frame-Options, COOP, CORP (OWASP) | ✅ Ready |
 | 🧹 **Sanitization** | SQLi detection & XSS stripping | ✅ Ready |
 | 📋 **Audit Logging** | AES-256-GCM encrypted structured logs | ✅ Ready |
 
@@ -62,6 +73,18 @@ pip install araxys
 
 # With Redis support (recommended for production)
 pip install araxys[redis]
+
+# With OpenTelemetry tracing
+pip install araxys[opentelemetry]
+
+# With Prometheus metrics
+pip install araxys[prometheus]
+
+# With webhook delivery support
+pip install araxys[webhooks]
+
+# Everything
+pip install araxys[all]
 
 # Development
 pip install araxys[dev]
@@ -91,13 +114,66 @@ shield = AraxysShield(
     AraxysConfig(
         secret_key="super-secret-key-at-least-32-chars!",
         redis_url="redis://localhost:6379",  # Optional — omit for in-memory
+        cors={"allow_origins": ["https://myapp.com"], "allow_methods": ["GET", "POST"]},
+        ip_access={"enabled": True, "mode": "block", "blocklist": ["10.0.0.0/8"]},
         rate_limit={"window_seconds": 60, "max_requests": 100},
         honeypot={"paths": ["/admin/config", "/wp-admin", "/.env"]},
+        brute_force={"enabled": True, "max_attempts": 5},
+        csrf={"enabled": True},
         secure_headers={"enabled": True},
         sanitize={"enabled": True},
         audit={"encrypt": True, "log_file": "audit.log"},
+        telemetry={"enabled": True, "service_name": "my-api"},
+        metrics={"enabled": True},
     ),
 )
+```
+
+### CORS Policy
+
+```python
+# Fail-closed by default — explicitly allow origins
+config = AraxysConfig(
+    secret_key="...",
+    cors={"allow_origins": ["https://app.example.com"], "allow_methods": ["GET", "POST", "PUT"]},
+)
+# CORS middleware is always registered. Empty allow_origins = deny all.
+```
+
+### IP Access Control
+
+```python
+# Allow mode — only listed IPs get through
+config = AraxysConfig(
+    secret_key="...",
+    ip_access={"enabled": True, "mode": "allow", "allowlist": ["10.0.1.0/24", "192.168.1.100"]},
+)
+```
+
+### CSRF Protection
+
+```python
+from fastapi import Depends
+from araxys import csrf_protected, CSRFConfig
+
+# Per-route opt-in — only state-changing endpoints
+@app.post("/submit", dependencies=[Depends(csrf_protected(CSRFConfig()))])
+async def submit_form():
+    return {"status": "ok"}
+```
+
+### Brute Force + Password Policy
+
+```python
+from fastapi import Depends
+from araxys import password_policy_dependency, PasswordPolicyConfig
+
+@app.post("/auth/register")
+async def register(
+    password: str = Depends(password_policy_dependency(PasswordPolicyConfig())),
+):
+    # Password already validated — min 8 chars, upper, lower, digit, special
+    return {"status": "registered"}
 ```
 
 ### API Key Authentication
@@ -196,7 +272,31 @@ src/araxys/
 ├── core/               # Config, exceptions, shared types
 │   ├── config.py       # Pydantic Settings (env var support)
 │   ├── exceptions.py   # Custom exception hierarchy
-│   └── types.py        # Scope, AuditEntry, SecurityContext
+│   └── types.py        # Scope, AuditEntry, SecurityEvent, SecurityEventType
+├── cors/               # 🚦 CORS policy manager
+│   └── middleware.py   # Per-origin, fail-closed, preflight
+├── ip_access/          # 🛑 IP access control
+│   ├── backends.py     # Protocol + InMemory + Redis
+│   └── middleware.py   # Allow/block/hybrid modes, CIDR
+├── csrf/               # 🍪 CSRF protection
+│   ├── tokens.py       # Double-submit cookie, constant-time
+│   └── dependencies.py # Per-route FastAPI dependency
+├── brute_force/        # 🔒 Brute force + password policy
+│   ├── backends.py     # InMemory + Redis attempt tracking
+│   ├── limiter.py      # Lockout middleware
+│   └── password_policy.py  # Complexity rules + HIBP
+├── sessions/           # 👥 Session management
+│   ├── storage.py      # Protocol + InMemory + Redis
+│   └── manager.py      # Max concurrent, revocation, cleanup
+├── telemetry/          # 📡 OpenTelemetry integration
+│   ├── tracer.py       # Graceful no-op fallback, span CM
+│   └── middleware.py   # Auto-spanning HTTP middleware
+├── webhooks/           # 📨 Security event webhooks
+│   ├── emitter.py      # SecurityEventBus (async pub/sub)
+│   └── delivery.py     # httpx POST + retry (1s/2s/4s)
+├── metrics/            # 📊 Prometheus metrics
+│   ├── collector.py    # 9 counters + histogram registry
+│   └── endpoint.py     # /metrics scrape endpoint
 ├── rate_limit/         # 🚦 Dynamic rate limiting
 │   ├── backends.py     # Protocol + InMemory + Redis
 │   ├── limiter.py      # Sliding window + escalation
@@ -215,7 +315,7 @@ src/araxys/
 │   ├── storage.py      # JTI blacklisting
 │   └── dependencies.py # FastAPI dependencies
 ├── headers/            # 🛡️ Security headers
-│   └── middleware.py   # HSTS, CSP, X-Frame-Options
+│   └── middleware.py   # HSTS, CSP, COOP, CORP
 ├── sanitize/           # 🧹 Input sanitization
 │   ├── patterns.py     # SQLi + XSS regex patterns
 │   ├── filters.py      # Detection + stripping
@@ -224,12 +324,74 @@ src/araxys/
 │   ├── encryption.py   # AES-256-GCM + PBKDF2
 │   ├── logger.py       # Structured logger
 │   └── events.py       # Event types
-└── shield.py           # ⚡ Main orchestrator
+└── shield.py           # ⚡ Main orchestrator + shutdown()
+```
+
+### Middleware Chain (outer → inner)
+
+```
+CORS → SecureHeaders → Telemetry → RateLimit → BruteForce → IP Access → Honeypot → Sanitize
 ```
 
 ---
 
 ## 🔐 Security Features in Detail
+
+### CORS Policy Manager (v0.3)
+
+- **Per-origin allowlist** with exact match and wildcard `*` support
+- **Fail-closed default**: empty allowlist denies all cross-origin requests
+- **Preflight handling**: automatic OPTIONS 200 with correct headers
+- Full header injection: `Access-Control-Allow-Origin`, `Allow-Methods`, `Allow-Headers`, `Allow-Credentials`, `Expose-Headers`, `Max-Age`
+
+### IP Access Control (v0.3)
+
+- Three modes: **allow** (default-deny), **block** (default-allow), **hybrid**
+- **CIDR support** for IPv4 and IPv6
+- **X-Forwarded-For** fallback for proxied requests
+- Pluggable backends (InMemory + Redis)
+
+### CSRF Protection (v0.3)
+
+- **Double-submit cookie** pattern
+- **Constant-time comparison** via `secrets.compare_digest`
+- **Per-route opt-in** as a FastAPI dependency — no global middleware overhead
+- Configurable token expiry and cookie security
+
+### Brute Force Protection (v0.3)
+
+- **Account lockout** after N failed attempts (423 Locked response)
+- **Auto-reset** on successful login
+- **Password policy** with 6 configurable rules (length, upper, lower, digit, special)
+- **HIBP integration** via k-anonymity model (opt-in)
+
+### Session Management (v0.3)
+
+- **Max concurrent sessions** per user with auto-revoke of oldest
+- **Session listing** and per-session revocation
+- Background cleanup loop for expired sessions
+- `SecurityEvent` emission on create/revoke
+
+### OpenTelemetry (v0.3)
+
+- **Opt-in** — zero overhead when disabled or OTEL SDK absent
+- Graceful **no-op fallback** when `opentelemetry` package not installed
+- `araxys_span()` async context manager for custom spans
+- Auto-spanning HTTP middleware
+
+### Security Event Webhooks (v0.3)
+
+- **Unified event bus** with 12 event types
+- **Per-event-type webhook URLs** with retry (exponential backoff: 1s/2s/4s)
+- **Fire-and-forget** delivery — never blocks the request
+- Internally consumed by Prometheus metrics
+
+### Prometheus Metrics (v0.3)
+
+- **9 counters**: rate_limit_exceeded, honeypot_triggered, sanitize_blocked, jwt_rotated, csrf_failed, brute_force_lockout, ip_blocked, session_revoked, security_events
+- **1 histogram**: middleware_duration_seconds
+- Standard `/metrics` endpoint (configurable path)
+- Opt-in, no-op when `prometheus-client` not installed
 
 ### Rate Limiting
 
@@ -270,8 +432,11 @@ src/araxys/
 | `X-Frame-Options` | `DENY` |
 | `X-XSS-Protection` | `0` (disabled — modern best practice) |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
-| `Content-Security-Policy` | Configurable |
+| `Cross-Origin-Opener-Policy` | `same-origin` (v0.3) |
+| `Cross-Origin-Resource-Policy` | `same-origin` (v0.3) |
+| `Content-Security-Policy` | Configurable (CSP builder in v0.3) |
 | `Permissions-Policy` | Configurable |
+| `Server` | Hidden by default (v0.3) |
 
 ### Payload Sanitization
 
@@ -297,15 +462,20 @@ All settings support **environment variables** with the `ARAXYS_` prefix:
 ```bash
 export ARAXYS_SECRET_KEY="your-production-secret-key-here!"
 export ARAXYS_REDIS_URL="redis://localhost:6379"
+export ARAXYS_CORS__ALLOW_ORIGINS='["https://myapp.com"]'
+export ARAXYS_IP_ACCESS__ENABLED="true"
+export ARAXYS_METRICS__ENABLED="true"
 ```
 
 Or configure programmatically:
 
 ```python
-from araxys import AraxysConfig, RateLimitConfig, HoneypotConfig
+from araxys import AraxysConfig, RateLimitConfig, HoneypotConfig, CORSConfig
 
 config = AraxysConfig(
     secret_key="...",
+    cors=CORSConfig(allow_origins=["https://app.example.com"]),
+    ip_access={"enabled": True, "mode": "hybrid"},
     rate_limit=RateLimitConfig(
         max_requests=200,
         window_seconds=120,
@@ -317,6 +487,10 @@ config = AraxysConfig(
         paths=["/admin", "/wp-login.php", "/.git/config"],
         ban_duration_seconds=7200,
     ),
+    brute_force={"enabled": True, "max_attempts": 5},
+    csrf={"enabled": True},
+    telemetry={"enabled": True, "service_name": "my-api"},
+    metrics={"enabled": True},
     jwt={"access_token_ttl_minutes": 15, "refresh_token_ttl_days": 30},
     audit={"encrypt": True, "log_file": "/var/log/araxys/audit.log"},
 )
@@ -334,7 +508,7 @@ uv run pytest tests/ -v
 uv run pytest tests/ --cov=araxys --cov-report=term-missing
 ```
 
-**71 tests** covering all 7 modules — rate limiting, honeypots, API keys, JWT, headers, sanitization, and audit logging.
+**312 tests** covering all 15 modules — CORS, IP access, CSRF, brute force, sessions, telemetry, webhooks, metrics, rate limiting, honeypots, API keys, JWT, headers, sanitization, and audit logging.
 
 ---
 
@@ -347,7 +521,9 @@ uv run pytest tests/ --cov=araxys --cov-report=term-missing
 | **API Key Storage** | Implement `APIKeyStorage` protocol with your database |
 | **Audit Logs** | Enable encryption + write to a dedicated log file |
 | **Rate Limits** | Tune `max_requests` and `ban_threshold` per endpoint |
-| **HTTPS** | Always deploy behind TLS — HSTS headers expect it |
+| **CORS** | Explicitly list allowed origins — never use `*` in production |
+| **Observability** | Enable OTEL + Prometheus for production monitoring |
+| **HTTPS** | Always deploy behind TLS — HSTS and secure cookies expect it |
 
 ---
 
@@ -359,6 +535,8 @@ uv run pytest tests/ --cov=araxys --cov-report=term-missing
   <img src="https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic">
   <img src="https://img.shields.io/badge/JWT-000000?style=for-the-badge&logo=jsonwebtokens&logoColor=white" alt="JWT">
   <img src="https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white" alt="Redis">
+  <img src="https://img.shields.io/badge/OpenTelemetry-8B5CF6?style=for-the-badge&logo=opentelemetry&logoColor=white" alt="OTEL">
+  <img src="https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/structlog-4B8BBE?style=for-the-badge&logo=python&logoColor=white" alt="structlog">
   <img src="https://img.shields.io/badge/cryptography-AES256-DC143C?style=for-the-badge" alt="cryptography">
   <img src="https://img.shields.io/badge/pytest-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white" alt="pytest">

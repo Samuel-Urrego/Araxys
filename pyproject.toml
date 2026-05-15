@@ -1,7 +1,7 @@
 [project]
 name = "araxys"
-version = "0.2.1"
-description = "Plug & play security library for FastAPI — rate limiting, honeypots, JWT, API keys, and more."
+version = "0.3.0"
+description = "Plug & play security library for FastAPI — CORS, CSRF, IP blocking, rate limiting, honeypots, JWT, API keys, brute force, sessions, OTEL, Prometheus metrics, encrypted audit logging, and more."
 readme = "README.md"
 authors = [
     { name = "Samuel Esteban Urrego Valencia", email = "urregodev@gmail.com" },
