@@ -1,10 +1,12 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from fakeredis.aioredis import FakeRedis
 
-from araxys.api_keys.storage import RedisAPIKeyStorage
 from araxys.api_keys.models import APIKeyRecord
+from araxys.api_keys.storage import RedisAPIKeyStorage
 from araxys.core.types import Scope
-from datetime import datetime, UTC, timedelta
+
 
 @pytest.fixture
 async def redis_storage():

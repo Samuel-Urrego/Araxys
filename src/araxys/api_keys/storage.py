@@ -86,7 +86,6 @@ class RedisAPIKeyStorage:
         return f"{self._prefix}{prefix}"
 
     async def store(self, record: APIKeyRecord) -> None:
-        from araxys.api_keys.models import APIKeyRecord # Avoid circular import
 
         key = self._get_key(record.prefix)
         await self._redis.set(key, record.model_dump_json())

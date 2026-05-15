@@ -1,8 +1,9 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from typer.testing import CliRunner
+
 from araxys.cli import app
-from unittest.mock import MagicMock, patch, AsyncMock
-from araxys.api_keys.models import APIKeyResponse
 from araxys.core.types import Scope
 
 runner = CliRunner()

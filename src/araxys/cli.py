@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -43,13 +42,13 @@ def get_manager() -> APIKeyManager:
 @keys_app.command("create")
 def create_key(
     owner: str = typer.Option(..., "--owner", "-o", help="Owner identifier"),
-    scopes: Optional[str] = typer.Option(
+    scopes: str | None = typer.Option(
         None, "--scopes", "-s", help="Comma-separated scopes (e.g. read,write)"
     ),
-    ttl: Optional[int] = typer.Option(
+    ttl: int | None = typer.Option(
         None, "--ttl", "-t", help="Days until expiration"
     ),
-    label: Optional[str] = typer.Option(None, "--label", "-l", help="Optional label"),
+    label: str | None = typer.Option(None, "--label", "-l", help="Optional label"),
 ):
     """Create a new API key securely."""
     manager = get_manager()
@@ -79,14 +78,14 @@ def create_key(
         )
     )
     console.print(
-        "[bold yellow]⚠️  IMPORTANT:[/bold yellow] This key is [italic]never[/italic] stored in plain text. "
-        "Copy it now; you won't see it again!"
+        "[bold yellow]⚠️  IMPORTANT:[/bold yellow] This key is [italic]never[/italic] "
+        "stored in plain text. Copy it now; you won't see it again!"
     )
 
 
 @keys_app.command("list")
 def list_keys(
-    owner: Optional[str] = typer.Option(None, "--owner", "-o", help="Filter by owner"),
+    owner: str | None = typer.Option(None, "--owner", "-o", help="Filter by owner"),
 ):
     """List all active API keys."""
     manager = get_manager()
