@@ -85,3 +85,51 @@ class EncryptionError(AraxysError):
     def __init__(self, operation: str = "encryption") -> None:
         self.operation = operation
         super().__init__(f"Audit log {operation} failed")
+
+
+class CSRFValidationError(AraxysError):
+    """Raised when CSRF token validation fails."""
+
+    def __init__(self, reason: str = "CSRF validation failed") -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
+class BruteForceLockedError(AraxysError):
+    """Raised when a client is locked out due to too many failed attempts."""
+
+    def __init__(
+        self,
+        identifier: str,
+        retry_after: int,
+        *,
+        message: str | None = None,
+    ) -> None:
+        self.identifier = identifier
+        self.retry_after = retry_after
+        super().__init__(
+            message
+            or f"Account locked for {identifier}. Retry after {retry_after}s."
+        )
+
+
+class PasswordValidationError(AraxysError):
+    """Raised when a password fails validation rules."""
+
+    def __init__(self, failures: list[str]) -> None:
+        self.failures = failures
+        joined = "; ".join(failures) if failures else "Password validation failed"
+        super().__init__(f"Password validation failed: {joined}")
+
+
+class IPBlockedError(AraxysError):
+    """Raised when a request is blocked by IP Access Control."""
+
+    def __init__(
+        self,
+        ip_address: str,
+        *,
+        message: str | None = None,
+    ) -> None:
+        self.ip_address = ip_address
+        super().__init__(message or f"IP blocked: {ip_address}")

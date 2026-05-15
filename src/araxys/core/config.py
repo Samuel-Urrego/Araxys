@@ -140,6 +140,180 @@ class AuditConfig(BaseModel):
     )
 
 
+class CORSConfig(BaseModel):
+    """Configuration for CORS policy management."""
+
+    allow_origins: list[str] = Field(
+        default_factory=list,
+        description="Allowed origins (empty = deny all = fail-closed)",
+    )
+    allow_methods: list[str] = Field(
+        default_factory=lambda: ["GET"],
+        description="Allowed HTTP methods",
+    )
+    allow_headers: list[str] = Field(
+        default_factory=lambda: ["*"],
+        description="Allowed request headers",
+    )
+    allow_credentials: bool = Field(
+        default=False,
+        description="Include Access-Control-Allow-Credentials",
+    )
+    expose_headers: list[str] = Field(
+        default_factory=list,
+        description="Headers exposed to the client",
+    )
+    max_age: int = Field(
+        default=600,
+        ge=0,
+        description="Preflight cache duration in seconds",
+    )
+
+
+class IPControlConfig(BaseModel):
+    """Configuration for IP Access Control."""
+
+    enabled: bool = False
+    mode: str = Field(
+        default="block",
+        description="Access mode: allow (default-deny), block (default-allow), hybrid",
+    )
+    allowlist: list[str] = Field(
+        default_factory=list,
+        description="IPs/CIDRs always allowed",
+    )
+    blocklist: list[str] = Field(
+        default_factory=list,
+        description="IPs/CIDRs always blocked",
+    )
+    redis_url: str | None = Field(
+        default=None,
+        description="Redis URL for dynamic rule storage (None = in-memory)",
+    )
+
+
+class BruteForceConfig(BaseModel):
+    """Configuration for brute force protection."""
+
+    enabled: bool = False
+    max_attempts: int = Field(
+        default=5,
+        ge=1,
+        description="Consecutive failures before lockout",
+    )
+    lockout_duration_seconds: int = Field(
+        default=900,
+        ge=1,
+        description="Lockout duration in seconds (default 15 min)",
+    )
+    identifier_field: str = Field(
+        default="username",
+        description="Request field used as lockout identifier",
+    )
+    check_hibp: bool = Field(
+        default=False,
+        description="Check password against HaveIBeenPwned API",
+    )
+
+
+class CSRFConfig(BaseModel):
+    """Configuration for CSRF double-submit cookie protection."""
+
+    enabled: bool = False
+    token_expiry_seconds: int = Field(
+        default=3600,
+        ge=1,
+        description="CSRF token time-to-live in seconds (default 1 hour)",
+    )
+    cookie_name: str = Field(
+        default="csrf_token",
+        description="Name of the CSRF cookie",
+    )
+    header_name: str = Field(
+        default="X-CSRF-Token",
+        description="Name of the CSRF header",
+    )
+    secure_cookie: bool = Field(
+        default=True,
+        description="Set Secure flag on CSRF cookie",
+    )
+
+
+class SessionConfig(BaseModel):
+    """Configuration for session management."""
+
+    enabled: bool = False
+    max_concurrent_per_user: int = Field(
+        default=5,
+        ge=1,
+        description="Maximum concurrent sessions per user",
+    )
+    cleanup_interval_seconds: int = Field(
+        default=60,
+        ge=1,
+        description="Interval between expired session cleanup runs",
+    )
+    redis_url: str | None = Field(
+        default=None,
+        description="Redis URL for session storage (None = in-memory)",
+    )
+
+
+class WebhookConfig(BaseModel):
+    """Configuration for security event webhook delivery."""
+
+    enabled: bool = False
+    urls: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Map of event_type -> list of webhook URLs",
+    )
+    retry_max: int = Field(
+        default=3,
+        ge=0,
+        description="Maximum retry attempts on delivery failure",
+    )
+    timeout_seconds: int = Field(
+        default=5,
+        ge=1,
+        description="HTTP request timeout in seconds",
+    )
+    queue_size: int = Field(
+        default=1000,
+        ge=1,
+        description="Maximum pending events in the async queue",
+    )
+
+
+class MetricsConfig(BaseModel):
+    """Configuration for Prometheus metrics export."""
+
+    enabled: bool = False
+    path: str = Field(
+        default="/metrics",
+        description="Path for the Prometheus metrics endpoint",
+    )
+
+
+class TelemetryConfig(BaseModel):
+    """Configuration for OpenTelemetry distributed tracing."""
+
+    enabled: bool = False
+    service_name: str = Field(
+        default="araxys",
+        description="Service name reported to OTLP exporter",
+    )
+    exporter_endpoint: str | None = Field(
+        default=None,
+        description="OTLP gRPC/HTTP exporter endpoint",
+    )
+    sample_rate: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Trace sample rate (0.0 = never, 1.0 = always)",
+    )
+
+
 class AraxysConfig(BaseSettings):
     """Master configuration for the Araxys security shield.
 
@@ -165,3 +339,12 @@ class AraxysConfig(BaseSettings):
     secure_headers: SecureHeadersConfig = Field(default_factory=SecureHeadersConfig)
     sanitize: SanitizeConfig = Field(default_factory=SanitizeConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
+    # v0.3 modules — optional, enabled via sub-config
+    cors: CORSConfig = Field(default_factory=CORSConfig)
+    ip_control: IPControlConfig | None = Field(default=None)
+    brute_force: BruteForceConfig | None = Field(default=None)
+    csrf: CSRFConfig | None = Field(default=None)
+    session: SessionConfig | None = Field(default=None)
+    webhooks: WebhookConfig | None = Field(default=None)
+    metrics: MetricsConfig | None = Field(default=None)
+    telemetry: TelemetryConfig | None = Field(default=None)

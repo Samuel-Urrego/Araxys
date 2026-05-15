@@ -35,6 +35,41 @@ class AuditEventType(StrEnum):
     IP_UNBANNED = "ip_unbanned"
 
 
+class SecurityEventType(StrEnum):
+    """Types of security events emitted by Araxys modules.
+
+    Shared across all v0.3 modules for webhooks, metrics, and audit.
+    """
+
+    RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
+    HONEYPOT_TRIGGERED = "honeypot_triggered"
+    IP_BLOCKED = "ip_blocked"
+    IP_ALLOWED = "ip_allowed"
+    CSRF_VALIDATION_FAILED = "csrf_validation_failed"
+    BRUTE_FORCE_LOCKOUT = "brute_force_lockout"
+    PASSWORD_VALIDATION_FAILED = "password_validation_failed"
+    SESSION_CREATED = "session_created"
+    SESSION_REVOKED = "session_revoked"
+    TOKEN_ROTATED = "token_rotated"
+    SANITIZE_BLOCKED = "sanitize_blocked"
+    AUDIT_TAMPER_DETECTED = "audit_tamper_detected"
+
+
+@dataclass(frozen=True, slots=True)
+class SecurityEvent:
+    """Immutable security event emitted by Araxys modules.
+
+    Consumed by the event bus for webhook delivery and metrics.
+    """
+
+    event_type: SecurityEventType
+    severity: str  # "info" | "warning" | "critical"
+    message: str
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    source_ip: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass(frozen=True, slots=True)
 class AuditEntry:
     """Immutable record of a security event."""
