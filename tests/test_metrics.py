@@ -34,12 +34,13 @@ def mock_prometheus() -> Any:
                 name: str,
                 desc: str,
                 labelnames: tuple[str, ...] | None = None,
+                **kwargs: object,
             ) -> None:
                 self.name = name
                 self.desc = desc
                 self.labelnames = labelnames or ()
                 self._label_calls: list[dict[str, str]] = []
-                self._inc_calls: list[int] = []
+                self._inc_calls: list[float] = []
 
             def labels(self, **labels: str) -> FakeCounter:
                 self._label_calls.append(labels)
@@ -54,6 +55,7 @@ def mock_prometheus() -> Any:
                 name: str,
                 desc: str,
                 labelnames: tuple[str, ...] | None = None,
+                **kwargs: object,
             ) -> None:
                 self.name = name
                 self.desc = desc

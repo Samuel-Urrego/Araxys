@@ -5,7 +5,7 @@ Tests follow strict TDD: written before implementation.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from fastapi import FastAPI
@@ -14,7 +14,7 @@ from httpx import ASGITransport, AsyncClient
 from araxys.core.types import SecurityEventType
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Generator
 
     from araxys.core.config import IPControlConfig
     from araxys.ip_access.backends import IPAccessBackend
@@ -114,8 +114,8 @@ class TestRedisIPAccessBackend:
         redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
         b = RedisIPAccessBackend(redis)
         # Seed some rules
-        await redis.sadd("araxys:ip_access:allowlist", "192.168.1.0/24", "10.0.0.1")
-        await redis.sadd("araxys:ip_access:blocklist", "10.0.0.0/8")
+        await redis.sadd("araxys:ip_access:allowlist", "192.168.1.0/24", "10.0.0.1")  # type: ignore[misc]
+        await redis.sadd("araxys:ip_access:blocklist", "10.0.0.0/8")  # type: ignore[misc]
         yield b
         await redis.flushall()
         await redis.aclose()
@@ -220,14 +220,14 @@ def _make_app(
 
 
 @pytest.fixture
-def recorded_events() -> list:
+def recorded_events() -> list[Any]:
     """Capture security events for assertion."""
-    captured: list = []
+    captured: list[Any] = []
     return captured
 
 
 @pytest.fixture
-def event_bus(recorded_events: list) -> None:
+def event_bus(recorded_events: list[Any]) -> Generator[None]:
     """Attach a recording subscriber to the global SecurityEventBus."""
     from araxys.webhooks.emitter import SecurityEventBus
 
@@ -246,7 +246,9 @@ def event_bus(recorded_events: list) -> None:
 
     yield
 
-    bus.stop()
+    import asyncio
+
+    asyncio.run(bus.stop())
     mw_mod._event_bus = None  # noqa: SLF001
 
 
@@ -409,14 +411,14 @@ class TestIPAccessMiddlewareXForwardedFor:
 class TestIPAccessSecurityEvents:
     """Tests for IP_BLOCKED and IP_ALLOWED security events."""
 
-    async def test_blocked_event_emitted(self, recorded_events: list) -> None:
+    async def test_blocked_event_emitted(self, recorded_events: list[Any]) -> None:
         """When IP is blocked, IP_BLOCKED event should be emitted."""
         app = _make_app(config=_make_config(mode="block", blocklist=["10.0.0.0/8"]))
         # Inject a simple bus that records events
         from araxys.webhooks.emitter import SecurityEventBus
 
         bus = SecurityEventBus(queue_size=100)
-        recorded: list = []
+        recorded: list[Any] = []
         async def record(event):  # type: ignore[no-untyped-def]
             recorded.append(event)
         bus.subscribe(record)

@@ -61,7 +61,7 @@ class TestInMemorySessionBackend:
     """Tests for InMemorySessionBackend."""
 
     @pytest.fixture
-    async def backend(self) -> AsyncGenerator:
+    async def backend(self) -> AsyncGenerator[SessionBackend]:
         from araxys.sessions.storage import InMemorySessionBackend
 
         yield InMemorySessionBackend()
@@ -195,7 +195,7 @@ class TestSessionManager:
         return SessionConfig(max_concurrent_per_user=2, cleanup_interval_seconds=300)
 
     @pytest.fixture
-    async def backend(self) -> AsyncGenerator:
+    async def backend(self) -> AsyncGenerator[SessionBackend]:
         from araxys.sessions.storage import InMemorySessionBackend
 
         yield InMemorySessionBackend()
@@ -229,7 +229,7 @@ class TestSessionManager:
         event_bus.emit.assert_awaited_once()
         call_call = event_bus.emit.await_args
         assert call_call is not None
-        call_args, call_kwds = call_call  # type: ignore[misc]
+        call_args, call_kwds = call_call
         event = call_args[0]
         assert event.event_type.value == "session_created"
         assert event.metadata.get("user_id") == "user_1"
@@ -276,7 +276,7 @@ class TestSessionManager:
         event_bus.emit.assert_awaited_once()
         call_call = event_bus.emit.await_args
         assert call_call is not None
-        call_args, call_kwds = call_call  # type: ignore[misc]
+        call_args, call_kwds = call_call
         event = call_args[0]
         assert event.event_type.value == "session_revoked"
 

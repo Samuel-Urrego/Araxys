@@ -27,7 +27,7 @@ def _get_prometheus_client() -> Any:
     Returns the module if available, or ``None`` if not installed.
     """
     try:
-        import prometheus_client  # type: ignore[import-not-found]
+        import prometheus_client
 
         return prometheus_client
     except ImportError:
@@ -138,8 +138,10 @@ class MetricsRegistry:
         self._config = config
         self._counters: dict[str, Any] = {}
         self._histograms: dict[str, Any] = {}
+        self._registry: Any = None
 
         if self._enabled:
+            self._registry = _prometheus.CollectorRegistry()
             self._init_counters()
             self._init_histograms()
 
@@ -152,43 +154,52 @@ class MetricsRegistry:
             "araxys_rate_limit_exceeded_total",
             "Total number of rate limit exceeded events",
             ["endpoint"],
+            registry=self._registry,
         )
         self._counters["honeypot_triggered"] = _prometheus.Counter(
             "araxys_honeypot_triggered_total",
             "Total number of honeypot triggered events",
             ["path"],
+            registry=self._registry,
         )
         self._counters["sanitize_blocked"] = _prometheus.Counter(
             "araxys_sanitize_blocked_total",
             "Total number of sanitize blocked events",
             ["attack_type"],
+            registry=self._registry,
         )
         self._counters["jwt_token_rotated"] = _prometheus.Counter(
             "araxys_jwt_token_rotated_total",
             "Total number of JWT token rotations",
+            registry=self._registry,
         )
         self._counters["csrf_validation_failed"] = _prometheus.Counter(
             "araxys_csrf_validation_failed_total",
             "Total number of CSRF validation failures",
+            registry=self._registry,
         )
         self._counters["brute_force_lockout"] = _prometheus.Counter(
             "araxys_brute_force_lockout_total",
             "Total number of brute force lockouts",
             ["identifier"],
+            registry=self._registry,
         )
         self._counters["ip_blocked"] = _prometheus.Counter(
             "araxys_ip_blocked_total",
             "Total number of IP blocks",
             ["mode"],
+            registry=self._registry,
         )
         self._counters["session_revoked"] = _prometheus.Counter(
             "araxys_session_revoked_total",
             "Total number of session revocations",
+            registry=self._registry,
         )
         self._counters["security_events"] = _prometheus.Counter(
             "araxys_security_events_total",
             "Total number of security events by type",
             ["event_type"],
+            registry=self._registry,
         )
 
     def _init_histograms(self) -> None:
@@ -200,6 +211,7 @@ class MetricsRegistry:
             "araxys_middleware_duration_seconds",
             "Duration of middleware processing in seconds",
             ["middleware_name"],
+            registry=self._registry,
         )
 
     # ── Counter Record Methods ───────────────────────────────────────────

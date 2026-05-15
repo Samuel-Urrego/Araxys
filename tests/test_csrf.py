@@ -94,7 +94,7 @@ class _CSRFTestApp:
         app = FastAPI()
 
         @app.post("/protected")
-        async def protected_route(  # type: ignore[misc]
+        async def protected_route(
             _: None = Depends(csrf_protected(cfg)),
         ) -> dict[str, str]:
             return {"message": "OK"}

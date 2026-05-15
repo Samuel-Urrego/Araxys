@@ -34,9 +34,11 @@ class TestSecurityEventType:
         assert values == expected
 
     def test_is_str_enum(self) -> None:
-        assert SecurityEventType.RATE_LIMIT_EXCEEDED == "rate_limit_exceeded"
-        assert SecurityEventType.IP_BLOCKED == "ip_blocked"
-        assert SecurityEventType.CSRF_VALIDATION_FAILED == "csrf_validation_failed"
+        assert SecurityEventType.RATE_LIMIT_EXCEEDED.value == "rate_limit_exceeded"
+        assert SecurityEventType.IP_BLOCKED.value == "ip_blocked"
+        assert (
+            SecurityEventType.CSRF_VALIDATION_FAILED.value == "csrf_validation_failed"
+        )
 
 
 class TestSecurityEvent:

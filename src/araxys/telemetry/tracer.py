@@ -25,7 +25,7 @@ def _get_otel_trace() -> Any:
     Returns the module if available, or None if not installed.
     """
     try:
-        import opentelemetry.trace  # type: ignore[import-not-found]
+        import opentelemetry.trace
 
         return opentelemetry.trace
     except ImportError:

@@ -5,7 +5,7 @@ Tests follow strict TDD: written before implementation.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from fastapi import FastAPI
@@ -149,7 +149,7 @@ class _BruteForceTestApp:
         app = FastAPI()
 
         @app.post("/login", response_model=None)
-        async def login(_request: Request):
+        async def login(_request: Request) -> JSONResponse | dict[str, str]:
             body = await _request.json()
             if body.get("password") == "correct":
                 return {"message": "OK"}
@@ -283,7 +283,7 @@ class TestBruteForceMiddleware:
 class TestPasswordPolicy:
     """Tests for PasswordPolicy validation."""
 
-    def _make_policy(self, **kwargs: object):
+    def _make_policy(self, **kwargs: object) -> Any:
         from araxys.brute_force.password_policy import PasswordPolicyConfig
 
         config = PasswordPolicyConfig(**kwargs)  # type: ignore[arg-type]

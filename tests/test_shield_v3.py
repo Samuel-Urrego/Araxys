@@ -16,6 +16,7 @@ Tests cover:
 
 from __future__ import annotations
 
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -176,7 +177,7 @@ class TestMiddlewareRegistration:
         AraxysShield(app, full_config)
 
         middleware_classes = [m.cls for m in app.user_middleware]
-        cors_names = [cls.__name__ for cls in middleware_classes]
+        cors_names = [cast("Any", cls).__name__ for cls in middleware_classes]
         assert "CORSMiddleware" in cors_names
 
     async def test_telemetry_middleware_registered(self, full_config: AraxysConfig) -> None:  # noqa: E501
@@ -187,7 +188,7 @@ class TestMiddlewareRegistration:
         AraxysShield(app, full_config)
 
         middleware_classes = [m.cls for m in app.user_middleware]
-        names = [cls.__name__ for cls in middleware_classes]
+        names = [cast("Any", cls).__name__ for cls in middleware_classes]
         assert "TelemetryMiddleware" in names
 
     async def test_brute_force_middleware_registered(self, full_config: AraxysConfig) -> None:  # noqa: E501
@@ -198,7 +199,7 @@ class TestMiddlewareRegistration:
         AraxysShield(app, full_config)
 
         middleware_classes = [m.cls for m in app.user_middleware]
-        names = [cls.__name__ for cls in middleware_classes]
+        names = [cast("Any", cls).__name__ for cls in middleware_classes]
         assert "BruteForceMiddleware" in names
 
     async def test_ip_access_middleware_registered(self, full_config: AraxysConfig) -> None:  # noqa: E501
@@ -209,7 +210,7 @@ class TestMiddlewareRegistration:
         AraxysShield(app, full_config)
 
         middleware_classes = [m.cls for m in app.user_middleware]
-        names = [cls.__name__ for cls in middleware_classes]
+        names = [cast("Any", cls).__name__ for cls in middleware_classes]
         assert "IPAccessMiddleware" in names
 
     async def test_existing_middlewares_still_present(self, full_config: AraxysConfig) -> None:  # noqa: E501
@@ -220,7 +221,7 @@ class TestMiddlewareRegistration:
         AraxysShield(app, full_config)
 
         middleware_classes = [m.cls for m in app.user_middleware]
-        names = [cls.__name__ for cls in middleware_classes]
+        names = [cast("Any", cls).__name__ for cls in middleware_classes]
         assert "SecureHeadersMiddleware" in names
         assert "RateLimitMiddleware" in names
         assert "HoneypotMiddleware" in names
@@ -234,7 +235,7 @@ class TestMiddlewareRegistration:
         AraxysShield(app, minimal_config)
 
         middleware_classes = [m.cls for m in app.user_middleware]
-        names = [cls.__name__ for cls in middleware_classes]
+        names = [cast("Any", cls).__name__ for cls in middleware_classes]
         assert "TelemetryMiddleware" not in names
 
     def test_brute_force_not_registered_when_disabled(self, minimal_config: AraxysConfig) -> None:  # noqa: E501
@@ -245,7 +246,7 @@ class TestMiddlewareRegistration:
         AraxysShield(app, minimal_config)
 
         middleware_classes = [m.cls for m in app.user_middleware]
-        names = [cls.__name__ for cls in middleware_classes]
+        names = [cast("Any", cls).__name__ for cls in middleware_classes]
         assert "BruteForceMiddleware" not in names
 
     def test_ip_access_not_registered_when_disabled(self, minimal_config: AraxysConfig) -> None:  # noqa: E501
@@ -256,7 +257,7 @@ class TestMiddlewareRegistration:
         AraxysShield(app, minimal_config)
 
         middleware_classes = [m.cls for m in app.user_middleware]
-        names = [cls.__name__ for cls in middleware_classes]
+        names = [cast("Any", cls).__name__ for cls in middleware_classes]
         assert "IPAccessMiddleware" not in names
 
     def test_cors_registered_by_default(self, minimal_config: AraxysConfig) -> None:  # noqa: E501
@@ -267,7 +268,7 @@ class TestMiddlewareRegistration:
         AraxysShield(app, minimal_config)
 
         middleware_classes = [m.cls for m in app.user_middleware]
-        names = [cls.__name__ for cls in middleware_classes]
+        names = [cast("Any", cls).__name__ for cls in middleware_classes]
         assert "CORSMiddleware" in names
 
 
