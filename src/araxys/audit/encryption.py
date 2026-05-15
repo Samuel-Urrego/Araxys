@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AES-256-GCM encryption for audit log entries.
 
 Uses PBKDF2-HMAC-SHA256 for key derivation from the master secret,
@@ -9,7 +11,6 @@ Each encrypted entry includes:
 - Ciphertext + 16-byte GCM authentication tag
 """
 
-from __future__ import annotations
 
 import base64
 import json
@@ -25,9 +26,9 @@ from araxys.core.exceptions import EncryptionError
 from araxys.core.types import AuditEntry
 
 # Constants
-SALT_LENGTH = 16   # bytes
+SALT_LENGTH = 16  # bytes
 NONCE_LENGTH = 12  # bytes — GCM standard
-KEY_LENGTH = 32    # bytes — AES-256
+KEY_LENGTH = 32  # bytes — AES-256
 KDF_ITERATIONS = 480_000  # OWASP 2023 recommendation for PBKDF2-SHA256
 
 
@@ -92,7 +93,7 @@ class AuditEncryption:
         except Exception as exc:
             raise EncryptionError("encryption") from exc
 
-    def decrypt_entry(self, encrypted: str) -> dict:
+    def decrypt_entry(self, encrypted: str) -> dict:  # type: ignore
         """Decrypt an audit entry.
 
         Parameters
@@ -120,7 +121,7 @@ class AuditEncryption:
             aesgcm = AESGCM(key)
             plaintext = aesgcm.decrypt(nonce, ciphertext, None)
 
-            return json.loads(plaintext)
+            return json.loads(plaintext)  # type: ignore
 
         except Exception as exc:
             raise EncryptionError("decryption") from exc

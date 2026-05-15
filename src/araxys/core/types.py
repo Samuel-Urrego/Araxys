@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Core types shared across all Araxys modules."""
 
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

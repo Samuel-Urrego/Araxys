@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Dynamic rate limiter with sliding window and automatic escalation.
 
 The limiter tracks requests per IP+endpoint and applies escalating
 bans when violations accumulate.
 """
 
-from __future__ import annotations
 
 import structlog
 

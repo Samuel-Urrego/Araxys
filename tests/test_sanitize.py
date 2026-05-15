@@ -13,102 +13,102 @@ from araxys.sanitize.filters import (
 
 
 class TestSQLiDetection:
-    def test_detects_union_select(self):
+    def test_detects_union_select(self) -> None:
         assert detect_sqli("1 UNION SELECT * FROM users") is not None
 
-    def test_detects_drop_table(self):
+    def test_detects_drop_table(self) -> None:
         assert detect_sqli("'; DROP TABLE users --") is not None
 
-    def test_detects_boolean_blind(self):
+    def test_detects_boolean_blind(self) -> None:
         assert detect_sqli("' OR 1=1 --") is not None
 
-    def test_detects_sleep_injection(self):
+    def test_detects_sleep_injection(self) -> None:
         assert detect_sqli("1; SLEEP(5)") is not None
 
-    def test_clean_input_passes(self):
+    def test_clean_input_passes(self) -> None:
         assert detect_sqli("Hello, my name is John") is None
 
-    def test_clean_email_passes(self):
+    def test_clean_email_passes(self) -> None:
         assert detect_sqli("user@example.com") is None
 
-    def test_clean_url_passes(self):
+    def test_clean_url_passes(self) -> None:
         assert detect_sqli("https://example.com/page?q=search") is None
 
 
 class TestXSSDetection:
-    def test_detects_script_tag(self):
+    def test_detects_script_tag(self) -> None:
         assert detect_xss("<script>alert('xss')</script>") is not None
 
-    def test_detects_javascript_uri(self):
+    def test_detects_javascript_uri(self) -> None:
         assert detect_xss("javascript:alert(1)") is not None
 
-    def test_detects_event_handler(self):
+    def test_detects_event_handler(self) -> None:
         assert detect_xss('<img onerror="alert(1)">') is not None
 
-    def test_detects_iframe(self):
+    def test_detects_iframe(self) -> None:
         assert detect_xss("<iframe src='evil.com'>") is not None
 
-    def test_clean_input_passes(self):
+    def test_clean_input_passes(self) -> None:
         assert detect_xss("Hello, world!") is None
 
-    def test_clean_html_entities_pass(self):
+    def test_clean_html_entities_pass(self) -> None:
         assert detect_xss("&lt;script&gt;") is None
 
 
 class TestStripXSS:
-    def test_strips_script_tags(self):
+    def test_strips_script_tags(self) -> None:
         result = strip_xss("<script>alert('xss')</script>hello")
         assert "<script>" not in result
         assert "hello" in result
 
-    def test_strips_all_tags(self):
+    def test_strips_all_tags(self) -> None:
         result = strip_xss("<b>bold</b> <i>italic</i>")
         assert result == "bold italic"
 
-    def test_preserves_plain_text(self):
+    def test_preserves_plain_text(self) -> None:
         result = strip_xss("just plain text")
         assert result == "just plain text"
 
 
 class TestSanitizeValue:
-    def test_blocks_sqli(self):
+    def test_blocks_sqli(self) -> None:
         with pytest.raises(SanitizationError, match="SQL Injection"):
             sanitize_value("1 UNION SELECT * FROM users")
 
-    def test_strips_xss(self):
+    def test_strips_xss(self) -> None:
         result = sanitize_value("<script>alert(1)</script>safe text")
         assert "<script>" not in result
         assert "safe text" in result
 
-    def test_clean_value_passes(self):
+    def test_clean_value_passes(self) -> None:
         result = sanitize_value("normal text")
         assert result == "normal text"
 
 
 class TestSanitizePayload:
-    def test_sanitizes_nested_dict(self):
+    def test_sanitizes_nested_dict(self) -> None:
         data = {
             "name": "John",
             "bio": "<script>alert(1)</script>Developer",
             "meta": {"description": "Safe content"},
         }
         result = sanitize_payload(data)
-        assert "<script>" not in result["bio"]
-        assert result["name"] == "John"
+        assert "<script>" not in result["bio"]  # type: ignore
+        assert result["name"] == "John"  # type: ignore
 
-    def test_sanitizes_list(self):
+    def test_sanitizes_list(self) -> None:
         data = ["safe", "<script>alert(1)</script>unsafe"]
         result = sanitize_payload(data)
-        assert "<script>" not in result[1]
+        assert "<script>" not in result[1]  # type: ignore
 
-    def test_blocks_sqli_in_nested(self):
+    def test_blocks_sqli_in_nested(self) -> None:
         data = {"query": {"filter": "1 UNION SELECT * FROM users"}}
         with pytest.raises(SanitizationError):
             sanitize_payload(data)
 
-    def test_max_depth_exceeded(self):
+    def test_max_depth_exceeded(self) -> None:
         # Create deeply nested structure
-        data: dict = {"a": None}
+        data: dict = {"a": None}  # type: ignore
         current = data
         for _ in range(15):
             current["a"] = {"a": None}
@@ -118,7 +118,7 @@ class TestSanitizePayload:
         with pytest.raises(SanitizationError, match="nesting depth"):
             sanitize_payload(data, max_depth=10)
 
-    def test_preserves_non_string_types(self):
+    def test_preserves_non_string_types(self) -> None:
         data = {"count": 42, "active": True, "ratio": 3.14, "nothing": None}
         result = sanitize_payload(data)
         assert result == data

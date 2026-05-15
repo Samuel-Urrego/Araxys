@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """API Key storage protocol and in-memory implementation.
 
 The user can implement the ``APIKeyStorage`` protocol with their own
 database backend (SQLAlchemy, MongoDB, etc.).
 """
 
-from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Protocol, runtime_checkable

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """FastAPI dependencies for API key authentication.
 
 Provides ``require_api_key()`` — a dependency factory that extracts
@@ -12,7 +14,6 @@ Usage::
         return {"owner": key.owner}
 """
 
-from __future__ import annotations
 
 from collections.abc import Callable
 
@@ -62,4 +63,4 @@ def require_api_key(
                 detail=exc.reason,
             ) from exc
 
-    return _dependency
+    return _dependency  # type: ignore

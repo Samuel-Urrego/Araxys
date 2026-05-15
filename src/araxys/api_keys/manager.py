@@ -1,10 +1,12 @@
+from __future__ import annotations
+import typing
+
 """API Key manager — creation, verification, and revocation.
 
 Keys are generated with ``secrets.token_urlsafe``, stored as SHA-256
 hashes, and looked up by their 8-character prefix.
 """
 
-from __future__ import annotations
 
 import hashlib
 import secrets
@@ -36,7 +38,7 @@ class APIKeyManager:
     def __init__(
         self,
         storage: APIKeyStorage,
-        on_audit: callable | None = None,
+        on_audit: typing.Callable | None = None,  # type: ignore
     ) -> None:
         self._storage = storage
         self._on_audit = on_audit

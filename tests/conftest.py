@@ -12,13 +12,13 @@ def config() -> AraxysConfig:
     """AraxysConfig with all modules enabled for testing."""
     return AraxysConfig(
         secret_key="test-secret-key-must-be-32-chars!!",
-        rate_limit={
+        rate_limit={  # type: ignore
             "max_requests": 5,
             "window_seconds": 60,
             "ban_threshold": 3,
             "ban_duration_seconds": 10,
         },
-        honeypot={"paths": ["/admin/config", "/.env"]},
+        honeypot={"paths": ["/admin/config", "/.env"]},  # type: ignore
     )
 
 
@@ -35,7 +35,7 @@ def shield(app: FastAPI, config: AraxysConfig) -> AraxysShield:
 
 
 @pytest.fixture
-async def client(app: FastAPI, shield: AraxysShield) -> AsyncClient:
+async def client(app: FastAPI, shield: AraxysShield) -> AsyncClient:  # type: ignore
     """Async HTTP client for testing."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:

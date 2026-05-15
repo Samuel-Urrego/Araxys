@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """ASGI middleware for automatic rate limiting.
 
 Intercepts every incoming request, checks the rate limit, and injects
@@ -5,7 +7,6 @@ Intercepts every incoming request, checks the rate limit, and injects
 when the limit is exceeded.
 """
 
-from __future__ import annotations
 
 from typing import Any
 

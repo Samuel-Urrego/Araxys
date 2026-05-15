@@ -1,10 +1,12 @@
+from __future__ import annotations
+import typing
+
 """Honeypot trap registration and handling.
 
 Registers fake routes on the FastAPI router. When a bot hits one of
 these routes, its IP is automatically banned across the entire system.
 """
 
-from __future__ import annotations
 
 import structlog
 from fastapi import FastAPI, Request
@@ -34,7 +36,7 @@ class HoneypotTrap:
         self,
         backend: RateLimitBackend,
         config: HoneypotConfig,
-        on_audit: callable | None = None,
+        on_audit: typing.Callable | None = None,  # type: ignore
     ) -> None:
         self._backend = backend
         self._config = config

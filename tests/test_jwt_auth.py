@@ -27,7 +27,7 @@ def jwt_manager(storage: InMemoryTokenStorage) -> JWTManager:
 
 
 class TestJWTManager:
-    async def test_create_token_pair(self, jwt_manager: JWTManager):
+    async def test_create_token_pair(self, jwt_manager: JWTManager) -> None:
         pair = await jwt_manager.create_token_pair(
             subject="user-123", scopes=[Scope.READ, Scope.WRITE]
         )
@@ -36,7 +36,7 @@ class TestJWTManager:
         assert pair.token_type == "bearer"
         assert pair.expires_in > 0
 
-    async def test_decode_access_token(self, jwt_manager: JWTManager):
+    async def test_decode_access_token(self, jwt_manager: JWTManager) -> None:
         pair = await jwt_manager.create_token_pair(
             subject="user-123", scopes=[Scope.READ]
         )
@@ -44,12 +44,12 @@ class TestJWTManager:
         assert payload.sub == "user-123"
         assert "read" in payload.scopes
 
-    async def test_decode_wrong_type_raises(self, jwt_manager: JWTManager):
+    async def test_decode_wrong_type_raises(self, jwt_manager: JWTManager) -> None:
         pair = await jwt_manager.create_token_pair(subject="user-123")
         with pytest.raises(TokenInvalid, match="Expected refresh"):
             jwt_manager.decode_token(pair.access_token, expected_type="refresh")
 
-    async def test_rotate_tokens(self, jwt_manager: JWTManager):
+    async def test_rotate_tokens(self, jwt_manager: JWTManager) -> None:
         pair = await jwt_manager.create_token_pair(
             subject="user-123", scopes=[Scope.READ]
         )
@@ -62,18 +62,18 @@ class TestJWTManager:
         with pytest.raises(TokenRevoked):
             await jwt_manager.rotate_tokens(pair.refresh_token)
 
-    async def test_revoke_refresh_token(self, jwt_manager: JWTManager):
+    async def test_revoke_refresh_token(self, jwt_manager: JWTManager) -> None:
         pair = await jwt_manager.create_token_pair(subject="user-123")
         await jwt_manager.revoke_refresh_token(pair.refresh_token)
 
         with pytest.raises(TokenRevoked):
             await jwt_manager.rotate_tokens(pair.refresh_token)
 
-    async def test_invalid_token_raises(self, jwt_manager: JWTManager):
+    async def test_invalid_token_raises(self, jwt_manager: JWTManager) -> None:
         with pytest.raises(TokenInvalid):
             jwt_manager.decode_token("not.a.valid.token")
 
-    async def test_token_with_wrong_secret(self, jwt_manager: JWTManager):
+    async def test_token_with_wrong_secret(self, jwt_manager: JWTManager) -> None:
         other_manager = JWTManager(
             config=JWTConfig(),
             secret_key="different-secret-key-32-chars!!!!",

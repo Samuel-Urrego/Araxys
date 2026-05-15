@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AraxysShield — the main entry point for Araxys security.
 
 Wires all security modules together and registers them on a
@@ -12,7 +14,6 @@ Usage::
     shield = AraxysShield(app, AraxysConfig(secret_key="your-32-char-secret-key-here!!!!"))
 """
 
-from __future__ import annotations
 
 import structlog
 from fastapi import FastAPI
@@ -133,7 +134,7 @@ class AraxysShield:
         logger.info("araxys.using_inmemory_backend")
         return InMemoryBackend()
 
-    def _create_token_storage(self, config: AraxysConfig):
+    def _create_token_storage(self, config: AraxysConfig):  # type: ignore
         """Create the token storage based on config."""
         if config.redis_url:
             from araxys.jwt_auth.storage import RedisTokenStorage

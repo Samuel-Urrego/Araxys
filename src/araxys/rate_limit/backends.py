@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Rate limit backend protocol and implementations.
 
 Backends track request counts per key and manage temporary bans.
@@ -5,7 +7,6 @@ The ``InMemoryBackend`` is the default; ``RedisBackend`` is available
 when the ``redis`` extra is installed.
 """
 
-from __future__ import annotations
 
 import time
 from collections import defaultdict
@@ -160,11 +161,11 @@ class RedisBackend:
         await self._redis.setex(self._ban_key(ip), duration_seconds, "1")
 
     async def is_banned(self, ip: str) -> bool:
-        return await self._redis.exists(self._ban_key(ip)) > 0
+        return await self._redis.exists(self._ban_key(ip)) > 0  # type: ignore
 
     async def get_ban_expiry(self, ip: str) -> int:
         ttl = await self._redis.ttl(self._ban_key(ip))
-        return max(0, ttl)
+        return max(0, ttl)  # type: ignore
 
     async def get_violation_count(self, ip: str) -> int:
         val = await self._redis.get(self._violation_key(ip))

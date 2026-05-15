@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Central configuration for all Araxys modules.
 
 Uses Pydantic Settings for env var support:
@@ -5,7 +7,6 @@ Uses Pydantic Settings for env var support:
     ARAXYS_REDIS_URL=redis://localhost:6379
 """
 
-from __future__ import annotations
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
@@ -15,7 +16,9 @@ class RateLimitConfig(BaseModel):
     """Configuration for the dynamic rate limiting module."""
 
     enabled: bool = True
-    window_seconds: int = Field(default=60, ge=1, description="Sliding window size in seconds")
+    window_seconds: int = Field(
+        default=60, ge=1, description="Sliding window size in seconds"
+    )
     max_requests: int = Field(default=100, ge=1, description="Max requests per window")
     ban_threshold: int = Field(
         default=5,
@@ -87,7 +90,9 @@ class SecureHeadersConfig(BaseModel):
     """Configuration for security headers middleware."""
 
     enabled: bool = True
-    hsts_max_age: int = Field(default=31_536_000, description="HSTS max-age in seconds (1 year)")
+    hsts_max_age: int = Field(
+        default=31_536_000, description="HSTS max-age in seconds (1 year)"
+    )
     hsts_include_subdomains: bool = True
     frame_options: str = Field(default="DENY", description="X-Frame-Options value")
     content_type_nosniff: bool = True
@@ -126,7 +131,9 @@ class AuditConfig(BaseModel):
     """Configuration for encrypted audit logging."""
 
     enabled: bool = True
-    encrypt: bool = Field(default=True, description="Encrypt log entries with AES-256-GCM")
+    encrypt: bool = Field(
+        default=True, description="Encrypt log entries with AES-256-GCM"
+    )
     log_file: str | None = Field(
         default=None,
         description="File path for audit log output (None = stdout only)",

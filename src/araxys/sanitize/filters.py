@@ -1,12 +1,13 @@
+from __future__ import annotations
+
 """Sanitization filters for SQL injection and XSS detection.
 
 These filters analyze string values within request payloads and
 either block or clean them depending on configuration.
 """
 
-from __future__ import annotations
 
-import bleach
+import bleach  # type: ignore
 import structlog
 
 from araxys.core.exceptions import SanitizationError
@@ -42,7 +43,7 @@ def strip_xss(value: str) -> str:
 
     Strips ALL tags and attributes — returns plain text.
     """
-    return bleach.clean(value, tags=[], attributes={}, strip=True)
+    return bleach.clean(value, tags=[], attributes={}, strip=True)  # type: ignore
 
 
 def sanitize_value(
@@ -98,13 +99,13 @@ def sanitize_value(
 
 
 def sanitize_payload(
-    data: dict | list | str | int | float | bool | None,
+    data: dict | list | str | int | float | bool | None,  # type: ignore
     *,
     block_sqli: bool = True,
     strip_xss_content: bool = True,
     max_depth: int = 10,
     _current_depth: int = 0,
-) -> dict | list | str | int | float | bool | None:
+) -> dict | list | str | int | float | bool | None:  # type: ignore
     """Recursively sanitize a JSON payload.
 
     Walks through dicts and lists, sanitizing all string values.

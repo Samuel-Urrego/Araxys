@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Honeypot IP-ban enforcement middleware.
 
 Checks every incoming request against the ban list maintained by
 the honeypot traps. Banned IPs receive a 403 on ALL endpoints.
 """
 
-from __future__ import annotations
 
 from typing import Any
 

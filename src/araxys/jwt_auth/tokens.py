@@ -1,3 +1,6 @@
+from __future__ import annotations
+import typing
+
 """JWT token creation, verification, and rotation.
 
 Implements the full OAuth2 access + refresh token flow with:
@@ -7,7 +10,6 @@ Implements the full OAuth2 access + refresh token flow with:
 - Scope embedding in token claims
 """
 
-from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -67,7 +69,7 @@ class JWTManager:
         config: JWTConfig,
         secret_key: str,
         storage: TokenStorage,
-        on_audit: callable | None = None,
+        on_audit: typing.Callable | None = None,  # type: ignore
     ) -> None:
         self._config = config
         self._secret_key = secret_key

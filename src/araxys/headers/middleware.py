@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Secure HTTP headers middleware.
 
 Automatically injects security headers into every response following
 OWASP recommendations.
 """
 
-from __future__ import annotations
 
 from typing import Any
 

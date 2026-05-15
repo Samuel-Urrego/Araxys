@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """JWT token storage protocol and implementations.
 
 Token storage is used for refresh token revocation tracking via JTI
 (JWT ID) — when a refresh token is rotated, the old JTI is blacklisted.
 """
 
-from __future__ import annotations
 
 import time
 from typing import Protocol, runtime_checkable
@@ -72,4 +73,4 @@ class RedisTokenStorage:
         await self._redis.setex(self._key(jti), ttl_seconds, "1")
 
     async def is_blacklisted(self, jti: str) -> bool:
-        return await self._redis.exists(self._key(jti)) > 0
+        return await self._redis.exists(self._key(jti)) > 0  # type: ignore

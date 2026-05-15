@@ -1,6 +1,6 @@
-"""Custom exceptions for all Araxys modules."""
-
 from __future__ import annotations
+
+"""Custom exceptions for all Araxys modules."""
 
 
 class AraxysError(Exception):
@@ -24,7 +24,8 @@ class RateLimitExceeded(AraxysError):
         self.ip_address = ip_address
         self.retry_after = retry_after
         super().__init__(
-            message or f"Rate limit exceeded for {ip_address}. Retry after {retry_after}s."
+            message
+            or f"Rate limit exceeded for {ip_address}. Retry after {retry_after}s."
         )
 
 

@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """SQL injection detection patterns.
 
 Conservative pattern set designed to minimize false positives while
 catching the most common attack vectors.
 """
 
-from __future__ import annotations
 
 import re
 
@@ -126,48 +127,52 @@ SQLI_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 
 
 # XSS: tags and attributes that are ALWAYS dangerous
-XSS_DANGEROUS_TAGS = frozenset({
-    "script",
-    "iframe",
-    "object",
-    "embed",
-    "form",
-    "input",
-    "textarea",
-    "button",
-    "applet",
-    "base",
-    "link",
-    "meta",
-    "style",
-})
+XSS_DANGEROUS_TAGS = frozenset(
+    {
+        "script",
+        "iframe",
+        "object",
+        "embed",
+        "form",
+        "input",
+        "textarea",
+        "button",
+        "applet",
+        "base",
+        "link",
+        "meta",
+        "style",
+    }
+)
 
-XSS_DANGEROUS_ATTRIBUTES = frozenset({
-    "onload",
-    "onerror",
-    "onclick",
-    "onmouseover",
-    "onfocus",
-    "onblur",
-    "onsubmit",
-    "onkeydown",
-    "onkeyup",
-    "onkeypress",
-    "onchange",
-    "oninput",
-    "onmousedown",
-    "onmouseup",
-    "ondblclick",
-    "oncontextmenu",
-    "onwheel",
-    "onscroll",
-    "ontouchstart",
-    "ontouchend",
-    "ontouchmove",
-    "onanimationstart",
-    "onanimationend",
-    "ontransitionend",
-})
+XSS_DANGEROUS_ATTRIBUTES = frozenset(
+    {
+        "onload",
+        "onerror",
+        "onclick",
+        "onmouseover",
+        "onfocus",
+        "onblur",
+        "onsubmit",
+        "onkeydown",
+        "onkeyup",
+        "onkeypress",
+        "onchange",
+        "oninput",
+        "onmousedown",
+        "onmouseup",
+        "ondblclick",
+        "oncontextmenu",
+        "onwheel",
+        "onscroll",
+        "ontouchstart",
+        "ontouchend",
+        "ontouchmove",
+        "onanimationstart",
+        "onanimationend",
+        "ontransitionend",
+    }
+)
 
 # Patterns for detecting XSS in string values (beyond HTML tags)
 XSS_PATTERNS: list[tuple[re.Pattern[str], str]] = [

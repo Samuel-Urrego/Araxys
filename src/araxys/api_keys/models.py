@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """API Key data models."""
 
-from __future__ import annotations
 
 from datetime import datetime, timezone
 
@@ -42,7 +43,9 @@ class APIKeyResponse(BaseModel):
     Contains the raw key — this is the ONLY time it is available.
     """
 
-    raw_key: str = Field(description="The full API key — store it securely, shown only once")
+    raw_key: str = Field(
+        description="The full API key — store it securely, shown only once"
+    )
     prefix: str = Field(description="Key prefix for future reference")
     scopes: list[Scope]
     expires_at: datetime | None

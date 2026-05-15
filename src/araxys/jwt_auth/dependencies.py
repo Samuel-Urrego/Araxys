@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """FastAPI dependencies for JWT authentication.
 
 Provides ``require_jwt()`` — a dependency factory that extracts
@@ -13,7 +15,6 @@ Usage::
         return {"user_id": user.sub}
 """
 
-from __future__ import annotations
 
 from collections.abc import Callable
 
@@ -83,4 +84,4 @@ def require_jwt(
 
         return payload
 
-    return _dependency
+    return _dependency  # type: ignore

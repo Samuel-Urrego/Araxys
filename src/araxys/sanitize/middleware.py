@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """ASGI middleware for automatic request payload sanitization.
 
 Intercepts POST/PUT/PATCH requests with JSON bodies, scans them
@@ -5,7 +7,6 @@ for SQL injection and XSS, and either blocks or cleans the payload
 before it reaches the route handler.
 """
 
-from __future__ import annotations
 
 import json
 from typing import Any

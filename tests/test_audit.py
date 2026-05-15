@@ -14,7 +14,7 @@ class TestAuditEncryption:
     def encryption(self) -> AuditEncryption:
         return AuditEncryption(master_key="test-secret-key-must-be-32-chars!!")
 
-    def test_encrypt_decrypt_roundtrip(self, encryption: AuditEncryption):
+    def test_encrypt_decrypt_roundtrip(self, encryption: AuditEncryption) -> None:
         entry = AuditEntry(
             event_type=AuditEventType.LOGIN_SUCCESS,
             ip_address="1.2.3.4",
@@ -28,7 +28,9 @@ class TestAuditEncryption:
         assert decrypted["ip_address"] == "1.2.3.4"
         assert decrypted["user_id"] == "user-123"
 
-    def test_different_entries_different_ciphertext(self, encryption: AuditEncryption):
+    def test_different_entries_different_ciphertext(
+        self, encryption: AuditEncryption
+    ) -> None:
         entry = AuditEntry(
             event_type=AuditEventType.LOGIN_SUCCESS,
             ip_address="1.2.3.4",
@@ -39,7 +41,7 @@ class TestAuditEncryption:
         c2 = encryption.encrypt_entry(entry)
         assert c1 != c2
 
-    def test_wrong_key_fails_decryption(self, encryption: AuditEncryption):
+    def test_wrong_key_fails_decryption(self, encryption: AuditEncryption) -> None:
         entry = AuditEntry(event_type=AuditEventType.RATE_LIMITED)
         encrypted = encryption.encrypt_entry(entry)
 
@@ -49,7 +51,7 @@ class TestAuditEncryption:
         with pytest.raises(EncryptionError):
             wrong_key_encryption.decrypt_entry(encrypted)
 
-    def test_tampered_ciphertext_fails(self, encryption: AuditEncryption):
+    def test_tampered_ciphertext_fails(self, encryption: AuditEncryption) -> None:
         entry = AuditEntry(event_type=AuditEventType.HONEYPOT_TRIGGERED)
         encrypted = encryption.encrypt_entry(entry)
 
@@ -60,7 +62,7 @@ class TestAuditEncryption:
 
 
 class TestAuditLogger:
-    async def test_logger_logs_without_file(self):
+    async def test_logger_logs_without_file(self) -> None:
         logger = AuditLogger(
             config=AuditConfig(enabled=True, encrypt=False, log_file=None),
         )
@@ -71,12 +73,10 @@ class TestAuditLogger:
         # Should not raise
         await logger.log(entry)
 
-    async def test_logger_writes_to_file(self, tmp_path):
+    async def test_logger_writes_to_file(self, tmp_path) -> None:  # type: ignore
         log_file = tmp_path / "audit.log"
         logger = AuditLogger(
-            config=AuditConfig(
-                enabled=True, encrypt=False, log_file=str(log_file)
-            ),
+            config=AuditConfig(enabled=True, encrypt=False, log_file=str(log_file)),
         )
         entry = AuditEntry(
             event_type=AuditEventType.API_KEY_CREATED,
@@ -89,13 +89,11 @@ class TestAuditLogger:
         assert len(entries) == 1
         assert entries[0]["event_type"] == "api_key_created"
 
-    async def test_encrypted_file_roundtrip(self, tmp_path):
+    async def test_encrypted_file_roundtrip(self, tmp_path) -> None:  # type: ignore
         log_file = tmp_path / "audit_encrypted.log"
         secret = "test-secret-key-must-be-32-chars!!"
         logger = AuditLogger(
-            config=AuditConfig(
-                enabled=True, encrypt=True, log_file=str(log_file)
-            ),
+            config=AuditConfig(enabled=True, encrypt=True, log_file=str(log_file)),
             secret_key=secret,
         )
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Structured audit logger with optional AES-256-GCM encryption.
 
 Logs security events using ``structlog`` for structured output.
@@ -5,7 +7,6 @@ When encryption is enabled, log entries are encrypted before being
 written, ensuring that sensitive data at rest is protected.
 """
 
-from __future__ import annotations
 
 import json
 from dataclasses import asdict
@@ -88,7 +89,7 @@ class AuditLogger:
         with self._log_file.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
 
-    def read_entries(self) -> list[dict]:
+    def read_entries(self) -> list[dict]:  # type: ignore
         """Read and decrypt all entries from the audit log file.
 
         Returns a list of dicts, one per logged entry.
