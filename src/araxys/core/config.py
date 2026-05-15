@@ -39,6 +39,18 @@ class RateLimitConfig(BaseModel):
         default_factory=lambda: ["/docs", "/redoc", "/openapi.json", "/healthz"],
         description="Paths excluded from rate limiting",
     )
+    per_user: bool = Field(
+        default=False,
+        description="Enable per-user rate limiting (uses SecurityContext)",
+    )
+    per_api_key: bool = Field(
+        default=False,
+        description="Enable per-API-key rate limiting",
+    )
+    path_limits: dict[str, RateLimitConfig] = Field(
+        default_factory=dict,
+        description="Per-endpoint limits (key = path pattern like '/auth/login')",
+    )
 
 
 class HoneypotConfig(BaseModel):
@@ -71,7 +83,10 @@ class HoneypotConfig(BaseModel):
 class JWTConfig(BaseModel):
     """Configuration for JWT token management."""
 
-    algorithm: str = Field(default="HS256", description="JWT signing algorithm")
+    algorithm: str = Field(
+        default="HS256",
+        description="JWT signing algorithm (HS256, RS256, ES256)",
+    )
     access_token_ttl_minutes: int = Field(
         default=30,
         ge=1,
@@ -84,6 +99,18 @@ class JWTConfig(BaseModel):
     )
     issuer: str | None = Field(default=None, description="JWT 'iss' claim")
     audience: str | None = Field(default=None, description="JWT 'aud' claim")
+    private_key: str | None = Field(
+        default=None,
+        description="PEM string or file path for RS256/ES256 signing",
+    )
+    public_key: str | None = Field(
+        default=None,
+        description="PEM string or file path for RS256/ES256 verification",
+    )
+    jwks_enabled: bool = Field(
+        default=False,
+        description="Enable JWKS endpoint generation from public key",
+    )
 
 
 class SecureHeadersConfig(BaseModel):
@@ -108,6 +135,26 @@ class SecureHeadersConfig(BaseModel):
         default=None,
         description="Permissions-Policy header value",
     )
+    coop: str = Field(
+        default="same-origin",
+        description="Cross-Origin-Opener-Policy header value",
+    )
+    coep: str | None = Field(
+        default=None,
+        description="Cross-Origin-Embedder-Policy header value (e.g. 'require-corp')",
+    )
+    corp: str = Field(
+        default="same-origin",
+        description="Cross-Origin-Resource-Policy header value",
+    )
+    hide_server: bool = Field(
+        default=True,
+        description="Strip Server header from responses",
+    )
+    csp_directives: dict[str, str] = Field(
+        default_factory=dict,
+        description="Raw CSP directives as directive-name -> value pairs",
+    )
 
 
 class SanitizeConfig(BaseModel):
@@ -125,6 +172,92 @@ class SanitizeConfig(BaseModel):
         default_factory=list,
         description="Paths excluded from sanitization (e.g. file upload endpoints)",
     )
+    scan_query_params: bool = Field(
+        default=False,
+        description="Scan HTTP query parameters for injection patterns",
+    )
+    scan_headers: bool = Field(
+        default=False,
+        description="Scan HTTP headers for injection patterns",
+    )
+    check_nosql_injection: bool = Field(
+        default=False,
+        description="Check for NoSQL injection patterns ($where, $gt, etc.)",
+    )
+    check_command_injection: bool = Field(
+        default=False,
+        description="Check for OS command injection patterns",
+    )
+    check_path_traversal: bool = Field(
+        default=False,
+        description="Check for path traversal patterns (../, %00, etc.)",
+    )
+
+
+class LogShippingConfig(BaseModel):
+    """Configuration for shipping audit logs to an external endpoint."""
+
+    type: str = Field(
+        default="http",
+        description="Shipping protocol: 'http' or 'syslog'",
+    )
+    endpoint: str = Field(
+        default="",
+        description="Target endpoint URL (e.g. https://logs.example.com/ingest)",
+    )
+    headers: dict[str, str] | None = Field(
+        default=None,
+        description="HTTP headers to include in shipping requests",
+    )
+    tls_enabled: bool = Field(
+        default=True,
+        description="Enable TLS for the shipping connection",
+    )
+
+
+class CSPDirectiveConfig(BaseModel):
+    """Per-directive configuration for building Content-Security-Policy headers."""
+
+    default_src: list[str] = Field(
+        default_factory=lambda: ["'self'"],
+        description="default-src directive values",
+    )
+    script_src: list[str] = Field(
+        default_factory=lambda: ["'self'"],
+        description="script-src directive values",
+    )
+    style_src: list[str] = Field(
+        default_factory=lambda: ["'self'"],
+        description="style-src directive values",
+    )
+    img_src: list[str] = Field(
+        default_factory=lambda: ["'self'"],
+        description="img-src directive values",
+    )
+    connect_src: list[str] = Field(
+        default_factory=lambda: ["'self'"],
+        description="connect-src directive values",
+    )
+    font_src: list[str] = Field(
+        default_factory=lambda: ["'self'"],
+        description="font-src directive values",
+    )
+    object_src: list[str] = Field(
+        default_factory=lambda: ["'none'"],
+        description="object-src directive values",
+    )
+    frame_src: list[str] = Field(
+        default_factory=lambda: ["'self'"],
+        description="frame-src directive values",
+    )
+    report_uri: str | None = Field(
+        default=None,
+        description="report-uri for CSP violation reports",
+    )
+    upgrade_insecure_requests: bool = Field(
+        default=False,
+        description="Add upgrade-insecure-requests directive",
+    )
 
 
 class AuditConfig(BaseModel):
@@ -137,6 +270,28 @@ class AuditConfig(BaseModel):
     log_file: str | None = Field(
         default=None,
         description="File path for audit log output (None = stdout only)",
+    )
+    log_rotation_bytes: int = Field(
+        default=0,
+        ge=0,
+        description="Max bytes before log rotation (0 = disabled)",
+    )
+    log_backup_count: int = Field(
+        default=5,
+        ge=0,
+        description="Number of backup files to keep",
+    )
+    async_write: bool = Field(
+        default=False,
+        description="Use aiofiles for non-blocking log writes",
+    )
+    pii_fields: list[str] = Field(
+        default_factory=list,
+        description="Field names to mask in audit logs (e.g. email, password)",
+    )
+    log_shipping: LogShippingConfig | None = Field(
+        default=None,
+        description="Optional log shipping configuration",
     )
 
 
@@ -321,7 +476,11 @@ class AraxysConfig(BaseSettings):
     ``ARAXYS_`` prefix, e.g. ``ARAXYS_SECRET_KEY``.
     """
 
-    model_config = {"env_prefix": "ARAXYS_", "case_sensitive": False}
+    model_config = {
+        "env_prefix": "ARAXYS_",
+        "case_sensitive": False,
+        "env_nested_delimiter": "__",
+    }
 
     secret_key: str = Field(
         ...,

@@ -2,11 +2,18 @@
 
 from araxys.core.config import (
     AraxysConfig,
+    AuditConfig,
     BruteForceConfig,
     CORSConfig,
+    CSPDirectiveConfig,
     CSRFConfig,
     IPControlConfig,
+    JWTConfig,
+    LogShippingConfig,
     MetricsConfig,
+    RateLimitConfig,
+    SanitizeConfig,
+    SecureHeadersConfig,
     SessionConfig,
     TelemetryConfig,
     WebhookConfig,
@@ -240,3 +247,237 @@ class TestNestedInAraxysConfig:
         assert c.metrics.path == "/metrics"  # default
         assert c.ip_control is None
         assert c.brute_force is None
+
+
+class TestJWTConfig:
+    """Tests for JWT configuration model."""
+
+    def test_defaults(self) -> None:
+        c = JWTConfig()
+        assert c.algorithm == "HS256"
+        assert c.access_token_ttl_minutes == 30
+        assert c.refresh_token_ttl_days == 7
+        assert c.issuer is None
+        assert c.audience is None
+        assert c.private_key is None
+        assert c.public_key is None
+        assert c.jwks_enabled is False
+
+    def test_custom_values(self) -> None:
+        c = JWTConfig(
+            algorithm="RS256",
+            access_token_ttl_minutes=15,
+            issuer="https://auth.example.com",
+            private_key="-----BEGIN PRIVATE KEY-----\nMOCK\n-----END PRIVATE KEY-----",
+            public_key="-----BEGIN PUBLIC KEY-----\nMOCK\n-----END PUBLIC KEY-----",
+            jwks_enabled=True,
+        )
+        assert c.algorithm == "RS256"
+        assert c.access_token_ttl_minutes == 15
+        assert c.issuer == "https://auth.example.com"
+        assert c.private_key is not None
+        assert c.public_key is not None
+        assert c.jwks_enabled is True
+
+    def test_es256_algorithm(self) -> None:
+        c = JWTConfig(algorithm="ES256")
+        assert c.algorithm == "ES256"
+
+
+class TestRateLimitConfig:
+    """Tests for rate limit configuration model."""
+
+    def test_defaults(self) -> None:
+        c = RateLimitConfig()
+        assert c.enabled is True
+        assert c.window_seconds == 60
+        assert c.max_requests == 100
+        assert c.per_user is False
+        assert c.per_api_key is False
+        assert c.path_limits == {}
+
+    def test_custom_values(self) -> None:
+        c = RateLimitConfig(
+            max_requests=50,
+            per_user=True,
+            per_api_key=True,
+            path_limits={
+                "/auth/login": RateLimitConfig(max_requests=10, window_seconds=300),
+            },
+        )
+        assert c.per_user is True
+        assert c.per_api_key is True
+        assert "/auth/login" in c.path_limits
+        assert c.path_limits["/auth/login"].max_requests == 10
+        assert c.path_limits["/auth/login"].window_seconds == 300
+
+
+class TestAuditConfig:
+    """Tests for audit configuration model."""
+
+    def test_defaults(self) -> None:
+        c = AuditConfig()
+        assert c.enabled is True
+        assert c.encrypt is True
+        assert c.log_file is None
+        assert c.log_rotation_bytes == 0
+        assert c.log_backup_count == 5
+        assert c.async_write is False
+        assert c.pii_fields == []
+        assert c.log_shipping is None
+
+    def test_custom_values(self) -> None:
+        c = AuditConfig(
+            log_file="/var/log/audit.log",
+            log_rotation_bytes=10_485_760,
+            log_backup_count=3,
+            async_write=True,
+            pii_fields=["email", "password"],
+            log_shipping=LogShippingConfig(
+                type="http",
+                endpoint="https://logs.example.com/ingest",
+                headers={"Authorization": "Bearer token123"},
+                tls_enabled=True,
+            ),
+        )
+        assert c.log_rotation_bytes == 10_485_760
+        assert c.log_backup_count == 3
+        assert c.async_write is True
+        assert c.pii_fields == ["email", "password"]
+        assert c.log_shipping is not None
+        assert c.log_shipping.type == "http"
+        assert c.log_shipping.endpoint == "https://logs.example.com/ingest"
+        assert c.log_shipping.tls_enabled is True
+
+
+class TestLogShippingConfig:
+    """Tests for log shipping configuration model."""
+
+    def test_defaults(self) -> None:
+        c = LogShippingConfig()
+        assert c.type == "http"
+        assert c.endpoint == ""
+        assert c.headers is None
+        assert c.tls_enabled is True
+
+    def test_custom_values(self) -> None:
+        c = LogShippingConfig(
+            type="syslog",
+            endpoint="udp://logs.example.com:514",
+            headers=None,
+            tls_enabled=False,
+        )
+        assert c.type == "syslog"
+        assert c.endpoint == "udp://logs.example.com:514"
+        assert c.tls_enabled is False
+
+    def test_with_headers(self) -> None:
+        c = LogShippingConfig(
+            type="http",
+            endpoint="https://logs.example.com/ingest",
+            headers={"X-API-Key": "abc123"},
+        )
+        assert c.headers == {"X-API-Key": "abc123"}
+
+
+class TestCSPDirectiveConfig:
+    """Tests for CSP directive configuration model."""
+
+    def test_defaults(self) -> None:
+        c = CSPDirectiveConfig()
+        assert "'self'" in c.default_src
+        assert "'self'" in c.script_src
+        assert "'none'" in c.object_src
+        assert c.report_uri is None
+        assert c.upgrade_insecure_requests is False
+
+    def test_custom_values(self) -> None:
+        c = CSPDirectiveConfig(
+            default_src=["'self'", "https://cdn.example.com"],
+            script_src=["'self'", "'unsafe-inline'"],
+            upgrade_insecure_requests=True,
+        )
+        assert "https://cdn.example.com" in c.default_src
+        assert "'unsafe-inline'" in c.script_src
+        assert c.upgrade_insecure_requests is True
+
+
+class TestSecureHeadersConfig:
+    """Tests for secure headers configuration model."""
+
+    def test_defaults(self) -> None:
+        c = SecureHeadersConfig()
+        assert c.enabled is True
+        assert c.hsts_max_age == 31_536_000
+        assert c.frame_options == "DENY"
+        assert c.coop == "same-origin"
+        assert c.coep is None
+        assert c.corp == "same-origin"
+        assert c.hide_server is True
+        assert c.csp_directives == {}
+
+    def test_custom_values(self) -> None:
+        c = SecureHeadersConfig(
+            coop="unsafe-none",
+            coep="require-corp",
+            corp="cross-origin",
+            hide_server=False,
+            csp_directives={"default-src": "'self'", "script-src": "'self'"},
+        )
+        assert c.coop == "unsafe-none"
+        assert c.coep == "require-corp"
+        assert c.corp == "cross-origin"
+        assert c.hide_server is False
+        assert c.csp_directives["default-src"] == "'self'"
+
+
+class TestSanitizeConfig:
+    """Tests for sanitize configuration model."""
+
+    def test_defaults(self) -> None:
+        c = SanitizeConfig()
+        assert c.enabled is True
+        assert c.block_sqli is True
+        assert c.strip_xss is True
+        assert c.scan_query_params is False
+        assert c.scan_headers is False
+        assert c.check_nosql_injection is False
+        assert c.check_command_injection is False
+        assert c.check_path_traversal is False
+
+    def test_custom_values(self) -> None:
+        c = SanitizeConfig(
+            scan_query_params=True,
+            scan_headers=True,
+            check_nosql_injection=True,
+            check_command_injection=True,
+            check_path_traversal=True,
+        )
+        assert c.scan_query_params is True
+        assert c.scan_headers is True
+        assert c.check_nosql_injection is True
+        assert c.check_command_injection is True
+        assert c.check_path_traversal is True
+
+
+class TestNewConfigsInAraxysConfig:
+    """Tests that new config fields are accessible via AraxysConfig."""
+
+    def test_defaults_unchanged(self) -> None:
+        c = AraxysConfig(secret_key="test-secret-key-must-be-32-chars!!")
+        assert c.jwt.jwks_enabled is False
+        assert c.rate_limit.per_user is False
+        assert c.audit.async_write is False
+        assert c.sanitize.scan_query_params is False
+        assert c.secure_headers.coop == "same-origin"
+
+    def test_nested_config_provided(self) -> None:
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            jwt={"private_key": "pem-key", "jwks_enabled": True},  # type: ignore[arg-type]
+            audit={"async_write": True, "pii_fields": ["email"]},  # type: ignore[arg-type]
+        )
+        assert c.jwt.private_key == "pem-key"
+        assert c.jwt.jwks_enabled is True
+        assert c.audit.async_write is True
+        assert c.audit.pii_fields == ["email"]
