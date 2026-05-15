@@ -1,4 +1,5 @@
-from typing import Any, Generator
+from collections.abc import Generator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,7 +11,7 @@ from araxys.core.types import Scope
 runner = CliRunner()
 
 @pytest.fixture
-def mock_manager() -> Generator[Any, None, None]:
+def mock_manager() -> Generator[Any]:
     with patch("araxys.cli.get_manager") as mock:
         manager = MagicMock()
         manager.create_key = AsyncMock()
