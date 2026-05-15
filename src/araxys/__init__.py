@@ -12,28 +12,69 @@ Usage::
     )
 """
 
+# v0.3 middleware imports
+from araxys.brute_force.limiter import BruteForceBackend, BruteForceMiddleware
+
+# v0.3 module imports
+from araxys.brute_force.password_policy import password_policy_dependency
 from araxys.core.config import (
     AraxysConfig,
     AuditConfig,
+    # v0.3 configs
+    BruteForceConfig,
+    CORSConfig,
+    CSRFConfig,
     HoneypotConfig,
+    IPControlConfig,
     JWTConfig,
+    MetricsConfig,
     RateLimitConfig,
     SanitizeConfig,
     SecureHeadersConfig,
+    SessionConfig,
+    TelemetryConfig,
+    WebhookConfig,
 )
 from araxys.core.exceptions import (
     AraxysError,
+    # v0.3 exceptions
+    BruteForceLockedError,
+    CSRFValidationError,
     EncryptionError,
     HoneypotTriggered,
     InvalidAPIKey,
+    IPBlockedError,
+    PasswordValidationError,
     RateLimitExceeded,
     SanitizationError,
     TokenExpired,
     TokenInvalid,
     TokenRevoked,
 )
-from araxys.core.types import AuditEntry, AuditEventType, Scope, SecurityContext
+from araxys.core.types import (
+    AuditEntry,
+    AuditEventType,
+    Scope,
+    SecurityContext,
+    SecurityEvent,
+    SecurityEventType,
+)
+from araxys.cors.middleware import CORSMiddleware
+from araxys.csrf.dependencies import csrf_protected, set_csrf_cookie
+from araxys.csrf.tokens import CSRFHandler
+from araxys.ip_access.backends import IPAccessBackend
+from araxys.ip_access.middleware import IPAccessMiddleware
+from araxys.metrics.collector import MetricsRegistry
+from araxys.sessions.manager import SessionManager
+from araxys.sessions.storage import (
+    InMemorySessionBackend,
+    RedisSessionBackend,
+    SessionBackend,
+    SessionRecord,
+)
 from araxys.shield import AraxysShield
+from araxys.telemetry.tracer import AraxysTracer
+from araxys.webhooks.emitter import SecurityEventBus
 
 __all__ = [
     # Main entry point
@@ -46,11 +87,23 @@ __all__ = [
     "RateLimitConfig",
     "SanitizeConfig",
     "SecureHeadersConfig",
+    # v0.3 configs
+    "CORSConfig",
+    "IPControlConfig",
+    "BruteForceConfig",
+    "CSRFConfig",
+    "SessionConfig",
+    "WebhookConfig",
+    "MetricsConfig",
+    "TelemetryConfig",
     # Types
     "AuditEntry",
     "AuditEventType",
     "Scope",
     "SecurityContext",
+    # v0.3 types
+    "SecurityEventType",
+    "SecurityEvent",
     # Exceptions
     "AraxysError",
     "EncryptionError",
@@ -61,4 +114,30 @@ __all__ = [
     "TokenExpired",
     "TokenInvalid",
     "TokenRevoked",
+    # v0.3 exceptions
+    "CSRFValidationError",
+    "BruteForceLockedError",
+    "PasswordValidationError",
+    "IPBlockedError",
+    # v0.3 modules — middleware
+    "CORSMiddleware",
+    "IPAccessMiddleware",
+    "BruteForceMiddleware",
+    # v0.3 modules — handlers
+    "CSRFHandler",
+    "SessionManager",
+    "SecurityEventBus",
+    "MetricsRegistry",
+    "AraxysTracer",
+    # v0.3 modules — dependencies
+    "csrf_protected",
+    "password_policy_dependency",
+    "set_csrf_cookie",
+    # v0.3 modules — backends
+    "IPAccessBackend",
+    "BruteForceBackend",
+    "SessionBackend",
+    "InMemorySessionBackend",
+    "RedisSessionBackend",
+    "SessionRecord",
 ]
