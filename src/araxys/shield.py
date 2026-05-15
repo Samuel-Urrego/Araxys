@@ -84,7 +84,7 @@ class AraxysShield:
         self._rate_backend = rate_limit_backend or self._create_rate_backend(config)
 
         # API key manager
-        self._api_key_storage = api_key_storage or InMemoryAPIKeyStorage()
+        self._api_key_storage = api_key_storage or self._create_api_key_storage(config)
         self.api_key_manager = APIKeyManager(
             storage=self._api_key_storage,
             on_audit=self._emit_audit,
@@ -147,6 +147,14 @@ class AraxysShield:
 
             return RedisTokenStorage(config.redis_url)
         return InMemoryTokenStorage()
+
+    def _create_api_key_storage(self, config: AraxysConfig):  # type: ignore
+        """Create the API key storage based on config."""
+        if config.redis_url:
+            from araxys.api_keys.storage import RedisAPIKeyStorage
+
+            return RedisAPIKeyStorage(config.redis_url)
+        return InMemoryAPIKeyStorage()
 
     async def _emit_audit(self, entry: AuditEntry) -> None:
         """Internal audit event callback shared across all modules."""

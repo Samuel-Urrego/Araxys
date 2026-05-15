@@ -111,6 +111,30 @@ key = await shield.api_key_manager.create_key(
 )
 print(f"Save this key: {key.raw_key}")  # Shown only once!
 
+### 💻 Command Line Interface (CLI)
+
+Araxys includes a professional CLI for managing API keys and security assets directly from your terminal.
+
+**Setup:**
+Set the `ARAXYS_REDIS_URL` environment variable to point to your persistent storage.
+
+```bash
+export ARAXYS_REDIS_URL="redis://localhost:6379"
+```
+
+**Usage:**
+
+```bash
+# Create a new key
+araxys keys create --owner "service-a" --scopes "read,write"
+
+# List active keys
+araxys keys list
+
+# Revoke a key by prefix
+araxys keys revoke [prefix]
+```
+
 # Protect an endpoint
 @app.get("/data")
 async def get_data(
