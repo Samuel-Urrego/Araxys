@@ -20,7 +20,7 @@
   <img src="https://img.shields.io/badge/JWT-OAuth2%20compliant-000000?style=flat-square&logo=jsonwebtokens&logoColor=white" alt="JWT">
   <img src="https://img.shields.io/badge/Redis-optional-DC382D?style=flat-square&logo=redis&logoColor=white" alt="Redis">
   <img src="https://img.shields.io/badge/structlog-logging-4B8BBE?style=flat-square" alt="structlog">
-  <img src="https://img.shields.io/badge/tests-63%20passed-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-71%20passed-brightgreen?style=flat-square" alt="Tests">
 </p>
 
 ---
@@ -71,6 +71,11 @@ pip install araxys[dev]
 
 ---
 
+> [!TIP]
+> **AI Agent Support:** This repository includes an [AI.md](AI.md) file specifically designed to provide high-density context for AI coding assistants (Cursor, Windsurf, etc.), ensuring they follow project standards and understand the internal architecture.
+
+---
+
 ## 🚀 Quick Start
 
 ### Full Protection (All Modules)
@@ -116,9 +121,12 @@ print(f"Save this key: {key.raw_key}")  # Shown only once!
 Araxys includes a professional CLI for managing API keys and security assets directly from your terminal.
 
 **Setup:**
-Set the `ARAXYS_REDIS_URL` environment variable to point to your persistent storage.
 
 ```bash
+# Install with CLI dependencies
+pip install "araxys[cli]"
+
+# Configure your storage
 export ARAXYS_REDIS_URL="redis://localhost:6379"
 ```
 
@@ -126,12 +134,12 @@ export ARAXYS_REDIS_URL="redis://localhost:6379"
 
 ```bash
 # Create a new key
-araxys keys create --owner "service-a" --scopes "read,write"
+araxys keys create --owner "service-a" --scopes "read,write" --ttl 90
 
-# List active keys
+# List active keys in a beautiful table
 araxys keys list
 
-# Revoke a key by prefix
+# Revoke a key by its prefix
 araxys keys revoke [prefix]
 ```
 
@@ -199,8 +207,9 @@ src/araxys/
 ├── api_keys/           # 🔑 API Key management
 │   ├── models.py       # Pydantic models
 │   ├── manager.py      # CRUD + verification
-│   ├── storage.py      # Protocol + InMemory
+│   ├── storage.py      # Protocol + InMemory + Redis
 │   └── dependencies.py # FastAPI dependencies
+├── cli.py              # 💻 Command Line Interface (Typer + Rich)
 ├── jwt_auth/           # 🎟️ JWT tokens
 │   ├── tokens.py       # Create, decode, rotate
 │   ├── storage.py      # JTI blacklisting
@@ -325,7 +334,7 @@ uv run pytest tests/ -v
 uv run pytest tests/ --cov=araxys --cov-report=term-missing
 ```
 
-**63 tests** covering all 7 modules — rate limiting, honeypots, API keys, JWT, headers, sanitization, and audit logging.
+**71 tests** covering all 7 modules — rate limiting, honeypots, API keys, JWT, headers, sanitization, and audit logging.
 
 ---
 
