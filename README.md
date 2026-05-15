@@ -88,8 +88,8 @@ shield = AraxysShield(
         redis_url="redis://localhost:6379",  # Optional — omit for in-memory
         rate_limit={"window_seconds": 60, "max_requests": 100},
         honeypot={"paths": ["/admin/config", "/wp-admin", "/.env"]},
-        secure_headers=True,
-        sanitize=True,
+        secure_headers={"enabled": True},
+        sanitize={"enabled": True},
         audit={"encrypt": True, "log_file": "audit.log"},
     ),
 )
