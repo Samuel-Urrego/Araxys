@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Honeypot IP-ban enforcement middleware.
 
 Checks every incoming request against the ban list maintained by
@@ -7,13 +5,17 @@ the honeypot traps. Banned IPs receive a 403 on ALL endpoints.
 """
 
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from araxys.rate_limit.backends import RateLimitBackend
+if TYPE_CHECKING:
+    from starlette.requests import Request
+
+    from araxys.rate_limit.backends import RateLimitBackend
 
 
 class HoneypotMiddleware(BaseHTTPMiddleware):

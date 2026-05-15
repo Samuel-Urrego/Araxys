@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """API Key storage protocol and in-memory implementation.
 
 The user can implement the ``APIKeyStorage`` protocol with their own
@@ -7,10 +5,13 @@ database backend (SQLAlchemy, MongoDB, etc.).
 """
 
 
-from datetime import datetime, timezone
-from typing import Protocol, runtime_checkable
+from __future__ import annotations
 
-from araxys.api_keys.models import APIKeyRecord
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from araxys.api_keys.models import APIKeyRecord
 
 
 @runtime_checkable
@@ -48,7 +49,7 @@ class InMemoryAPIKeyStorage:
         if record is None:
             return None
         # Check expiration
-        if record.expires_at and record.expires_at < datetime.now(timezone.utc):
+        if record.expires_at and record.expires_at < datetime.now(UTC):
             record = record.model_copy(update={"is_active": False})
             self._keys[prefix] = record
         return record if record.is_active else None

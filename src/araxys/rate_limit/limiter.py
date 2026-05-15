@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Dynamic rate limiter with sliding window and automatic escalation.
 
 The limiter tracks requests per IP+endpoint and applies escalating
@@ -7,11 +5,17 @@ bans when violations accumulate.
 """
 
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import structlog
 
-from araxys.core.config import RateLimitConfig
 from araxys.core.exceptions import RateLimitExceeded
-from araxys.rate_limit.backends import RateLimitBackend
+
+if TYPE_CHECKING:
+    from araxys.core.config import RateLimitConfig
+    from araxys.rate_limit.backends import RateLimitBackend
 
 logger = structlog.get_logger("araxys.rate_limit")
 

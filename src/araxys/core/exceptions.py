@@ -1,6 +1,7 @@
-from __future__ import annotations
-
 """Custom exceptions for all Araxys modules."""
+
+
+from __future__ import annotations
 
 
 class AraxysError(Exception):

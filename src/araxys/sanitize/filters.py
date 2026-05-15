@@ -1,11 +1,11 @@
-from __future__ import annotations
-
 """Sanitization filters for SQL injection and XSS detection.
 
 These filters analyze string values within request payloads and
 either block or clean them depending on configuration.
 """
 
+
+from __future__ import annotations
 
 import bleach  # type: ignore
 import structlog

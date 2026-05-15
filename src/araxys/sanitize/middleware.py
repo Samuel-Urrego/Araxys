@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """ASGI middleware for automatic request payload sanitization.
 
 Intercepts POST/PUT/PATCH requests with JSON bodies, scans them
@@ -8,16 +6,21 @@ before it reaches the route handler.
 """
 
 
+from __future__ import annotations
+
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from araxys.core.config import SanitizeConfig
 from araxys.core.exceptions import SanitizationError
 from araxys.sanitize.filters import sanitize_payload
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
+
+    from araxys.core.config import SanitizeConfig
 
 
 class SanitizeMiddleware(BaseHTTPMiddleware):

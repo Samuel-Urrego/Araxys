@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """ASGI middleware for automatic rate limiting.
 
 Intercepts every incoming request, checks the rate limit, and injects
@@ -8,16 +6,21 @@ when the limit is exceeded.
 """
 
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from araxys.core.config import RateLimitConfig
 from araxys.core.exceptions import RateLimitExceeded
-from araxys.rate_limit.backends import RateLimitBackend
 from araxys.rate_limit.limiter import RateLimiter
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
+
+    from araxys.core.config import RateLimitConfig
+    from araxys.rate_limit.backends import RateLimitBackend
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):

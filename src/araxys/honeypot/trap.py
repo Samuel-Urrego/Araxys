@@ -1,20 +1,22 @@
-from __future__ import annotations
-import typing
-
 """Honeypot trap registration and handling.
 
 Registers fake routes on the FastAPI router. When a bot hits one of
 these routes, its IP is automatically banned across the entire system.
 """
 
+from __future__ import annotations
+
+import typing
 
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request  # noqa: TC002
 from starlette.responses import JSONResponse
 
-from araxys.core.config import HoneypotConfig
 from araxys.core.types import AuditEntry, AuditEventType
-from araxys.rate_limit.backends import RateLimitBackend
+
+if typing.TYPE_CHECKING:
+    from araxys.core.config import HoneypotConfig
+    from araxys.rate_limit.backends import RateLimitBackend
 
 logger = structlog.get_logger("araxys.honeypot")
 

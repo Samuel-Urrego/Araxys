@@ -3,7 +3,7 @@
 import pytest
 
 from araxys.core.config import JWTConfig
-from araxys.core.exceptions import TokenExpired, TokenInvalid, TokenRevoked
+from araxys.core.exceptions import TokenInvalid, TokenRevoked
 from araxys.core.types import Scope
 from araxys.jwt_auth.storage import InMemoryTokenStorage
 from araxys.jwt_auth.tokens import JWTManager

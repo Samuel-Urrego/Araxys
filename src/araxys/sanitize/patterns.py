@@ -1,11 +1,11 @@
-from __future__ import annotations
-
 """SQL injection detection patterns.
 
 Conservative pattern set designed to minimize false positives while
 catching the most common attack vectors.
 """
 
+
+from __future__ import annotations
 
 import re
 

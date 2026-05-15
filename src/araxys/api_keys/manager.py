@@ -1,23 +1,24 @@
-from __future__ import annotations
-import typing
-
 """API Key manager — creation, verification, and revocation.
 
 Keys are generated with ``secrets.token_urlsafe``, stored as SHA-256
 hashes, and looked up by their 8-character prefix.
 """
 
+from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+import typing
+from datetime import UTC, datetime, timedelta
 
 import structlog
 
 from araxys.api_keys.models import APIKeyRecord, APIKeyResponse
-from araxys.api_keys.storage import APIKeyStorage
 from araxys.core.exceptions import InvalidAPIKey
 from araxys.core.types import AuditEntry, AuditEventType, Scope
+
+if typing.TYPE_CHECKING:
+    from araxys.api_keys.storage import APIKeyStorage
 
 logger = structlog.get_logger("araxys.api_keys")
 
@@ -65,7 +66,7 @@ class APIKeyManager:
 
         expires_at = None
         if ttl_days is not None:
-            expires_at = datetime.now(timezone.utc) + timedelta(days=ttl_days)
+            expires_at = datetime.now(UTC) + timedelta(days=ttl_days)
 
         record = APIKeyRecord(
             key_hash=key_hash,
@@ -145,7 +146,7 @@ class APIKeyManager:
             raise InvalidAPIKey("Invalid API key")
 
         # Check expiration
-        if record.expires_at and record.expires_at < datetime.now(timezone.utc):
+        if record.expires_at and record.expires_at < datetime.now(UTC):
             logger.warning("api_key.expired", prefix=prefix)
             raise InvalidAPIKey("API key has expired")
 

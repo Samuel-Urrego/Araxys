@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """FastAPI dependencies for JWT authentication.
 
 Provides ``require_jwt()`` — a dependency factory that extracts
@@ -16,14 +14,21 @@ Usage::
 """
 
 
-from collections.abc import Callable
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, Security, status
 from fastapi.security import OAuth2PasswordBearer
 
 from araxys.core.exceptions import TokenExpired, TokenInvalid
-from araxys.core.types import Scope
-from araxys.jwt_auth.tokens import JWTManager, TokenPayload
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from araxys.core.types import Scope
+    from araxys.jwt_auth.tokens import JWTManager, TokenPayload
 
 _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 
@@ -63,13 +68,13 @@ def require_jwt(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Access token has expired",
                 headers={"WWW-Authenticate": "Bearer"},
-            )
+            ) from None
         except TokenInvalid as exc:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"Invalid token: {exc.reason}",
                 headers={"WWW-Authenticate": "Bearer"},
-            )
+            ) from exc
 
         # Check scopes
         if scopes:

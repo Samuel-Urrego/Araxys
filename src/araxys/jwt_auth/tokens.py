@@ -1,6 +1,3 @@
-from __future__ import annotations
-import typing
-
 """JWT token creation, verification, and rotation.
 
 Implements the full OAuth2 access + refresh token flow with:
@@ -10,19 +7,23 @@ Implements the full OAuth2 access + refresh token flow with:
 - Scope embedding in token claims
 """
 
+from __future__ import annotations
 
+import typing
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import jwt
 import structlog
 from pydantic import BaseModel
 
-from araxys.core.config import JWTConfig
 from araxys.core.exceptions import TokenExpired, TokenInvalid, TokenRevoked
 from araxys.core.types import AuditEntry, AuditEventType, Scope
-from araxys.jwt_auth.storage import TokenStorage
+
+if typing.TYPE_CHECKING:
+    from araxys.core.config import JWTConfig
+    from araxys.jwt_auth.storage import TokenStorage
 
 logger = structlog.get_logger("araxys.jwt")
 
@@ -85,7 +86,7 @@ class JWTManager:
         extra_claims: dict[str, Any] | None = None,
     ) -> tuple[str, str]:
         """Create a signed JWT token. Returns (encoded_token, jti)."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         jti = uuid.uuid4().hex
 
         payload: dict[str, Any] = {
@@ -158,7 +159,6 @@ class JWTManager:
             If the token is malformed, has wrong type, or invalid signature.
         """
         try:
-            decode_options: dict[str, Any] = {}
             algorithms = [self._config.algorithm]
 
             kwargs: dict[str, Any] = {"algorithms": algorithms}
@@ -170,9 +170,9 @@ class JWTManager:
             payload = jwt.decode(token, self._secret_key, **kwargs)
 
         except jwt.ExpiredSignatureError:
-            raise TokenExpired(expected_type)
+            raise TokenExpired(expected_type) from None
         except jwt.InvalidTokenError as exc:
-            raise TokenInvalid(str(exc))
+            raise TokenInvalid(str(exc)) from exc
 
         if payload.get("token_type") != expected_type:
             raise TokenInvalid(
@@ -219,7 +219,7 @@ class JWTManager:
             raise TokenRevoked()
 
         # Blacklist the old refresh token's JTI
-        remaining_ttl = int((payload.exp - datetime.now(timezone.utc)).total_seconds())
+        remaining_ttl = int((payload.exp - datetime.now(UTC)).total_seconds())
         await self._storage.blacklist_jti(payload.jti, max(remaining_ttl, 1))
 
         # Issue a new pair
@@ -244,7 +244,7 @@ class JWTManager:
     async def revoke_refresh_token(self, refresh_token: str) -> None:
         """Explicitly revoke a refresh token (e.g. on logout)."""
         payload = self.decode_token(refresh_token, expected_type="refresh")
-        remaining_ttl = int((payload.exp - datetime.now(timezone.utc)).total_seconds())
+        remaining_ttl = int((payload.exp - datetime.now(UTC)).total_seconds())
         await self._storage.blacklist_jti(payload.jti, max(remaining_ttl, 1))
 
         logger.info("jwt.refresh_token_revoked", subject=payload.sub, jti=payload.jti)

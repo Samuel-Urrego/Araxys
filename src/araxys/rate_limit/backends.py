@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Rate limit backend protocol and implementations.
 
 Backends track request counts per key and manage temporary bans.
@@ -7,6 +5,8 @@ The ``InMemoryBackend`` is the default; ``RedisBackend`` is available
 when the ``redis`` extra is installed.
 """
 
+
+from __future__ import annotations
 
 import time
 from collections import defaultdict

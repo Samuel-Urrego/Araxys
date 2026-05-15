@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Central configuration for all Araxys modules.
 
 Uses Pydantic Settings for env var support:
@@ -7,6 +5,8 @@ Uses Pydantic Settings for env var support:
     ARAXYS_REDIS_URL=redis://localhost:6379
 """
 
+
+from __future__ import annotations
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings

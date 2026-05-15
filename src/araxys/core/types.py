@@ -1,10 +1,10 @@
-from __future__ import annotations
-
 """Core types shared across all Araxys modules."""
 
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -40,7 +40,7 @@ class AuditEntry:
     """Immutable record of a security event."""
 
     event_type: AuditEventType
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     ip_address: str | None = None
     user_id: str | None = None
     api_key_prefix: str | None = None

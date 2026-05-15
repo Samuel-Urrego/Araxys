@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """AraxysShield — the main entry point for Araxys security.
 
 Wires all security modules together and registers them on a
@@ -10,19 +8,21 @@ Usage::
     from fastapi import FastAPI
     from araxys import AraxysShield, AraxysConfig
 
-    app = FastAPI()
-    shield = AraxysShield(app, AraxysConfig(secret_key="your-32-char-secret-key-here!!!!"))
+    shield = AraxysShield(
+        app, AraxysConfig(secret_key="your-32-char-secret-key-here!!!!")
+    )
 """
 
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import structlog
-from fastapi import FastAPI
 
 from araxys.api_keys.manager import APIKeyManager
 from araxys.api_keys.storage import InMemoryAPIKeyStorage
 from araxys.audit.logger import AuditLogger
-from araxys.core.config import AraxysConfig
-from araxys.core.types import AuditEntry
 from araxys.headers.middleware import SecureHeadersMiddleware
 from araxys.honeypot.middleware import HoneypotMiddleware
 from araxys.honeypot.trap import HoneypotTrap
@@ -31,6 +31,12 @@ from araxys.jwt_auth.tokens import JWTManager
 from araxys.rate_limit.backends import InMemoryBackend, RateLimitBackend
 from araxys.rate_limit.middleware import RateLimitMiddleware
 from araxys.sanitize.middleware import SanitizeMiddleware
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+
+    from araxys.core.config import AraxysConfig
+    from araxys.core.types import AuditEntry
 
 logger = structlog.get_logger("araxys.shield")
 

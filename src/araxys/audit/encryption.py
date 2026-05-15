@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """AES-256-GCM encryption for audit log entries.
 
 Uses PBKDF2-HMAC-SHA256 for key derivation from the master secret,
@@ -12,18 +10,23 @@ Each encrypted entry includes:
 """
 
 
+from __future__ import annotations
+
 import base64
 import json
 import os
 from dataclasses import asdict
 from datetime import datetime
+from typing import TYPE_CHECKING
 
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives import hashes
 
 from araxys.core.exceptions import EncryptionError
-from araxys.core.types import AuditEntry
+
+if TYPE_CHECKING:
+    from araxys.core.types import AuditEntry
 
 # Constants
 SALT_LENGTH = 16  # bytes

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Secure HTTP headers middleware.
 
 Automatically injects security headers into every response following
@@ -7,13 +5,17 @@ OWASP recommendations.
 """
 
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
-from starlette.responses import Response
 
-from araxys.core.config import SecureHeadersConfig
+if TYPE_CHECKING:
+    from starlette.requests import Request
+    from starlette.responses import Response
+
+    from araxys.core.config import SecureHeadersConfig
 
 
 class SecureHeadersMiddleware(BaseHTTPMiddleware):

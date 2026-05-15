@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """FastAPI dependencies for API key authentication.
 
 Provides ``require_api_key()`` — a dependency factory that extracts
@@ -15,15 +13,22 @@ Usage::
 """
 
 
-from collections.abc import Callable
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 
-from araxys.api_keys.manager import APIKeyManager
-from araxys.api_keys.models import APIKeyRecord
 from araxys.core.exceptions import InvalidAPIKey
-from araxys.core.types import Scope
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from araxys.api_keys.manager import APIKeyManager
+    from araxys.api_keys.models import APIKeyRecord
+    from araxys.core.types import Scope
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 

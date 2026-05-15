@@ -1,13 +1,13 @@
-from __future__ import annotations
-
 """API Key data models."""
 
 
-from datetime import datetime, timezone
+from __future__ import annotations
+
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
-from araxys.core.types import Scope
+from araxys.core.types import Scope  # noqa: TC001
 
 
 class APIKeyRecord(BaseModel):
@@ -28,7 +28,7 @@ class APIKeyRecord(BaseModel):
         default=None,
         description="Expiration timestamp (None = never expires)",
     )
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     owner: str = Field(description="Owner identifier for the key")
     is_active: bool = Field(default=True)
     label: str | None = Field(

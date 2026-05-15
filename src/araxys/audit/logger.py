@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Structured audit logger with optional AES-256-GCM encryption.
 
 Logs security events using ``structlog`` for structured output.
@@ -8,16 +6,21 @@ written, ensuring that sensitive data at rest is protected.
 """
 
 
+from __future__ import annotations
+
 import json
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import structlog
 
 from araxys.audit.encryption import AuditEncryption
-from araxys.core.config import AuditConfig
-from araxys.core.types import AuditEntry
+
+if TYPE_CHECKING:
+    from araxys.core.config import AuditConfig
+    from araxys.core.types import AuditEntry
 
 logger = structlog.get_logger("araxys.audit")
 
