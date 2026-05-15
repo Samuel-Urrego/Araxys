@@ -8,6 +8,14 @@
       "sessions": 1,
       "memories": 1,
       "prompts": 0
+    },
+    {
+      "id": "04aea666",
+      "created_by": "samuel.urrego",
+      "created_at": "2026-05-15T21:47:09Z",
+      "sessions": 3,
+      "memories": 21,
+      "prompts": 13
     }
   ]
 }
