@@ -9,7 +9,7 @@ from araxys.core.types import Scope
 
 
 @pytest.fixture
-async def redis_storage():
+async def redis_storage() -> RedisAPIKeyStorage:
     storage = RedisAPIKeyStorage("redis://localhost")
     # Replace real redis with fakeredis
     storage._redis = FakeRedis(decode_responses=True)
@@ -17,7 +17,7 @@ async def redis_storage():
 
 @pytest.mark.asyncio
 class TestRedisAPIKeyStorage:
-    async def test_store_and_retrieve(self, redis_storage):
+    async def test_store_and_retrieve(self, redis_storage: RedisAPIKeyStorage) -> None:
         record = APIKeyRecord(
             prefix="testpref",
             key_hash="somehash",
@@ -33,7 +33,7 @@ class TestRedisAPIKeyStorage:
         assert retrieved.owner == "test-owner"
         assert retrieved.prefix == "testpref"
 
-    async def test_revoke_key(self, redis_storage):
+    async def test_revoke_key(self, redis_storage: RedisAPIKeyStorage) -> None:
         record = APIKeyRecord(
             prefix="revokeme",
             key_hash="somehash",
@@ -49,7 +49,7 @@ class TestRedisAPIKeyStorage:
         retrieved = await redis_storage.get_by_prefix("revokeme")
         assert retrieved is None # Should return None if is_active is False
 
-    async def test_list_keys(self, redis_storage):
+    async def test_list_keys(self, redis_storage: RedisAPIKeyStorage) -> None:
         await redis_storage.store(APIKeyRecord(
             prefix="key00001", key_hash="h1", owner="user1", scopes=[], is_active=True
         ))
@@ -66,7 +66,7 @@ class TestRedisAPIKeyStorage:
         user1_keys = await redis_storage.list_keys(owner="user1")
         assert len(user1_keys) == 2
 
-    async def test_expiration(self, redis_storage):
+    async def test_expiration(self, redis_storage: RedisAPIKeyStorage) -> None:
         past_date = datetime.now(UTC) - timedelta(days=1)
         record = APIKeyRecord(
             prefix="expired1",

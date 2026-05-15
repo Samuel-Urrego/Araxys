@@ -1,3 +1,4 @@
+from typing import Any, Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -9,7 +10,7 @@ from araxys.core.types import Scope
 runner = CliRunner()
 
 @pytest.fixture
-def mock_manager():
+def mock_manager() -> Generator[Any, None, None]:
     with patch("araxys.cli.get_manager") as mock:
         manager = MagicMock()
         manager.create_key = AsyncMock()
@@ -18,7 +19,7 @@ def mock_manager():
         mock.return_value = manager
         yield manager
 
-def test_cli_create_key(mock_manager):
+def test_cli_create_key(mock_manager: Any) -> None:
     mock_manager.create_key.return_value = MagicMock(
         raw_key="test_raw_key",
         prefix="testpref",
@@ -32,7 +33,7 @@ def test_cli_create_key(mock_manager):
     assert "test_raw_key" in result.stdout
     assert "testpref" in result.stdout
 
-def test_cli_list_keys(mock_manager):
+def test_cli_list_keys(mock_manager: Any) -> None:
     mock_manager.list_keys.return_value = [
         MagicMock(
             prefix="testpref",
@@ -51,7 +52,7 @@ def test_cli_list_keys(mock_manager):
     assert "test-user" in result.stdout
     assert "read" in result.stdout
 
-def test_cli_revoke_key(mock_manager):
+def test_cli_revoke_key(mock_manager: Any) -> None:
     mock_manager.revoke_key.return_value = True
     
     result = runner.invoke(app, ["keys", "revoke", "testpref"])
@@ -59,7 +60,7 @@ def test_cli_revoke_key(mock_manager):
     assert result.exit_code == 0
     assert "Key testpref has been revoked" in result.stdout
 
-def test_cli_revoke_key_not_found(mock_manager):
+def test_cli_revoke_key_not_found(mock_manager: Any) -> None:
     mock_manager.revoke_key.return_value = False
     
     result = runner.invoke(app, ["keys", "revoke", "nonexistent"])

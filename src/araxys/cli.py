@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from typing import TYPE_CHECKING
 
 import typer
 from rich.console import Console
@@ -13,6 +14,9 @@ from rich.table import Table
 from araxys.api_keys.manager import APIKeyManager
 from araxys.api_keys.storage import RedisAPIKeyStorage
 from araxys.core.types import Scope
+
+if TYPE_CHECKING:
+    from araxys.api_keys.models import APIKeyRecord, APIKeyResponse
 
 app = typer.Typer(
     help="🛡️ Araxys Security CLI — Enterprise-grade security management.",
@@ -49,7 +53,7 @@ def create_key(
         None, "--ttl", "-t", help="Days until expiration"
     ),
     label: str | None = typer.Option(None, "--label", "-l", help="Optional label"),
-):
+) -> None:
     """Create a new API key securely."""
     manager = get_manager()
 
@@ -57,7 +61,7 @@ def create_key(
     if scopes:
         parsed_scopes = [Scope(s.strip()) for s in scopes.split(",")]
 
-    async def _run():
+    async def _run() -> APIKeyResponse:
         return await manager.create_key(
             owner=owner,
             scopes=parsed_scopes,
@@ -86,11 +90,11 @@ def create_key(
 @keys_app.command("list")
 def list_keys(
     owner: str | None = typer.Option(None, "--owner", "-o", help="Filter by owner"),
-):
+) -> None:
     """List all active API keys."""
     manager = get_manager()
 
-    async def _run():
+    async def _run() -> list[APIKeyRecord]:
         return await manager.list_keys(owner=owner)
 
     records = asyncio.run(_run())
@@ -123,11 +127,11 @@ def list_keys(
 @keys_app.command("revoke")
 def revoke_key(
     prefix: str = typer.Argument(..., help="The 8-character prefix of the key"),
-):
+) -> None:
     """Immediately revoke an API key."""
     manager = get_manager()
 
-    async def _run():
+    async def _run() -> bool:
         return await manager.revoke_key(prefix)
 
     success = asyncio.run(_run())

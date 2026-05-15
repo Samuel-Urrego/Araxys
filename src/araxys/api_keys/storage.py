@@ -120,7 +120,7 @@ class RedisAPIKeyStorage:
 
         keys = []
         async for key in self._redis.scan_iter(match=f"{self._prefix}*"):
-            data = await self._redis.get(key) # type: ignore
+            data = await self._redis.get(key)
             if data:
                 record = APIKeyRecord.model_validate_json(data)
                 if record.is_active and (not owner or record.owner == owner):
