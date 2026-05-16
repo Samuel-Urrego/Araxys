@@ -333,7 +333,7 @@ def scanner_app(sanitize_config: SanitizeConfig) -> FastAPI:
 
 
 @pytest.fixture
-async def scanner_client(scanner_app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+async def scanner_client(scanner_app: FastAPI) -> AsyncGenerator[AsyncClient]:
     """Async HTTP client for scanner integration tests."""
     transport = ASGITransport(app=scanner_app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
