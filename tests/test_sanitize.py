@@ -1,5 +1,7 @@
 """Tests for the sanitization module."""
 
+from collections.abc import AsyncGenerator
+
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -319,11 +321,11 @@ def scanner_app(sanitize_config: SanitizeConfig) -> FastAPI:
     app = FastAPI()
 
     @app.get("/test")
-    async def test_get() -> dict:
+    async def test_get() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.post("/body")
-    async def test_post() -> dict:
+    async def test_post() -> dict[str, str]:
         return {"status": "ok"}
 
     app.add_middleware(SanitizeMiddleware, config=sanitize_config)
@@ -331,7 +333,7 @@ def scanner_app(sanitize_config: SanitizeConfig) -> FastAPI:
 
 
 @pytest.fixture
-async def scanner_client(scanner_app: FastAPI) -> AsyncClient:
+async def scanner_client(scanner_app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
     """Async HTTP client for scanner integration tests."""
     transport = ASGITransport(app=scanner_app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -458,7 +460,7 @@ class TestScanHeaders:
         app = FastAPI()
 
         @app.get("/test")
-        async def root() -> dict:
+        async def root() -> dict[str, str]:
             return {"status": "ok"}
 
         app.add_middleware(SanitizeMiddleware, config=config)

@@ -17,7 +17,7 @@ from araxys.rate_limit.path_matcher import find_best_match, match_path
 def _make_request(headers: dict[str, str]) -> Request:
     """Build a minimal Starlette Request with the given headers."""
     raw = [(k.lower().encode(), v.encode()) for k, v in headers.items()]
-    scope: dict = {
+    scope: dict[str, object] = {
         "type": "http",
         "method": "GET",
         "path": "/test",
@@ -32,7 +32,7 @@ def _make_request(headers: dict[str, str]) -> Request:
     return Request(scope)
 
 
-def _make_jwt_token(payload: dict) -> str:
+def _make_jwt_token(payload: dict[str, object]) -> str:
     """Create an unsigned JWT for testing identity extraction."""
     import jwt
 
