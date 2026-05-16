@@ -414,7 +414,7 @@ class TestSecureHeadersConfig:
         assert c.coep is None
         assert c.corp == "same-origin"
         assert c.hide_server is True
-        assert c.csp_directives == {}
+        assert c.csp_directives is None
 
     def test_custom_values(self) -> None:
         c = SecureHeadersConfig(
@@ -422,13 +422,18 @@ class TestSecureHeadersConfig:
             coep="require-corp",
             corp="cross-origin",
             hide_server=False,
-            csp_directives={"default-src": "'self'", "script-src": "'self'"},
+            csp_directives=CSPDirectiveConfig(
+                default_src=["'self'"],
+                script_src=["'self'"],
+            ),
         )
         assert c.coop == "unsafe-none"
         assert c.coep == "require-corp"
         assert c.corp == "cross-origin"
         assert c.hide_server is False
-        assert c.csp_directives["default-src"] == "'self'"
+        assert c.csp_directives is not None
+        assert "'self'" in c.csp_directives.default_src
+        assert "'self'" in c.csp_directives.script_src
 
 
 class TestSanitizeConfig:

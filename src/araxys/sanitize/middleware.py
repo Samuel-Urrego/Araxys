@@ -1,8 +1,8 @@
 """ASGI middleware for automatic request payload sanitization.
 
-Intercepts POST/PUT/PATCH requests with JSON bodies, scans them
-for SQL injection and XSS, and either blocks or cleans the payload
-before it reaches the route handler.
+Intercepts requests, scans headers and query parameters for injection
+patterns (NoSQL, command injection, path traversal), and sanitizes
+JSON request bodies for SQL injection and XSS.
 """
 
 
@@ -16,6 +16,7 @@ from starlette.responses import JSONResponse, Response
 
 from araxys.core.exceptions import SanitizationError
 from araxys.sanitize.filters import sanitize_payload
+from araxys.sanitize.scanner import scan_headers, scan_query_params
 
 if TYPE_CHECKING:
     from starlette.requests import Request
@@ -24,10 +25,14 @@ if TYPE_CHECKING:
 
 
 class SanitizeMiddleware(BaseHTTPMiddleware):
-    """Middleware that sanitizes JSON request bodies.
+    """Middleware that sanitizes HTTP requests.
 
-    Only processes requests with ``Content-Type: application/json``
-    and methods that typically carry a body (POST, PUT, PATCH).
+    Scanning phases (all methods):
+    1. Header scanning — when ``scan_headers`` is enabled
+    2. Query param scanning — when ``scan_query_params`` is enabled
+
+    Body sanitization (POST/PUT/PATCH only with JSON):
+    3. JSON body sanitization — SQLi blocking and XSS stripping
 
     Parameters
     ----------
@@ -43,10 +48,32 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._config = config
 
+    def _block_response(self, threat_type: str) -> JSONResponse:
+        """Create a 400 rejection response."""
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": "Request blocked — malicious content detected",
+                "threat_type": threat_type,
+            },
+        )
+
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
-        # Skip methods without body
+        # Phase 1 — Header scanning (all methods)
+        if self._config.scan_headers:
+            threat = scan_headers(request, self._config)
+            if threat is not None:
+                return self._block_response(threat)
+
+        # Phase 2 — Query param scanning (all methods)
+        if self._config.scan_query_params:
+            threat = scan_query_params(request, self._config)
+            if threat is not None:
+                return self._block_response(threat)
+
+        # Skip methods without body for body sanitization
         if request.method not in self.METHODS_WITH_BODY:
             return await call_next(request)
 

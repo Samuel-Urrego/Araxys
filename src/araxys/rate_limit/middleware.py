@@ -14,6 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import JSONResponse, Response
 
 from araxys.core.exceptions import RateLimitExceeded
+from araxys.rate_limit.identity import extract_api_key, extract_user_id
 from araxys.rate_limit.limiter import RateLimiter
 
 if TYPE_CHECKING:
@@ -44,6 +45,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     ) -> None:
         super().__init__(app)
         self._limiter = RateLimiter(backend=backend, config=config)
+        self._config = config
 
     def _get_client_ip(self, request: Request) -> str:
         """Extract the real client IP, respecting reverse proxy headers."""
@@ -66,8 +68,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         ip = self._get_client_ip(request)
 
+        # Extract identity when per-user or per-key tracking is enabled
+        # (graceful fallback to None if headers are missing)
+        user_id: str | None = None
+        api_key: str | None = None
+        if self._config.per_user:
+            user_id = extract_user_id(request)
+        if self._config.per_api_key:
+            api_key = extract_api_key(request)
+
         try:
-            rate_headers = await self._limiter.check(ip, path)
+            rate_headers = await self._limiter.check(
+                ip, path, user_id=user_id, api_key=api_key
+            )
         except RateLimitExceeded as exc:
             return JSONResponse(
                 status_code=429,

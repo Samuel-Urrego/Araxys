@@ -1,10 +1,53 @@
 """Shared test fixtures for Araxys."""
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+    PublicFormat,
+)
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from araxys import AraxysConfig, AraxysShield
+
+
+@pytest.fixture(scope="session")
+def rsa_private_key_pem() -> str:
+    """Generate a 2048-bit RSA private key PEM for testing."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()).decode()
+
+
+@pytest.fixture(scope="session")
+def rsa_public_key_pem(rsa_private_key_pem: str) -> str:
+    """Derive the RSA public key PEM from the private key."""
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
+    private_key = load_pem_private_key(rsa_private_key_pem.encode(), password=None)
+    return private_key.public_key().public_bytes(
+        Encoding.PEM, PublicFormat.SubjectPublicKeyInfo
+    ).decode()
+
+
+@pytest.fixture(scope="session")
+def ec_private_key_pem() -> str:
+    """Generate an ES256 (P-256) EC private key PEM for testing."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    return key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()).decode()
+
+
+@pytest.fixture(scope="session")
+def ec_public_key_pem(ec_private_key_pem: str) -> str:
+    """Derive the EC public key PEM from the private key."""
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
+    private_key = load_pem_private_key(ec_private_key_pem.encode(), password=None)
+    return private_key.public_key().public_bytes(
+        Encoding.PEM, PublicFormat.SubjectPublicKeyInfo
+    ).decode()
 
 
 @pytest.fixture

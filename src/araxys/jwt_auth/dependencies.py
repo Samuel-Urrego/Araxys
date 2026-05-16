@@ -4,6 +4,9 @@ Provides ``require_jwt()`` — a dependency factory that extracts
 the bearer token from the ``Authorization`` header, decodes it,
 and enforces scope requirements.
 
+Also provides ``create_jwks_router()`` — a factory that creates a
+FastAPI router with a JWKS endpoint for public key discovery.
+
 Usage::
 
     from araxys.jwt_auth.dependencies import require_jwt
@@ -11,15 +14,18 @@ Usage::
     @app.get("/protected")
     async def protected(user: TokenPayload = Depends(require_jwt(Scope.READ))):
         return {"user_id": user.sub}
-"""
 
+    # JWKS endpoint (optional):
+    from araxys.jwt_auth.dependencies import create_jwks_router
+    app.include_router(create_jwks_router(jwt_manager))
+"""
 
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from fastapi import HTTPException, Security, status
+from fastapi import APIRouter, HTTPException, Security, status
 from fastapi.security import OAuth2PasswordBearer
 
 from araxys.core.exceptions import TokenExpired, TokenInvalid
@@ -90,3 +96,40 @@ def require_jwt(
         return payload
 
     return _dependency  # type: ignore
+
+
+def create_jwks_router(jwt_manager: JWTManager | None = None) -> APIRouter:
+    """Create a FastAPI router with a JWKS endpoint for public key discovery.
+
+    The endpoint is mounted at ``/.well-known/jwks.json``.
+
+    Parameters
+    ----------
+    jwt_manager:
+        The JWT manager instance. Must have ``jwks_enabled=True`` and a
+        ``jwks_store`` configured. If ``None`` or JWKS is not enabled,
+        the endpoint returns 404.
+
+    Returns
+    -------
+    APIRouter
+        A FastAPI router with the JWKS endpoint registered.
+    """
+    router = APIRouter()
+
+    @router.get("/.well-known/jwks.json", include_in_schema=False)
+    async def jwks_endpoint() -> dict[str, Any]:
+        if jwt_manager is None or not jwt_manager._config.jwks_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="JWKS endpoint not enabled",
+            )
+        try:
+            return await jwt_manager.get_jwks()
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(exc),
+            ) from exc
+
+    return router

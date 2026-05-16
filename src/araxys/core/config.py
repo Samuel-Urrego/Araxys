@@ -151,9 +151,9 @@ class SecureHeadersConfig(BaseModel):
         default=True,
         description="Strip Server header from responses",
     )
-    csp_directives: dict[str, str] = Field(
-        default_factory=dict,
-        description="Raw CSP directives as directive-name -> value pairs",
+    csp_directives: CSPDirectiveConfig | None = Field(
+        default=None,
+        description="Structured CSP directive config for building the CSP header",
     )
 
 

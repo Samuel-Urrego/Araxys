@@ -23,7 +23,7 @@ from araxys.core.types import AuditEntry, AuditEventType, Scope
 
 if typing.TYPE_CHECKING:
     from araxys.core.config import JWTConfig
-    from araxys.jwt_auth.storage import TokenStorage
+    from araxys.jwt_auth.storage import JWKSStore, TokenStorage
 
 logger = structlog.get_logger("araxys.jwt")
 
@@ -63,6 +63,8 @@ class JWTManager:
         Token storage backend for JTI blacklisting.
     on_audit:
         Optional callback to emit audit events.
+    jwks_store:
+        Optional JWKS store for public key discovery and rotation.
     """
 
     def __init__(
@@ -71,11 +73,63 @@ class JWTManager:
         secret_key: str,
         storage: TokenStorage,
         on_audit: typing.Callable | None = None,  # type: ignore
+        jwks_store: JWKSStore | None = None,
     ) -> None:
         self._config = config
         self._secret_key = secret_key
         self._storage = storage
         self._on_audit = on_audit
+        self._jwks_store = jwks_store
+
+    def _get_signing_key(self) -> str:
+        """Return the key to use for token signing based on the algorithm.
+
+        For symmetric algorithms (HS256), returns the ``secret_key``.
+        For asymmetric algorithms (RS256, ES256), returns the ``private_key``
+        from config.
+        """
+        algorithm = self._config.algorithm
+        if algorithm in ("RS256", "ES256"):
+            private_key = self._config.private_key
+            if private_key:
+                return private_key
+            raise ValueError(
+                f"private_key required in JWTConfig for {algorithm} signing"
+            )
+        return self._secret_key
+
+    def _get_verification_key(self) -> str:
+        """Return the key to use for token verification based on the algorithm.
+
+        For symmetric algorithms (HS256), returns the ``secret_key``.
+        For asymmetric algorithms (RS256, ES256), returns the ``public_key``
+        from config, falling back to ``private_key`` if no separate public key
+        is provided.
+        """
+        algorithm = self._config.algorithm
+        if algorithm in ("RS256", "ES256"):
+            if self._config.public_key:
+                return self._config.public_key
+            if self._config.private_key:
+                # Derive public key from private key
+                from cryptography.hazmat.primitives.serialization import (
+                    load_pem_private_key,
+                )
+
+                private_key = load_pem_private_key(
+                    self._config.private_key.encode("utf-8"), password=None
+                )
+                public_key = private_key.public_key()
+                from cryptography.hazmat.primitives.serialization import (
+                    Encoding,
+                    PublicFormat,
+                )
+
+                return public_key.public_bytes(
+                    Encoding.PEM, PublicFormat.SubjectPublicKeyInfo
+                ).decode()
+            return self._secret_key
+        return self._secret_key
 
     def _create_token(
         self,
@@ -105,7 +159,8 @@ class JWTManager:
         if extra_claims:
             payload.update(extra_claims)
 
-        token = jwt.encode(payload, self._secret_key, algorithm=self._config.algorithm)
+        signing_key = self._get_signing_key()
+        token = jwt.encode(payload, signing_key, algorithm=self._config.algorithm)
         return token, jti
 
     async def create_token_pair(
@@ -159,7 +214,13 @@ class JWTManager:
             If the token is malformed, has wrong type, or invalid signature.
         """
         try:
-            algorithms = [self._config.algorithm]
+            algorithm_hint = self._config.algorithm
+            # If JWKS is active, try all known algorithms for verification
+            if self._config.jwks_enabled and self._jwks_store is not None:
+                # Use a broader algorithm set when JWKS keys may vary
+                algorithms = ["RS256", "ES256", "HS256"]
+            else:
+                algorithms = [algorithm_hint]
 
             kwargs: dict[str, Any] = {"algorithms": algorithms}
             if self._config.audience:
@@ -167,7 +228,8 @@ class JWTManager:
             if self._config.issuer:
                 kwargs["issuer"] = self._config.issuer
 
-            payload = jwt.decode(token, self._secret_key, **kwargs)
+            verification_key = self._get_verification_key()
+            payload = jwt.decode(token, verification_key, **kwargs)
 
         except jwt.ExpiredSignatureError:
             raise TokenExpired(expected_type) from None
@@ -248,3 +310,64 @@ class JWTManager:
         await self._storage.blacklist_jti(payload.jti, max(remaining_ttl, 1))
 
         logger.info("jwt.refresh_token_revoked", subject=payload.sub, jti=payload.jti)
+
+    async def introspect_token(self, token: str) -> dict[str, Any]:
+        """Introspect a token following RFC 7662.
+
+        Parameters
+        ----------
+        token:
+            The encoded JWT string to introspect.
+
+        Returns
+        -------
+        dict[str, Any]
+            A dictionary with at least the ``active`` key, plus claims
+            if the token is valid (even if revoked).
+        """
+        try:
+            # Try as an access token first
+            payload = self.decode_token(token, expected_type="access")
+        except TokenExpired:
+            return {"active": False}
+        except TokenInvalid:
+            try:
+                # Try as a refresh token
+                payload = self.decode_token(token, expected_type="refresh")
+            except (TokenExpired, TokenInvalid):
+                return {"active": False}
+
+        # Check revocation status
+        is_revoked = await self._storage.is_blacklisted(payload.jti)
+
+        result: dict[str, Any] = {
+            "active": not is_revoked,
+            "sub": payload.sub,
+            "exp": int(payload.exp.timestamp()),
+            "iat": int(payload.iat.timestamp()),
+            "jti": payload.jti,
+            "token_type": payload.token_type,
+            "scope": " ".join(payload.scopes) if payload.scopes else "",
+            "iss": payload.iss,
+            "aud": payload.aud,
+        }
+
+        logger.info("jwt.token_introspected", sub=payload.sub, active=result["active"])
+        return result
+
+    async def get_jwks(self) -> dict[str, Any]:
+        """Return the JWKS (JSON Web Key Set) for public key discovery.
+
+        Requires that ``jwks_enabled`` is ``True`` in config and a
+        ``jwks_store`` was provided.
+
+        Raises
+        ------
+        RuntimeError
+            If JWKS is not configured or not enabled.
+        """
+        if not self._config.jwks_enabled or self._jwks_store is None:
+            raise RuntimeError(
+                "JWKS not configured. Set jwks_enabled=True and provide a jwks_store."
+            )
+        return await self._jwks_store.get_jwks()

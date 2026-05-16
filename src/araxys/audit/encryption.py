@@ -17,7 +17,7 @@ import json
 import os
 from dataclasses import asdict
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -67,6 +67,41 @@ class AuditEncryption:
             if isinstance(value, datetime):
                 data[key] = value.isoformat()
         return json.dumps(data, default=str).encode()
+
+    @staticmethod
+    def _serialize_dict(data: dict[str, Any]) -> bytes:
+        """Convert a dict to JSON bytes for encryption."""
+        data = dict(data)
+        for key, value in data.items():
+            if isinstance(value, datetime):
+                data[key] = value.isoformat()
+        return json.dumps(data, default=str).encode()
+
+    def encrypt_data(self, data: dict[str, Any]) -> str:
+        """Encrypt a pre-serialised dict.
+
+        Like :meth:`encrypt_entry` but accepts a plain dict, useful
+        when the caller has already applied transformations such as
+        PII masking.
+
+        Returns a base64-encoded string with the same
+        ``salt || nonce || ciphertext+tag`` format.
+        """
+        try:
+            plaintext = self._serialize_dict(data)
+
+            salt = os.urandom(SALT_LENGTH)
+            nonce = os.urandom(NONCE_LENGTH)
+            key = self._derive_key(salt)
+
+            aesgcm = AESGCM(key)
+            ciphertext = aesgcm.encrypt(nonce, plaintext, None)
+
+            packed = salt + nonce + ciphertext
+            return base64.b64encode(packed).decode()
+
+        except Exception as exc:
+            raise EncryptionError("encryption") from exc
 
     def encrypt_entry(self, entry: AuditEntry) -> str:
         """Encrypt an audit entry.

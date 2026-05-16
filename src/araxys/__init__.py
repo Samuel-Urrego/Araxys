@@ -64,6 +64,9 @@ from araxys.csrf.dependencies import csrf_protected, set_csrf_cookie
 from araxys.csrf.tokens import CSRFHandler
 from araxys.ip_access.backends import IPAccessBackend
 from araxys.ip_access.middleware import IPAccessMiddleware
+from araxys.jwt_auth.dependencies import create_jwks_router
+from araxys.jwt_auth.storage import InMemoryJWKSStore, JWKSStore
+from araxys.jwt_auth.tokens import JWTManager, TokenPair, TokenPayload
 from araxys.metrics.collector import MetricsRegistry
 from araxys.sessions.manager import SessionManager
 from araxys.sessions.storage import (
@@ -140,4 +143,11 @@ __all__ = [
     "InMemorySessionBackend",
     "RedisSessionBackend",
     "SessionRecord",
+    # v0.3 JWT additions
+    "JWTManager",
+    "TokenPair",
+    "TokenPayload",
+    "JWKSStore",
+    "InMemoryJWKSStore",
+    "create_jwks_router",
 ]

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from araxys.audit.encryption import AuditEncryption
+from araxys.audit.masking import mask_pii
 
 if TYPE_CHECKING:
     from araxys.core.config import AuditConfig
@@ -48,17 +49,34 @@ class AuditLogger:
             self._encryption = AuditEncryption(secret_key)
 
         self._log_file: Path | None = None
+        self._writer = None
         if config.log_file:
             self._log_file = Path(config.log_file)
             self._log_file.parent.mkdir(parents=True, exist_ok=True)
+            from araxys.audit.writer import LogWriter
+
+            self._writer = LogWriter(
+                log_file=config.log_file,
+                log_rotation_bytes=config.log_rotation_bytes,
+                log_backup_count=config.log_backup_count,
+                async_write=config.async_write,
+            )
+
+        self._shipper = None
+        if config.log_shipping:
+            from araxys.audit.shipping import LogShipper
+
+            self._shipper = LogShipper(config.log_shipping)
 
     async def log(self, entry: AuditEntry) -> None:
         """Log an audit entry.
 
         The entry is:
         1. Logged via structlog (always)
-        2. Encrypted if configured
-        3. Written to file if configured
+        2. PII-masked if ``pii_fields`` is configured
+        3. Encrypted if configured
+        4. Written to file if configured (with optional rotation / async I/O)
+        5. Shipped to an external endpoint if configured
         """
         # Always log via structlog for observability
         logger.info(
@@ -72,25 +90,27 @@ class AuditLogger:
             detail=entry.detail,
         )
 
-        # Write to file if configured
-        if self._log_file:
-            await self._write_to_file(entry)
+        # Serialise entry to a plain dict
+        data = asdict(entry)
+        for key, value in data.items():
+            if isinstance(value, datetime):
+                data[key] = value.isoformat()
 
-    async def _write_to_file(self, entry: AuditEntry) -> None:
-        """Write an entry to the audit log file."""
-        if self._encryption:
-            line = self._encryption.encrypt_entry(entry)
-        else:
-            data = asdict(entry)
-            for key, value in data.items():
-                if isinstance(value, datetime):
-                    data[key] = value.isoformat()
-            line = json.dumps(data, default=str)
+        # Apply PII masking BEFORE writing (never log plaintext PII)
+        if self._config.pii_fields:
+            data = mask_pii(data, self._config.pii_fields)
 
-        # Append to file (one entry per line)
-        assert self._log_file is not None
-        with self._log_file.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        # Write to file via LogWriter (sync / async with rotation)
+        if self._writer is not None:
+            if self._encryption:
+                line = self._encryption.encrypt_data(data)
+            else:
+                line = json.dumps(data, default=str)
+            await self._writer.write(line + "\n")
+
+        # Ship to external endpoint if configured
+        if self._shipper is not None:
+            await self._shipper.ship(data)
 
     def read_entries(self) -> list[dict]:  # type: ignore
         """Read and decrypt all entries from the audit log file.

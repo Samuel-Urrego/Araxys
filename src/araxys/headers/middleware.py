@@ -7,9 +7,12 @@ OWASP recommendations.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+
+from araxys.headers.csp import build_csp_header
 
 if TYPE_CHECKING:
     from starlette.requests import Request
@@ -26,9 +29,14 @@ class SecureHeadersMiddleware(BaseHTTPMiddleware):
     - ``X-Content-Type-Options: nosniff``
     - ``X-Frame-Options`` — clickjacking protection
     - ``Referrer-Policy``
-    - ``Content-Security-Policy`` (if configured)
+    - ``Content-Security-Policy`` (if configured, via raw string or structured
+      ``csp_directives``)
     - ``Permissions-Policy`` (if configured)
+    - ``Cross-Origin-Opener-Policy`` (COOP, if configured)
+    - ``Cross-Origin-Embedder-Policy`` (COEP, if configured)
+    - ``Cross-Origin-Resource-Policy`` (CORP, if configured)
     - ``X-XSS-Protection: 0`` — disabled per modern best practice
+    - ``Server`` header stripping (if ``hide_server`` is ``True``)
 
     Parameters
     ----------
@@ -41,6 +49,7 @@ class SecureHeadersMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: Any, config: SecureHeadersConfig) -> None:
         super().__init__(app)
         self._headers = self._build_headers(config)
+        self._hide_server = config.hide_server
 
     @staticmethod
     def _build_headers(config: SecureHeadersConfig) -> dict[str, str]:
@@ -67,13 +76,29 @@ class SecureHeadersMiddleware(BaseHTTPMiddleware):
         # Referrer
         headers["Referrer-Policy"] = config.referrer_policy
 
-        # CSP
-        if config.content_security_policy:
+        # CSP — structured directives take precedence over raw string
+        if config.csp_directives is not None:
+            headers["Content-Security-Policy"] = build_csp_header(
+                config.csp_directives
+            )
+        elif config.content_security_policy:
             headers["Content-Security-Policy"] = config.content_security_policy
 
         # Permissions Policy
         if config.permissions_policy:
             headers["Permissions-Policy"] = config.permissions_policy
+
+        # Cross-Origin-Opener-Policy (COOP)
+        if config.coop is not None:
+            headers["Cross-Origin-Opener-Policy"] = config.coop
+
+        # Cross-Origin-Embedder-Policy (COEP)
+        if config.coep is not None:
+            headers["Cross-Origin-Embedder-Policy"] = config.coep
+
+        # Cross-Origin-Resource-Policy (CORP)
+        if config.corp is not None:
+            headers["Cross-Origin-Resource-Policy"] = config.corp
 
         return headers
 
@@ -84,5 +109,10 @@ class SecureHeadersMiddleware(BaseHTTPMiddleware):
 
         for header, value in self._headers.items():
             response.headers[header] = value
+
+        # Strip the Server header when configured
+        if self._hide_server:
+            with suppress(KeyError):
+                del response.headers["server"]
 
         return response

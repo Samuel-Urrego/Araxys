@@ -2,13 +2,21 @@
 
 Token storage is used for refresh token revocation tracking via JTI
 (JWT ID) — when a refresh token is rotated, the old JTI is blacklisted.
+
+Also provides JWKS (JSON Web Key Set) support for public key discovery
+and rotation as defined in RFC 7517.
 """
 
 
 from __future__ import annotations
 
+import base64
 import time
-from typing import Protocol, runtime_checkable
+import uuid
+from typing import Any, Protocol, runtime_checkable
+
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
 
 @runtime_checkable
@@ -74,3 +82,145 @@ class RedisTokenStorage:
 
     async def is_blacklisted(self, jti: str) -> bool:
         return await self._redis.exists(self._key(jti)) > 0  # type: ignore
+
+
+def _base64url_encode(data: bytes) -> str:
+    """Base64url-encode bytes without padding (RFC 7515)."""
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _pem_to_jwk_kid(pem_key: str) -> str:
+    """Generate a stable kid from a PEM public key thumbprint."""
+    key = load_pem_public_key(pem_key.encode("utf-8"))
+    if isinstance(key, rsa.RSAPublicKey):
+        rsa_numbers = key.public_numbers()
+        # Use modulus as thumbprint material
+        n_bytes = rsa_numbers.n.to_bytes((rsa_numbers.n.bit_length() + 7) // 8, "big")
+        return _base64url_encode(n_bytes[:16])
+    if isinstance(key, ec.EllipticCurvePublicKey):
+        ec_numbers = key.public_numbers()
+        key_size_bytes = (key.curve.key_size + 7) // 8
+        x_bytes = ec_numbers.x.to_bytes(key_size_bytes, "big")
+        return _base64url_encode(x_bytes[:16])
+    return uuid.uuid4().hex
+
+
+def _public_key_pem_to_jwk(pem_key: str, kid: str, algorithm: str) -> dict[str, Any]:
+    """Convert a PEM-encoded public key to a JWK dictionary (RFC 7517)."""
+    key = load_pem_public_key(pem_key.encode("utf-8"))
+
+    jwk: dict[str, Any] = {
+        "kid": kid,
+        "alg": algorithm,
+        "use": "sig",
+    }
+
+    if isinstance(key, rsa.RSAPublicKey):
+        rsa_numbers = key.public_numbers()
+        n_bytes = rsa_numbers.n.to_bytes((rsa_numbers.n.bit_length() + 7) // 8, "big")
+        e_bytes = rsa_numbers.e.to_bytes((rsa_numbers.e.bit_length() + 7) // 8, "big")
+        jwk["kty"] = "RSA"
+        jwk["n"] = _base64url_encode(n_bytes)
+        jwk["e"] = _base64url_encode(e_bytes)
+
+    elif isinstance(key, ec.EllipticCurvePublicKey):
+        ec_numbers = key.public_numbers()
+        key_size_bytes = (key.curve.key_size + 7) // 8
+        x_bytes = ec_numbers.x.to_bytes(key_size_bytes, "big")
+        y_bytes = ec_numbers.y.to_bytes(key_size_bytes, "big")
+
+        jwk["kty"] = "EC"
+        jwk["x"] = _base64url_encode(x_bytes)
+        jwk["y"] = _base64url_encode(y_bytes)
+
+        if isinstance(key.curve, ec.SECP256R1):
+            jwk["crv"] = "P-256"
+        elif isinstance(key.curve, ec.SECP384R1):
+            jwk["crv"] = "P-384"
+        elif isinstance(key.curve, ec.SECP521R1):
+            jwk["crv"] = "P-521"
+        else:
+            jwk["crv"] = "P-256"
+
+    return jwk
+
+
+@runtime_checkable
+class JWKSStore(Protocol):
+    """Protocol for JSON Web Key Set (JWKS) storage.
+
+    Implementations manage multiple public keys for key discovery and rotation.
+    """
+
+    async def get_jwks(self) -> dict[str, Any]:
+        """Return the full JWKS dict with a ``keys`` array (RFC 7517)."""
+        ...
+
+    async def get_signing_key_id(self) -> str | None:
+        """Return the ``kid`` of the currently active signing key, or ``None``."""
+        ...
+
+    async def get_signing_key(self) -> str | None:
+        """Return the PEM of the currently active signing key, or ``None``."""
+        ...
+
+    def add_key(
+        self,
+        kid: str,
+        public_key_pem: str,
+        is_active: bool = False,
+        algorithm: str = "RS256",
+    ) -> None:
+        """Register a public key under the given ``kid``.
+
+        Parameters
+        ----------
+        kid:
+            Key identifier (used in JWT header as the ``kid`` claim).
+        public_key_pem:
+            PEM-encoded public key.
+        is_active:
+            If ``True``, this key is used for signing.
+        algorithm:
+            The JWT algorithm this key is used for (e.g. ``RS256``, ``ES256``).
+        """
+        ...
+
+
+class InMemoryJWKSStore:
+    """In-memory JWKS store for development and testing.
+
+    Stores public keys in memory and generates JWKS on demand.
+    Supports key rotation via ``add_key()`` with ``is_active`` flag.
+    """
+
+    def __init__(self) -> None:
+        self._keys: dict[str, dict[str, Any]] = {}
+        self._active_kid: str | None = None
+
+    async def get_jwks(self) -> dict[str, Any]:
+        """Return the full JWKS dict with all stored keys."""
+        return {"keys": list(self._keys.values())}
+
+    async def get_signing_key_id(self) -> str | None:
+        return self._active_kid
+
+    async def get_signing_key(self) -> str | None:
+        if self._active_kid is None:
+            return None
+        entry = self._keys.get(self._active_kid)
+        return entry.get("_pem") if entry else None
+
+    def add_key(
+        self,
+        kid: str,
+        public_key_pem: str,
+        is_active: bool = False,
+        algorithm: str = "RS256",
+    ) -> None:
+        """Register a public key. Activates it if ``is_active=True``."""
+        jwk = _public_key_pem_to_jwk(public_key_pem, kid, algorithm)
+        jwk["_pem"] = public_key_pem  # store PEM for later retrieval
+        self._keys[kid] = jwk
+        if is_active:
+            self._active_kid = kid

