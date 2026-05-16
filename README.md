@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Pydantic-v2-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic">
   <img src="https://img.shields.io/badge/uv-package%20manager-DE5FE9?style=for-the-badge&logo=uv&logoColor=white" alt="uv">
   <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/version-0.3.0-blue?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.4.0-blue?style=for-the-badge" alt="Version">
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
   <img src="https://img.shields.io/badge/OpenTelemetry-optional-8B5CF6?style=flat-square&logo=opentelemetry&logoColor=white" alt="OTEL">
   <img src="https://img.shields.io/badge/Prometheus-optional-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/structlog-logging-4B8BBE?style=flat-square" alt="structlog">
-  <img src="https://img.shields.io/badge/tests-312%20passed-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-490%20passed-brightgreen?style=flat-square" alt="Tests">
 </p>
 
 ---
@@ -31,6 +31,8 @@
 ## ⚡ What is Araxys?
 
 **Araxys** is a comprehensive security library for [FastAPI](https://fastapi.tiangolo.com/) that provides enterprise-grade protection with a plug & play architecture. Add security to your API with **three lines of code** — no rewrites, no boilerplate.
+
+> **v0.4.0** adds 18 production-grade improvements: RS256/ES256 JWT, JWKS endpoint, token introspection, per-user/per-key/per-endpoint rate limiting, async audit I/O with log rotation and PII masking, CSP builder with COOP/COEP/CORP headers, and NoSQL/command/path-traversal sanitization. [490 tests](https://github.com/Samuel-Urrego/Araxys/actions).
 
 ```python
 from fastapi import FastAPI
@@ -58,10 +60,11 @@ shield = AraxysShield(app, AraxysConfig(secret_key="your-32-char-secret-key-here
 | 🚦 **Rate Limiting** | Dynamic sliding window with escalating bans | ✅ Ready |
 | 🍯 **Honeypots** | Fake endpoints that auto-ban bots | ✅ Ready |
 | 🔑 **API Keys** | Scoped keys with SHA-256 hashing & expiration | ✅ Ready |
-| 🎟️ **JWT Auth** | Access + Refresh tokens with rotation & revocation | ✅ Ready |
-| 🛡️ **Secure Headers** | HSTS, CSP, X-Frame-Options, COOP, CORP (OWASP) | ✅ Ready |
-| 🧹 **Sanitization** | SQLi detection & XSS stripping | ✅ Ready |
-| 📋 **Audit Logging** | AES-256-GCM encrypted structured logs | ✅ Ready |
+| 🎟️ **JWT Auth** | RS256/ES256 + HS256, JWKS endpoint, token introspection (RFC 7662), rotation & revocation | ✅ Ready |
+| 🚦 **Rate Limiting** | Sliding window, per-user, per-API-key, per-endpoint path-based limits | ✅ Ready |
+| 🛡️ **Secure Headers** | CSP builder, COOP/COEP/CORP, HSTS, X-Frame-Options (OWASP) | ✅ Ready |
+| 🧹 **Sanitization** | NoSQL injection, command injection, path traversal, XSS stripping | ✅ Ready |
+| 📋 **Audit Logging** | AES-256-GCM encrypted, async I/O, rotation, PII masking, webhook shipping | ✅ Ready |
 
 ---
 
@@ -508,7 +511,7 @@ uv run pytest tests/ -v
 uv run pytest tests/ --cov=araxys --cov-report=term-missing
 ```
 
-**312 tests** covering all 15 modules — CORS, IP access, CSRF, brute force, sessions, telemetry, webhooks, metrics, rate limiting, honeypots, API keys, JWT, headers, sanitization, and audit logging.
+**490 tests** covering all 15 modules — CORS, IP access, CSRF, brute force, sessions, telemetry, webhooks, metrics, rate limiting, honeypots, API keys, JWT, headers, sanitization, and audit logging.
 
 ---
 

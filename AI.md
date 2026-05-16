@@ -33,7 +33,7 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 | `MetricsRegistry` | `araxys.metrics.collector` | 9 Prometheus counters + histogram, /metrics endpoint. |
 | `AraxysTracer` | `araxys.telemetry.tracer` | OTEL span context manager with no-op fallback. |
 | `APIKeyManager`| `araxys.api_keys.manager` | Key generation, SHA-256 hashing, and verification. |
-| `JWTManager` | `araxys.jwt_auth.tokens` | Token creation, decoding, and blacklist checks. |
+| `JWTManager` | `araxys.jwt_auth.tokens` | Token creation (HS256/RS256/ES256), decoding, JWKS (RFC 7517), introspection (RFC 7662), blacklist checks. |
 | `Storage` | `araxys.*.storage` | Protocols for Redis or InMemory persistence. |
 | `Scope` | `araxys.core.types` | Enum for permission-based access control. |
 | `SecurityEventType` | `araxys.core.types` | Enum for all 12 security event types. |
@@ -53,6 +53,12 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 - **Prometheus Registry**: Each `MetricsRegistry` instance creates its own `CollectorRegistry` to avoid "Duplicated timeseries" errors when multiple Shield instances exist in the same process.
 - **OTEL imports**: Use `try/except ImportError` with lazy import helpers for `opentelemetry` — the SDK is optional and must not cause import errors.
 - **Redis stubs**: Redis async methods return `Awaitable[T] | T` union types. Use `# type: ignore[misc]` on `await` lines or `isinstance` narrowing for `smembers()`.
+- **JWT Asymmetric Keys**: When `private_key` and `public_key` are set in `JWTConfig`, `JWTManager` auto-detects RS256/ES256. `secret_key` is only used for HS256. Both paths coexist — existing HS256 configs are unaffected.
+- **Rate Limit Identity**: `extract_user_id()` reads JWT `sub` from `request.state`. `extract_api_key()` reads `X-API-Key` header. Per-user/per-key limits are checked IN ADDITION to IP limits — the effective remaining is `min()` of all active dimensions.
+- **Audit PII Masking**: `mask_pii()` is recursive and non-mutating — it deep-copies before masking. PII masking is applied BEFORE encryption in `AuditLogger.log_event()`.
+- **Audit Async Writer**: `LogWriter` uses `aiofiles` (optional). Falls back to synchronous writes when `aiofiles` is not installed. Rotation is size-based with `asyncio.Lock` for thread safety.
+- **CSP Builder**: `build_csp_header()` is a pure function. COOP/CORP default to `"same-origin"` (secure-by-default). Only add headers when their config value is not `None`.
+- **Sanitize Scanner**: `scan_query_params()` scans BOTH parameter names AND values (NoSQL operators often hide in names like `?username[$ne]=admin`). Detectors are pure functions `(value: str) -> str | None`.
 
 ## 🛠️ Common Usage Patterns
 
@@ -149,8 +155,9 @@ The `araxys` CLI is the preferred way for agents to perform environment manageme
 - **OTEL mocks**: Use `unittest.mock` to mock `opentelemetry` imports — never require the real SDK in tests.
 - **HIBP tests**: Mock `httpx.AsyncClient` responses for `check_hibp()` — never hit the real API in tests.
 
-## 📊 Test Coverage (v0.3)
-- **312 tests** across 14 test files
-- Unit: ~230 tests (backends, stateless logic, pure functions)
-- Integration: ~82 tests (middleware via `httpx.AsyncClient` + `TestClient`)
-- Ruff + mypy strict enforced in CI
+## 📊 Test Coverage (v0.4)
+- **490 tests** across 14 test files
+- Unit: ~330 tests (backends, stateless logic, pure functions, detectors)
+- Integration: ~160 tests (middleware via `httpx.AsyncClient` + `TestClient`)
+- Key pure functions: `build_csp_header()`, `mask_pii()`, `detect_nosql_injection()`, `detect_command_injection()`, `detect_path_traversal()`, `extract_user_id()`, `extract_api_key()`, `match_path()`
+- Ruff + mypy strict enforced in CI (91 source files, 0 errors)
