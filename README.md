@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Pydantic-v2-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic">
   <img src="https://img.shields.io/badge/uv-package%20manager-DE5FE9?style=for-the-badge&logo=uv&logoColor=white" alt="uv">
   <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/version-0.5.0-blue?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.6.0-blue?style=for-the-badge" alt="Version">
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
   <img src="https://img.shields.io/badge/OpenTelemetry-optional-8B5CF6?style=flat-square&logo=opentelemetry&logoColor=white" alt="OTEL">
   <img src="https://img.shields.io/badge/Prometheus-optional-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/structlog-logging-4B8BBE?style=flat-square" alt="structlog">
-  <img src="https://img.shields.io/badge/tests-637%20passed-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-698%20passed-brightgreen?style=flat-square" alt="Tests">
 </p>
 
 ---
@@ -32,7 +32,7 @@
 
 **Araxys** is a comprehensive security library for [FastAPI](https://fastapi.tiangolo.com/) that provides enterprise-grade protection with a plug & play architecture. Add security to your API with **three lines of code** — no rewrites, no boilerplate.
 
-> **v0.4.0** adds 18 production-grade improvements: RS256/ES256 JWT, JWKS endpoint, token introspection, per-user/per-key/per-endpoint rate limiting, async audit I/O with log rotation and PII masking, CSP builder with COOP/COEP/CORP headers, and NoSQL/command/path-traversal sanitization. [490 tests](https://github.com/Samuel-Urrego/Araxys/actions).
+> **v0.6.0** adds database security hardening (async secret resolvers, RedisPool health/idle/acquire timeout enforcement), JSON body full scan for NoSQL/command/path-traversal injection, and a `sqlparse`-based SQL injection analyzer replacing 16 fragile regex patterns. **v0.5.0** introduced `db_security` module (connection pooling, TLS/cert pinning, query auditing). **v0.4.0** added RS256/ES256 JWT, JWKS, per-user/per-key rate limiting, async audit with PII masking, CSP/COOP/COEP/CORP headers. [698 tests](https://github.com/Samuel-Urrego/Araxys/actions).
 
 ```python
 from fastapi import FastAPI

@@ -1,14 +1,14 @@
 [project]
 name = "araxys"
-version = "0.5.0"
-description = "Plug & play security library for FastAPI — CORS, CSRF, IP blocking, rate limiting, honeypots, JWT (RS256/ES256), API keys, brute force, sessions, OTEL, Prometheus metrics, encrypted audit logging with async I/O, CSP headers, sanitization (NoSQL/command/path-traversal), and more."
+version = "0.6.0"
+description = "Plug & play security library for FastAPI — CORS, CSRF, IP blocking, rate limiting, honeypots, JWT (RS256/ES256), API keys, brute force, sessions, OTEL, Prometheus metrics, encrypted audit logging with async I/O, CSP headers, sanitization (NoSQL/command/path-traversal), database security (connection pooling, TLS, secrets, query audit), and SQL injection parser (sqlparse)."
 readme = "README.md"
 authors = [
     { name = "Samuel Esteban Urrego Valencia", email = "urregodev@gmail.com" },
 ]
 requires-python = ">=3.13"
 license = { text = "MIT" }
-keywords = ["fastapi", "security", "rate-limiting", "jwt", "rs256", "es256", "jwks", "middleware", "honeypot", "csp", "csrf", "audit-logging", "nosql-injection", "sanitization"]
+keywords = ["fastapi", "security", "rate-limiting", "jwt", "rs256", "es256", "jwks", "middleware", "honeypot", "csp", "csrf", "audit-logging", "nosql-injection", "sanitization", "sql-injection", "sqlparse", "connection-pooling"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Framework :: FastAPI",

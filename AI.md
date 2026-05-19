@@ -37,6 +37,7 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 | `DatabaseSecurityManager` | `araxys.db_security.manager` | v0.5 — shared Redis pool lifecycle, secret resolver chain, TLS cert pinning, query auditing. |
 | `ConnectionPool` | `araxys.db_security.pool` | Protocol for Redis connection pools — InMemoryPool (no-op) + RedisPool (health, leak detection, idle timeout). |
 | `QueryAuditor` | `araxys.db_security.audit` | Emits `AuditEntry(QUERY_EXECUTED)` with slow query detection (>100ms threshold). |
+| `SqlInjectionAnalyzer` | `araxys.sanitize.sqlparser` | v0.6 — sqlparse-based SQLi detection (stacked queries, UNION SELECT, tautologies, time-based, comments). Falls back to regex patterns when sqlparse not installed. |
 | `Storage` | `araxys.*.storage` | Protocols for Redis or InMemory persistence. |
 | `Scope` | `araxys.core.types` | Enum for permission-based access control. |
 | `SecurityEventType` | `araxys.core.types` | Enum for all 12 security event types. |
@@ -65,6 +66,10 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 - **DB Security Backward Compat**: `db_security=None` (default) means ALL 6 Redis backends use independent `from_url()` calls — zero behavior change. When `db_security.enabled=True`, the shared pool replaces all `from_url()` calls. The old `redis_url` config field is deprecated when db_security is enabled.
 - **Cert Pinning**: `cert_pin_sha256` in `TLSConfig` is verified at `RedisPool.acquire()` time, not at SSL context creation. Uses asyncio writer's `get_extra_info('ssl_object')` to access the peer certificate.
 - **Secrets Resolver Chain**: Resolvers are tried in order (EnvVar → Vault → AWS) and each is fail-soft (returns `None` on error, never raises). ChainedResolver returns first non-None or None if all fail.
+- **Async Secret Resolvers (v0.6)**: `VaultResolver.resolve()` and `AWSSecretsResolver.resolve()` use `asyncio.to_thread()` to avoid blocking the event loop. Error propagation is preserved.
+- **RedisPool Health Loop (v0.6)**: Background health-check task uses `loop.create_task()`. Gracefully cancelled on `close()` via `contextlib.suppress(asyncio.CancelledError)`. Health check interval is `float` (seconds).
+- **SQL Parser Fallback (v0.6)**: `SqlInjectionAnalyzer` imports `sqlparse` lazily. When `sqlparse` is not installed, `detect_sqli()` falls back to the original `patterns.py` regex patterns. The `araxys[sqlparser]` extra installs `sqlparse>=0.5.0`.
+- **JSON Body Full Scan (v0.6)**: After `sanitize_payload()` handles SQLi+XSS, `SanitizeMiddleware` now iterates leaf string values in JSON bodies and runs `scan_value()` for NoSQL, command injection, and path traversal detection. Respects `SanitizeConfig` flags.
 
 ## 🛠️ Common Usage Patterns
 
@@ -161,9 +166,9 @@ The `araxys` CLI is the preferred way for agents to perform environment manageme
 - **OTEL mocks**: Use `unittest.mock` to mock `opentelemetry` imports — never require the real SDK in tests.
 - **HIBP tests**: Mock `httpx.AsyncClient` responses for `check_hibp()` — never hit the real API in tests.
 
-## 📊 Test Coverage (v0.5)
-- **637 tests** across 16 test files
-- Unit: ~330 tests (backends, stateless logic, pure functions, detectors)
-- Integration: ~160 tests (middleware via `httpx.AsyncClient` + `TestClient`)
-- Key pure functions: `build_csp_header()`, `mask_pii()`, `detect_nosql_injection()`, `detect_command_injection()`, `detect_path_traversal()`, `extract_user_id()`, `extract_api_key()`, `match_path()`
-- Ruff + mypy strict enforced in CI (91 source files, 0 errors)
+## 📊 Test Coverage (v0.6)
+- **698 tests** across 19 test files
+- Unit: ~380 tests (backends, stateless logic, pure functions, detectors, sqlparser, pool)
+- Integration: ~180 tests (middleware via `httpx.AsyncClient` + `TestClient`)
+- Key pure functions: `build_csp_header()`, `mask_pii()`, `detect_nosql_injection()`, `detect_command_injection()`, `detect_path_traversal()`, `extract_user_id()`, `extract_api_key()`, `match_path()`, `SqlInjectionAnalyzer.analyze()`
+- Ruff + mypy strict enforced in CI (103 source files, 0 errors)
