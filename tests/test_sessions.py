@@ -482,6 +482,72 @@ class _SharedRedisPool:
         self._active = 0
 
 
+class TestRedisSessionBackendTTL:
+    """Tests for RedisSessionBackend EXPIRE behavior (v0.7)."""
+
+    @pytest.fixture
+    async def backend(self) -> AsyncGenerator[SessionBackend]:
+        from araxys.sessions.storage import RedisSessionBackend
+
+        yield RedisSessionBackend(pool=_SharedRedisPool(), session_ttl_seconds=3600)
+
+    async def test_create_session_sets_ttl_on_session_key(
+        self, backend: SessionBackend
+    ) -> None:
+        """create_session should set EXPIRE on the session HASH key."""
+        from araxys.sessions.storage import RedisSessionBackend
+
+        assert isinstance(backend, RedisSessionBackend)
+        pool = backend._pool
+        assert isinstance(pool, _SharedRedisPool)
+        conn = await pool.acquire()
+        try:
+            session_id = await backend.create_session("user_1", "jti_abc")
+            skey = f"araxys:sessions:{session_id}"
+            ttl = await conn.ttl(skey)
+            assert ttl > 0, f"Expected TTL > 0 for {skey}, got {ttl}"
+        finally:
+            await pool.release(conn)
+
+    async def test_create_session_sets_ttl_on_user_key(
+        self, backend: SessionBackend
+    ) -> None:
+        """create_session should set EXPIRE on the user SET key."""
+        from araxys.sessions.storage import RedisSessionBackend
+
+        assert isinstance(backend, RedisSessionBackend)
+        pool = backend._pool
+        assert isinstance(pool, _SharedRedisPool)
+        conn = await pool.acquire()
+        try:
+            await backend.create_session("user_1", "jti_abc")
+            ukey = "araxys:sessions:user:user_1"
+            ttl = await conn.ttl(ukey)
+            assert ttl > 0, f"Expected TTL > 0 for {ukey}, got {ttl}"
+        finally:
+            await pool.release(conn)
+
+    async def test_revoke_session_has_no_expire(
+        self, backend: SessionBackend
+    ) -> None:
+        """revoke_session pipeline must NOT contain EXPIRE."""
+        from araxys.sessions.storage import RedisSessionBackend
+
+        assert isinstance(backend, RedisSessionBackend)
+        pool = backend._pool
+        assert isinstance(pool, _SharedRedisPool)
+        conn = await pool.acquire()
+        try:
+            session_id = await backend.create_session("user_1", "jti_abc")
+            await backend.revoke_session(session_id)
+            # After revoke, the session key should not exist (DEL, not EXPIRE)
+            skey = f"araxys:sessions:{session_id}"
+            exists = await conn.exists(skey)
+            assert exists == 0, "Session key should be DELeted, not expired"
+        finally:
+            await pool.release(conn)
+
+
 class TestRedisSessionBackendMetadata:
     """Tests for JSON metadata serialization fix (Task 1.1, v0.6).
 

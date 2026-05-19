@@ -165,12 +165,15 @@ class RedisSessionBackend:
             "created_at": now,
             "metadata": json.dumps(metadata or {}, default=str),
         }
+        ttl = self._session_ttl_seconds
         if self._pool:
             conn = await self._pool.acquire()
             try:
                 pipe = conn.pipeline()
                 pipe.hset(self._session_key(session_id), mapping=mapping)
+                pipe.expire(self._session_key(session_id), ttl)
                 pipe.sadd(self._user_key(user_id), session_id)
+                pipe.expire(self._user_key(user_id), ttl)
                 await pipe.execute()
                 return session_id
             finally:
@@ -178,7 +181,9 @@ class RedisSessionBackend:
         assert self._redis is not None
         pipe = self._redis.pipeline()
         pipe.hset(self._session_key(session_id), mapping=mapping)
+        pipe.expire(self._session_key(session_id), ttl)
         pipe.sadd(self._user_key(user_id), session_id)
+        pipe.expire(self._user_key(user_id), ttl)
         await pipe.execute()
         return session_id
 
