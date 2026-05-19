@@ -8,6 +8,7 @@ leak detection, and idle timeout).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import time
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -138,7 +139,7 @@ class RedisPool:
         max_size: int = 10,
         idle_timeout_seconds: int = 300,
         acquire_timeout_seconds: float = 5.0,
-        health_check_interval_seconds: int = 30,
+        health_check_interval_seconds: float = 30,
         leak_threshold: int = 10,
         ssl_context: ssl.SSLContext | None = None,
         cert_pin_sha256: str | None = None,
@@ -155,7 +156,7 @@ class RedisPool:
         self._cert_pin_sha256: str | None = cert_pin_sha256
         self._redis: Redis = Redis.from_url(url, ssl_context=ssl_context)
         self._last_active: float = time.time()
-        self._health_task: asyncio.Task | None = None
+        self._health_task: asyncio.Task[None] | None = None
         if health_check_interval_seconds > 0:
             try:
                 loop = asyncio.get_running_loop()
@@ -192,7 +193,7 @@ class RedisPool:
             # Idle timeout: PING if the connection has been idle too long.
             if time.time() - self._last_active > self.idle_timeout_seconds:
                 try:
-                    await self._redis.ping()
+                    await self._redis.ping()  # type: ignore[misc]
                 except Exception as exc:
                     raise ConnectionError(
                         f"Connection idle timeout — PING failed: {exc}",
@@ -204,8 +205,8 @@ class RedisPool:
             return await asyncio.wait_for(
                 _acquire_body(), timeout=self.acquire_timeout_seconds,
             )
-        except asyncio.TimeoutError:
-            raise ConnectionError("Acquire timed out")
+        except TimeoutError as err:
+            raise ConnectionError("Acquire timed out") from err
 
     async def release(self, conn: Redis) -> None:
         """Decrement the active-connection counter."""
@@ -228,10 +229,8 @@ class RedisPool:
         """Cancel the health-check task and close the underlying Redis client."""
         if self._health_task is not None:
             self._health_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._health_task
-            except asyncio.CancelledError:
-                pass
         self._closed = True
         self._active_count = 0
         await self._redis.aclose()
@@ -249,7 +248,7 @@ class RedisPool:
         while True:
             await asyncio.sleep(self.health_check_interval_seconds)
             try:
-                await self._redis.ping()
+                await self._redis.ping()  # type: ignore[misc]
             except asyncio.CancelledError:
                 raise  # re-raise to let the task be cancelled cleanly
             except Exception:  # noqa: BLE001 — intentionally broad, health loop never raises

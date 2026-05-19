@@ -1,13 +1,20 @@
-"""Tests for RedisPool (v0.6 — get_redis_client() accessor).
+"""Tests for RedisPool (v0.6 — get_redis_client() accessor, health loop, timeouts).
 
 Tests follow strict TDD: written before implementation.
 
-Task 1.3: Add get_redis_client() public accessor to RedisPool.
+Tasks:
+- 1.3: Add get_redis_client() public accessor to RedisPool.
+- 2.1: Health check interval wiring (background health loop).
+- 2.2: Idle timeout enforcement (PING on stale connections).
+- 2.3: Acquire timeout enforcement (asyncio.wait_for).
 """
 
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -35,6 +42,212 @@ class TestRedisPoolGetRedisClient:
         await pool.close()
         client = pool.get_redis_client()
         assert client is not None
+
+
+class TestRedisPoolHealthLoop:
+    """Tests for RedisPool background health-check loop (Task 2.1)."""
+
+    async def test_health_task_created_on_init(self) -> None:
+        """Health task is created when health_check_interval_seconds > 0."""
+        from araxys.db_security.pool import RedisPool
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            health_check_interval_seconds=10,
+        )
+        try:
+            assert p._health_task is not None  # noqa: SLF001
+            assert not p._health_task.done()  # noqa: SLF001
+        finally:
+            await p.close()
+
+    async def test_health_task_not_created_when_zero(self) -> None:
+        """No health task when health_check_interval_seconds is 0."""
+        from araxys.db_security.pool import RedisPool
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            health_check_interval_seconds=0,
+        )
+        try:
+            assert p._health_task is None  # noqa: SLF001
+        finally:
+            await p.close()
+
+    async def test_health_task_calls_ping_periodically(self) -> None:
+        """Health loop calls self._redis.ping() at the configured interval."""
+        from araxys.db_security.pool import RedisPool
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            health_check_interval_seconds=0.02,
+        )
+        try:
+            mock_ping = AsyncMock(return_value=True)
+            p._redis.ping = mock_ping  # type: ignore[method-assign]  # noqa: SLF001
+
+            # Wait for at least one health check cycle
+            await asyncio.sleep(0.05)
+
+            # Must have called ping at least once
+            assert mock_ping.call_count >= 1
+        finally:
+            await p.close()
+
+    async def test_close_cancels_health_task(self) -> None:
+        """Close cancels the background health task (no asyncio warnings)."""
+        from araxys.db_security.pool import RedisPool
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            health_check_interval_seconds=1,
+        )
+        task = p._health_task  # noqa: SLF001
+        assert task is not None
+        assert not task.done()
+
+        await p.close()
+
+        assert task.cancelled() or task.done()
+
+
+class TestRedisPoolIdleTimeout:
+    """Tests for RedisPool idle timeout enforcement (Task 2.2)."""
+
+    async def test_idle_detection_triggers_ping(self) -> None:
+        """PING is called when connection has been idle past the timeout."""
+        from araxys.db_security.pool import RedisPool
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            idle_timeout_seconds=300,
+        )
+        try:
+            mock_ping = AsyncMock(return_value=True)
+            p._redis.ping = mock_ping  # type: ignore[method-assign]  # noqa: SLF001
+
+            # Simulate idle by setting _last_active far in the past
+            p._last_active = time.time() - 600  # noqa: SLF001 — 600s > 300s idle timeout
+
+            conn = await p.acquire()
+            assert conn is not None
+
+            # Ping must have been called due to idle detection
+            mock_ping.assert_awaited_once()
+        finally:
+            await p.close()
+
+    async def test_active_connection_skips_ping(self) -> None:
+        """PING is NOT called when connection was recently active."""
+        from araxys.db_security.pool import RedisPool
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            idle_timeout_seconds=300,
+        )
+        try:
+            mock_ping = AsyncMock(return_value=True)
+            p._redis.ping = mock_ping  # type: ignore[method-assign]  # noqa: SLF001
+
+            # _last_active defaults to time.time() on init (recent)
+            conn = await p.acquire()
+            assert conn is not None
+
+            # Ping should NOT be called (not idle)
+            mock_ping.assert_not_awaited()
+        finally:
+            await p.close()
+
+    async def test_timer_reset_after_successful_acquire(self) -> None:
+        """_last_active is updated after a successful acquire."""
+        from araxys.db_security.pool import RedisPool
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            idle_timeout_seconds=300,
+        )
+        try:
+            mock_ping = AsyncMock(return_value=True)
+            p._redis.ping = mock_ping  # type: ignore[method-assign]  # noqa: SLF001
+
+            # Force _last_active to be old
+            p._last_active = time.time() - 600  # noqa: SLF001
+
+            conn = await p.acquire()
+            assert conn is not None
+
+            # Timer should be reset to now-ish
+            assert time.time() - p._last_active < 5  # noqa: SLF001
+        finally:
+            await p.close()
+
+    async def test_idle_ping_failure_raises_connection_error(self) -> None:
+        """ConnectionError is raised when idle PING fails."""
+        from araxys.core.exceptions import ConnectionError as AraxysConnectionError
+        from araxys.db_security.pool import RedisPool
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            idle_timeout_seconds=300,
+        )
+        try:
+            mock_ping = AsyncMock(side_effect=OSError("Connection refused"))
+            p._redis.ping = mock_ping  # type: ignore[method-assign]  # noqa: SLF001
+
+            # Simulate idle
+            p._last_active = time.time() - 600  # noqa: SLF001
+
+            with pytest.raises(AraxysConnectionError, match="idle"):
+                await p.acquire()
+        finally:
+            await p.close()
+
+
+class TestRedisPoolAcquireTimeout:
+    """Tests for RedisPool acquire timeout enforcement (Task 2.3)."""
+
+    async def test_acquire_timeout_raises_connection_error(self) -> None:
+        """ConnectionError raised when acquire body exceeds timeout."""
+        from araxys.core.exceptions import ConnectionError as AraxysConnectionError
+        from araxys.db_security.pool import RedisPool
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            acquire_timeout_seconds=0.01,
+        )
+        try:
+            # Make the idle PING hang forever by mocking
+            import asyncio
+
+            async def _never(*args: object, **kwargs: object) -> None:
+                await asyncio.Event().wait()  # never resolves
+
+            p._redis.ping = _never  # type: ignore[method-assign,assignment]  # noqa: SLF001
+
+            # Simulate an idle connection so the PING check is triggered
+            p._last_active = time.time() - 600  # noqa: SLF001
+
+            with pytest.raises(AraxysConnectionError, match="timed out"):
+                await p.acquire()
+        finally:
+            await p.close()
+
+    async def test_acquire_completes_within_timeout(self) -> None:
+        """Normal acquire completes successfully within the timeout."""
+        from araxys.db_security.pool import RedisPool
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            acquire_timeout_seconds=5.0,
+        )
+        try:
+            mock_ping = AsyncMock(return_value=True)
+            p._redis.ping = mock_ping  # type: ignore[method-assign]  # noqa: SLF001
+
+            conn = await p.acquire()
+            assert conn is not None
+        finally:
+            await p.close()
 
 
 class TestInMemoryPool:

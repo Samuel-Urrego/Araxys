@@ -493,7 +493,7 @@ class RedisPoolConfig(BaseModel):
         default=10,
         description="Outstanding connections before leak warning",
     )
-    health_check_interval_seconds: int = Field(
+    health_check_interval_seconds: float = Field(
         default=30,
         description="Interval between health checks in seconds",
     )
