@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -22,18 +22,18 @@ class TestRedisPoolGetRedisClient:
     """Tests for RedisPool.get_redis_client()."""
 
     @pytest.fixture
-    def pool(self):
+    def pool(self) -> "RedisPool":
         from araxys.db_security.pool import RedisPool
 
         return RedisPool(url="redis://localhost:6379")
 
-    async def test_accessor_returns_client(self, pool) -> None:
+    async def test_accessor_returns_client(self, pool: "RedisPool") -> None:
         """get_redis_client() returns the underlying Redis client."""
         client = pool.get_redis_client()
         assert client is not None
         assert client is pool._redis  # noqa: SLF001 — testing internal
 
-    async def test_accessor_after_close_returns_client(self, pool) -> None:
+    async def test_accessor_after_close_returns_client(self, pool: "RedisPool") -> None:
         """get_redis_client() after close returns the client (no crash)."""
         await pool.close()
         client = pool.get_redis_client()
@@ -179,8 +179,8 @@ class TestRedisPoolIdleTimeout:
 
     async def test_idle_ping_failure_raises_connection_error(self) -> None:
         """ConnectionError is raised when idle PING fails."""
-        from araxys.db_security.pool import RedisPool
         from araxys.core.exceptions import ConnectionError as AraxysConnectionError
+        from araxys.db_security.pool import RedisPool
 
         p = RedisPool(
             url="redis://localhost:6379",
@@ -204,8 +204,8 @@ class TestRedisPoolAcquireTimeout:
 
     async def test_acquire_timeout_raises_connection_error(self) -> None:
         """ConnectionError raised when acquire body exceeds timeout."""
-        from araxys.db_security.pool import RedisPool
         from araxys.core.exceptions import ConnectionError as AraxysConnectionError
+        from araxys.db_security.pool import RedisPool
 
         p = RedisPool(
             url="redis://localhost:6379",
@@ -250,12 +250,12 @@ class TestInMemoryPool:
     """Basic InMemoryPool tests for coverage."""
 
     @pytest.fixture
-    def pool(self):
+    def pool(self) -> "InMemoryPool":
         from araxys.db_security.pool import InMemoryPool
 
         return InMemoryPool()
 
-    async def test_acquire_and_release(self, pool) -> None:
+    async def test_acquire_and_release(self, pool: "InMemoryPool") -> None:
         """Acquire returns a client, release decrements count."""
         conn = await pool.acquire()
         assert conn is not None
@@ -263,6 +263,6 @@ class TestInMemoryPool:
         await pool.release(conn)
         assert pool._active == 0  # noqa: SLF001
 
-    async def test_health(self, pool) -> None:
+    async def test_health(self, pool: "InMemoryPool") -> None:
         """Health returns True when pool is open."""
         assert await pool.health() is True

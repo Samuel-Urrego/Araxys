@@ -8,6 +8,7 @@ leak detection, and idle timeout).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import time
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -204,8 +205,8 @@ class RedisPool:
             return await asyncio.wait_for(
                 _acquire_body(), timeout=self.acquire_timeout_seconds,
             )
-        except asyncio.TimeoutError:
-            raise ConnectionError("Acquire timed out")
+        except TimeoutError as err:
+            raise ConnectionError("Acquire timed out") from err
 
     async def release(self, conn: Redis) -> None:
         """Decrement the active-connection counter."""
@@ -228,10 +229,8 @@ class RedisPool:
         """Cancel the health-check task and close the underlying Redis client."""
         if self._health_task is not None:
             self._health_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._health_task
-            except asyncio.CancelledError:
-                pass
         self._closed = True
         self._active_count = 0
         await self._redis.aclose()
