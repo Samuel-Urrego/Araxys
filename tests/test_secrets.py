@@ -8,17 +8,20 @@ with asyncio.to_thread().
 
 from __future__ import annotations
 
-from collections.abc import Generator
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 class TestVaultResolverAsync:
     """VaultResolver.resolve() must use asyncio.to_thread()."""
 
     @pytest.fixture(autouse=True)
-    def mock_hvac_module(self) -> Generator[None, None, None]:
+    def mock_hvac_module(self) -> Generator[None]:
         """Mock hvac module so VaultResolver.__init__ doesn't fail."""
         with patch.dict("sys.modules", {"hvac": MagicMock()}):
             yield
@@ -84,7 +87,7 @@ class TestAWSSecretsResolverAsync:
     """AWSSecretsResolver.resolve() must use asyncio.to_thread()."""
 
     @pytest.fixture(autouse=True)
-    def mock_boto3_module(self) -> Generator[None, None, None]:
+    def mock_boto3_module(self) -> Generator[None]:
         """Mock boto3 module so AWSSecretsResolver.__init__ doesn't fail."""
         with patch.dict("sys.modules", {"boto3": MagicMock()}):
             yield
