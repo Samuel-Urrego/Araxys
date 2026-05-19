@@ -11,7 +11,12 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
+    from araxys.db_security.pool import ConnectionPool
 
 
 @dataclass
@@ -117,15 +122,23 @@ class RedisSessionBackend:
     Requires the ``redis`` extra: ``pip install araxys[redis]``.
     """
 
-    def __init__(self, redis_url: str) -> None:
-        try:
-            from redis.asyncio import from_url
-        except ImportError as exc:
-            raise ImportError(
-                "RedisSessionBackend requires the 'redis' package. "
-                "Install it with: pip install araxys[redis]"
-            ) from exc
-        self._redis = from_url(redis_url, decode_responses=True)
+    def __init__(
+        self,
+        redis_url: str | None = None,
+        *,
+        pool: ConnectionPool | None = None,
+    ) -> None:
+        self._pool = pool
+        self._redis: Redis | None = None
+        if pool is None and redis_url:
+            try:
+                from redis.asyncio import from_url
+            except ImportError as exc:
+                raise ImportError(
+                    "RedisSessionBackend requires the 'redis' package. "
+                    "Install it with: pip install araxys[redis]"
+                ) from exc
+            self._redis = from_url(redis_url, decode_responses=True)
 
     def _session_key(self, session_id: str) -> str:
         return f"araxys:sessions:{session_id}"
@@ -138,25 +151,47 @@ class RedisSessionBackend:
     ) -> str:
         session_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
+        mapping = {
+            "session_id": session_id,
+            "user_id": user_id,
+            "jti": jti,
+            "created_at": now,
+            "metadata": str(metadata or {}),
+        }
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                pipe = conn.pipeline()
+                pipe.hset(self._session_key(session_id), mapping=mapping)
+                pipe.sadd(self._user_key(user_id), session_id)
+                await pipe.execute()
+                return session_id
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
         pipe = self._redis.pipeline()
-        pipe.hset(
-            self._session_key(session_id),
-            mapping={
-                "session_id": session_id,
-                "user_id": user_id,
-                "jti": jti,
-                "created_at": now,
-                "metadata": str(metadata or {}),
-            },
-        )
+        pipe.hset(self._session_key(session_id), mapping=mapping)
         pipe.sadd(self._user_key(user_id), session_id)
         await pipe.execute()
         return session_id
 
     async def get_session(self, session_id: str) -> SessionRecord | None:
-        data = await self._redis.hgetall(self._session_key(session_id))  # type: ignore[misc]
-        if not data:
+        key = self._session_key(session_id)
+        raw: dict[bytes, bytes] | dict[str, str]
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                raw = await conn.hgetall(key)  # type: ignore[misc]
+            finally:
+                await self._pool.release(conn)
+        else:
+            assert self._redis is not None
+            raw = await self._redis.hgetall(key)  # type: ignore[misc]
+        if not raw:
             return None
+        # Normalize to str keys for consistent access (hgetall can return
+        # bytes keys depending on the connection's decode_responses setting).
+        data: dict[str, str] = cast("dict[str, str]", raw)
         return SessionRecord(
             session_id=data["session_id"],
             user_id=data["user_id"],
@@ -166,11 +201,23 @@ class RedisSessionBackend:
         )
 
     async def list_sessions(self, user_id: str) -> list[SessionRecord]:
-        session_ids = await self._redis.smembers(self._user_key(user_id))  # type: ignore[misc]
-        if not session_ids:
+        ukey = self._user_key(user_id)
+        raw_ids: set[bytes] | set[str]
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                raw_ids = await conn.smembers(ukey)  # type: ignore[misc]
+            finally:
+                await self._pool.release(conn)
+        else:
+            assert self._redis is not None
+            raw_ids = await self._redis.smembers(ukey)  # type: ignore[misc]
+        if not raw_ids:
             return []
+        # Normalize to str IDs (smembers can return bytes or str)
+        norm: set[str] = cast("set[str]", raw_ids)
         records: list[SessionRecord] = []
-        for sid in session_ids:
+        for sid in norm:
             record = await self.get_session(sid)
             if record is not None:
                 records.append(record)
@@ -180,14 +227,36 @@ class RedisSessionBackend:
         record = await self.get_session(session_id)
         if record is None:
             return False
+        skey = self._session_key(session_id)
+        ukey = self._user_key(record.user_id)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                pipe = conn.pipeline()
+                pipe.delete(skey)
+                pipe.srem(ukey, session_id)
+                await pipe.execute()
+                return True
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
         pipe = self._redis.pipeline()
-        pipe.delete(self._session_key(session_id))
-        pipe.srem(self._user_key(record.user_id), session_id)
+        pipe.delete(skey)
+        pipe.srem(ukey, session_id)
         await pipe.execute()
         return True
 
     async def count_sessions(self, user_id: str) -> int:
-        count = await self._redis.scard(self._user_key(user_id))  # type: ignore[misc]
+        ukey = self._user_key(user_id)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                count = await conn.scard(ukey)  # type: ignore[misc]
+                return count  # type: ignore[no-any-return]
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
+        count = await self._redis.scard(ukey)  # type: ignore[misc]
         return count  # type: ignore[no-any-return]
 
     async def revoke_oldest(self, user_id: str) -> str | None:

@@ -33,6 +33,10 @@ from araxys.brute_force.password_policy import PasswordPolicy, PasswordPolicyCon
 # v0.3 module imports
 from araxys.cors.middleware import CORSMiddleware
 from araxys.csrf.tokens import CSRFHandler
+from araxys.db_security.manager import DatabaseSecurityManager
+from araxys.db_security.pool import (
+    ConnectionPool,  # noqa: TC001 — runtime annotation for db_pool property
+)
 from araxys.headers.middleware import SecureHeadersMiddleware
 from araxys.honeypot.middleware import HoneypotMiddleware
 from araxys.honeypot.trap import HoneypotTrap
@@ -98,6 +102,25 @@ class AraxysShield:
             self.audit_logger = AuditLogger(
                 config=config.audit,
                 secret_key=config.secret_key,
+            )
+
+        # v0.5 — Database Security
+        self._db_security: DatabaseSecurityManager | None = None
+        if config.db_security is not None and config.db_security.enabled:
+            # Deprecation: migrate old redis_url to db_security
+            if config.redis_url and config.db_security.redis_pool.url == "redis://localhost:6379":
+                import warnings
+                warnings.warn(
+                    "AraxysConfig.redis_url is deprecated when db_security is enabled. "
+                    "Use AraxysConfig.db_security.redis_pool.url instead.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                config.db_security.redis_pool.url = config.redis_url
+
+            self._db_security = DatabaseSecurityManager(
+                config=config.db_security,
+                on_audit=self._emit_audit,
             )
 
         # Rate limit backend
@@ -228,6 +251,11 @@ class AraxysShield:
 
     def _create_rate_backend(self, config: AraxysConfig) -> RateLimitBackend:
         """Create the rate limit backend based on config."""
+        if self._db_security is not None:
+            from araxys.rate_limit.backends import RedisBackend
+
+            logger.info("araxys.using_pooled_redis_backend")
+            return RedisBackend(pool=self._db_security.pool)
         if config.redis_url:
             from araxys.rate_limit.backends import RedisBackend
 
@@ -238,6 +266,10 @@ class AraxysShield:
 
     def _create_token_storage(self, config: AraxysConfig):  # type: ignore
         """Create the token storage based on config."""
+        if self._db_security is not None:
+            from araxys.jwt_auth.storage import RedisTokenStorage
+
+            return RedisTokenStorage(pool=self._db_security.pool)
         if config.redis_url:
             from araxys.jwt_auth.storage import RedisTokenStorage
 
@@ -246,6 +278,10 @@ class AraxysShield:
 
     def _create_api_key_storage(self, config: AraxysConfig):  # type: ignore
         """Create the API key storage based on config."""
+        if self._db_security is not None:
+            from araxys.api_keys.storage import RedisAPIKeyStorage
+
+            return RedisAPIKeyStorage(pool=self._db_security.pool)
         if config.redis_url:
             from araxys.api_keys.storage import RedisAPIKeyStorage
 
@@ -333,6 +369,10 @@ class AraxysShield:
         self, config: AraxysConfig
     ) -> InMemoryIPAccessBackend | RedisIPAccessBackend:
         """Create the IP access backend based on config."""
+        if self._db_security is not None:
+            # pool._redis is the underlying redis.asyncio.Redis client
+            redis = self._db_security.pool._redis  # type: ignore[attr-defined]
+            return RedisIPAccessBackend(redis)
         if config.ip_control is None:
             return InMemoryIPAccessBackend()
         if config.ip_control.redis_url:
@@ -353,6 +393,10 @@ class AraxysShield:
         self, config: AraxysConfig
     ) -> InMemoryBruteForceBackend | RedisBruteForceBackend:
         """Create the brute force backend based on config."""
+        if self._db_security is not None:
+            # pool._redis is the underlying redis.asyncio.Redis client
+            redis = self._db_security.pool._redis  # type: ignore[attr-defined]
+            return RedisBruteForceBackend(redis)
         if config.brute_force is None:
             return InMemoryBruteForceBackend()
         # BruteForceConfig does not have its own redis_url — use top-level
@@ -369,6 +413,9 @@ class AraxysShield:
         self, config: AraxysConfig
     ) -> InMemorySessionBackend | RedisSessionBackend:
         """Create the session backend based on config."""
+        if self._db_security is not None:
+            logger.info("araxys.using_pooled_redis_session_backend")
+            return RedisSessionBackend(pool=self._db_security.pool)
         if config.session is None:
             return InMemorySessionBackend()
         if config.session.redis_url:
@@ -383,6 +430,10 @@ class AraxysShield:
 
     async def shutdown(self) -> None:
         """Graceful shutdown of all background tasks and services."""
+        # v0.5 — close db pool first
+        if self._db_security is not None:
+            await self._db_security.shutdown()
+
         # Stop event bus (drains queued events)
         if self.event_bus is not None:
             await self.event_bus.stop()
@@ -392,3 +443,15 @@ class AraxysShield:
             await self._session_manager.stop_cleanup()
 
         logger.info("araxys.shield_shutdown_complete")
+
+    # ── v0.5 — Database Security Properties ───────────────────────────────
+
+    @property
+    def db_pool(self) -> ConnectionPool | None:
+        """The shared database connection pool, if db_security is enabled."""
+        return self._db_security.pool if self._db_security else None
+
+    @property
+    def db_auditor(self) -> object | None:
+        """The query auditor, if db_security and query_audit are enabled."""
+        return self._db_security.auditor if self._db_security else None

@@ -46,7 +46,9 @@ dev = [
     "pre-commit>=4.0",
     "uvicorn>=0.30",
 ]
-all = ["araxys[redis,opentelemetry,prometheus,webhooks,audit]"]
+vault = ["hvac>=2.0"]
+aws_secrets = ["boto3>=1.34"]
+all = ["araxys[redis,opentelemetry,prometheus,webhooks,audit,vault,aws_secrets]"]
 
 [project.scripts]
 araxys = "araxys.cli:app"
@@ -61,6 +63,9 @@ line-length = 88
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B008"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

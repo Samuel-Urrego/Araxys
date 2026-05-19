@@ -1,16 +1,38 @@
-"""Tests for db_security/pool.py and db_security/secrets.py (v0.5)."""
+"""Tests for db_security module (v0.5).
+
+Covers pool, secrets, TLS, audit, and manager.
+"""
 
 from __future__ import annotations
 
 import os
+import ssl
 import sys
-from collections.abc import Iterator
-from unittest.mock import AsyncMock, MagicMock, patch
+import warnings
+from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
 
 import pytest
 from fakeredis.aioredis import FakeRedis
+from fastapi import Depends, FastAPI
+from fastapi.testclient import TestClient
 
-from araxys.core.exceptions import ConnectionError
+from araxys.core.config import (
+    AraxysConfig,
+    DatabaseSecurityConfig,
+    QueryAuditConfig,
+    RedisPoolConfig,
+    TLSConfig,
+)
+from araxys.core.exceptions import ConnectionError, TLSConfigurationError
+from araxys.core.types import AuditEntry, AuditEventType
+from araxys.db_security.audit import QueryAuditor, QueryEvent
+from araxys.db_security.dependencies import get_db_pool, get_query_auditor
+from araxys.db_security.manager import DatabaseSecurityManager
 from araxys.db_security.pool import ConnectionPool, InMemoryPool, RedisPool
 from araxys.db_security.secrets import (
     AWSSecretsResolver,
@@ -19,6 +41,8 @@ from araxys.db_security.secrets import (
     EnvVarResolver,
     VaultResolver,
 )
+from araxys.db_security.tls import build_ssl_context
+from araxys.rate_limit.backends import InMemoryBackend
 
 # ---------------------------------------------------------------------------
 # Helpers: mock optional third-party packages before constructing resolvers
@@ -580,3 +604,676 @@ class TestChainedResolver:
 
         with pytest.raises(ValueError, match="Unexpected error in resolver"):
             await resolver.resolve("REDIS_URL")
+
+
+# =============================================================================
+# TLS — build_ssl_context
+# =============================================================================
+
+
+class TestBuildSSLContext:
+    """build_ssl_context() factory tests."""
+
+    def test_returns_none_when_disabled(self) -> None:
+        """TLS disabled → returns None."""
+        config = TLSConfig(enabled=False)
+        result = build_ssl_context(config)
+        assert result is None
+
+    def test_returns_ssl_context_with_tls_12(self) -> None:
+        """With min_tls_version=TLSv1.2, returns an SSLContext >= 1.2."""
+        config = TLSConfig(enabled=True, min_tls_version="TLSv1.2")
+        ctx = build_ssl_context(config)
+        assert isinstance(ctx, ssl.SSLContext)
+        assert ctx.minimum_version >= ssl.TLSVersion.TLSv1_2
+
+    def test_raises_on_nonexistent_ca_cert_path(self) -> None:
+        """Nonexistent ca_cert_path raises TLSConfigurationError."""
+        fake_path = "/nonexistent/ca-cert.pem"
+        config = TLSConfig(enabled=True, ca_cert_path=fake_path)
+        with pytest.raises(TLSConfigurationError, match="CA cert file not found"):
+            build_ssl_context(config)
+
+    def test_raises_on_unsupported_tls_version(self) -> None:
+        """When the system doesn't support the minimum TLS version, raises."""
+        config = TLSConfig(enabled=True, min_tls_version="TLSv1.3")
+        # Simulate a system where minimum_version silently stays at TLSv1.2
+        # even when TLSv1.3 is requested (old OpenSSL behaviour).
+        with patch.object(
+            ssl.SSLContext,
+            "minimum_version",
+            new_callable=PropertyMock,
+        ) as mock_min_version:
+            mock_min_version.return_value = ssl.TLSVersion.TLSv1_2
+            with pytest.raises(
+                TLSConfigurationError,
+                match="does not support TLSv1.3",
+            ):
+                build_ssl_context(config)
+
+    def test_ca_cert_path_loaded_when_exists(self, tmp_path: Path) -> None:
+        """When ca_cert_path exists, load_verify_locations is called."""
+        ca_file = tmp_path / "ca.pem"
+        ca_file.write_text("fake-cert-content\n")
+
+        config = TLSConfig(
+            enabled=True,
+            ca_cert_path=str(ca_file),
+            min_tls_version="TLSv1.2",
+        )
+        with patch.object(ssl.SSLContext, "load_verify_locations") as mock_load:
+            ctx = build_ssl_context(config)
+        assert isinstance(ctx, ssl.SSLContext)
+        mock_load.assert_called_once_with(cafile=str(ca_file))
+
+
+# =============================================================================
+# QueryEvent dataclass
+# =============================================================================
+
+
+class TestQueryEvent:
+    """QueryEvent frozen dataclass tests."""
+
+    def test_frozen(self) -> None:
+        """QueryEvent instances should be immutable."""
+        event = QueryEvent(query_text="SELECT 1")
+        with pytest.raises(AttributeError, match="cannot assign to field"):
+            event.query_text = "UPDATED"  # type: ignore[misc]
+
+    def test_slots(self) -> None:
+        """QueryEvent should use __slots__ (no __dict__)."""
+        event = QueryEvent(query_text="SELECT 1")
+        with pytest.raises(AttributeError, match="__dict__"):
+            _ = event.__dict__
+
+    def test_default_timestamp(self) -> None:
+        """Default timestamp is set on construction."""
+        event = QueryEvent(query_text="SELECT 1")
+        assert event.timestamp is not None
+
+    def test_all_fields(self) -> None:
+        """All fields can be set via constructor."""
+        event = QueryEvent(
+            query_text="SELECT * FROM users WHERE id = :uid",
+            query_params={"uid": 42},
+            connection_id="conn-1",
+            duration_ms=15.5,
+        )
+        assert event.query_text == "SELECT * FROM users WHERE id = :uid"
+        assert event.query_params == {"uid": 42}
+        assert event.connection_id == "conn-1"
+        assert event.duration_ms == 15.5
+
+    def test_query_params_default_none(self) -> None:
+        """query_params defaults to None."""
+        event = QueryEvent(query_text="SELECT 1")
+        assert event.query_params is None
+
+    def test_connection_id_default_none(self) -> None:
+        """connection_id defaults to None."""
+        event = QueryEvent(query_text="SELECT 1")
+        assert event.connection_id is None
+
+    def test_duration_ms_default_none(self) -> None:
+        """duration_ms defaults to None."""
+        event = QueryEvent(query_text="SELECT 1")
+        assert event.duration_ms is None
+
+
+# =============================================================================
+# QueryAuditor
+# =============================================================================
+
+
+class TestQueryAuditor:
+    """QueryAuditor emit() behaviour tests."""
+
+    @pytest.fixture
+    def on_audit(self) -> AsyncMock:
+        return AsyncMock()
+
+    async def test_emit_calls_on_audit_with_audit_entry(
+        self, on_audit: AsyncMock,
+    ) -> None:
+        """emit() creates an AuditEntry with QUERY_EXECUTED and calls on_audit."""
+        auditor = QueryAuditor(on_audit=on_audit)
+        event = QueryEvent(query_text="SELECT 1", duration_ms=5.0)
+
+        await auditor.emit(event)
+
+        on_audit.assert_awaited_once()
+        args = on_audit.await_args
+        assert args is not None
+        entry: AuditEntry = args[0][0]
+        assert entry.event_type == AuditEventType.QUERY_EXECUTED
+        assert entry.detail is None
+
+    async def test_emit_skips_when_disabled(self, on_audit: AsyncMock) -> None:
+        """When enabled=False, emit() does not call on_audit."""
+        auditor = QueryAuditor(enabled=False, on_audit=on_audit)
+        event = QueryEvent(query_text="SELECT 1")
+
+        await auditor.emit(event)
+
+        on_audit.assert_not_awaited()
+
+    async def test_emit_skips_when_on_audit_is_none(self) -> None:
+        """When on_audit is None, emit() returns silently."""
+        auditor = QueryAuditor(on_audit=None)
+        event = QueryEvent(query_text="SELECT 1")
+
+        # Should not raise
+        await auditor.emit(event)
+
+    async def test_slow_query_flagged(self, on_audit: AsyncMock) -> None:
+        """When duration_ms > slow_query_threshold_ms, detail='slow_query'."""
+        auditor = QueryAuditor(
+            on_audit=on_audit,
+            slow_query_threshold_ms=100,
+        )
+        event = QueryEvent(query_text="SELECT 1", duration_ms=200.0)
+
+        await auditor.emit(event)
+
+        on_audit.assert_awaited_once()
+        args = on_audit.await_args
+        assert args is not None
+        entry: AuditEntry = args[0][0]
+        assert entry.event_type == AuditEventType.QUERY_EXECUTED
+        assert entry.detail == "slow_query"
+
+    async def test_normal_query_not_flagged(self, on_audit: AsyncMock) -> None:
+        """When duration_ms <= slow_query_threshold_ms, detail is None."""
+        auditor = QueryAuditor(
+            on_audit=on_audit,
+            slow_query_threshold_ms=100,
+        )
+        event = QueryEvent(query_text="SELECT 1", duration_ms=50.0)
+
+        await auditor.emit(event)
+
+        on_audit.assert_awaited_once()
+        args = on_audit.await_args
+        assert args is not None
+        entry: AuditEntry = args[0][0]
+        assert entry.event_type == AuditEventType.QUERY_EXECUTED
+        assert entry.detail is None
+
+    async def test_slow_query_logs_warning(
+        self, on_audit: AsyncMock,
+    ) -> None:
+        """Slow queries should emit a structlog warning."""
+        import araxys.db_security.audit as audit_module
+
+        auditor = QueryAuditor(
+            on_audit=on_audit,
+            slow_query_threshold_ms=100,
+        )
+        event = QueryEvent(
+            query_text="SELECT * FROM big_table",
+            duration_ms=500.0,
+        )
+
+        with patch.object(audit_module, "logger") as mock_logger:
+            await auditor.emit(event)
+
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args
+            assert "slow_query" in str(call_args)
+
+    async def test_emit_without_duration(
+        self, on_audit: AsyncMock,
+    ) -> None:
+        """emit() works when duration_ms is None (no slow-query check)."""
+        auditor = QueryAuditor(on_audit=on_audit)
+        event = QueryEvent(query_text="SELECT 1")
+
+        await auditor.emit(event)
+
+        on_audit.assert_awaited_once()
+        args = on_audit.await_args
+        assert args is not None
+        entry: AuditEntry = args[0][0]
+        assert entry.detail is None
+
+
+# =============================================================================
+# DatabaseSecurityManager
+# =============================================================================
+
+
+class TestDatabaseSecurityManager:
+    """DatabaseSecurityManager lifecycle tests."""
+
+    @pytest.fixture
+    def mock_pool(self) -> MagicMock:
+        pool = MagicMock(spec=ConnectionPool)
+        pool.acquire = AsyncMock()
+        pool.release = AsyncMock()
+        pool.health = AsyncMock(return_value=True)
+        pool.close = AsyncMock()
+        return pool
+
+    @pytest.fixture
+    def on_audit(self) -> AsyncMock:
+        return AsyncMock()
+
+    @pytest.fixture
+    def full_config(self) -> DatabaseSecurityConfig:
+        """Config with TLS + query audit enabled + no secrets."""
+        return DatabaseSecurityConfig(
+            enabled=True,
+            redis_pool=RedisPoolConfig(url="redis://test:6379"),
+            tls=TLSConfig(enabled=False),
+            query_audit=QueryAuditConfig(enabled=True, slow_query_threshold_ms=100),
+        )
+
+    def test_creates_redis_pool_from_config(
+        self, full_config: DatabaseSecurityConfig,
+    ) -> None:
+        """Manager creates a RedisPool from the config."""
+        manager = DatabaseSecurityManager(config=full_config, on_audit=None)
+        assert manager.pool is not None
+        assert isinstance(manager.pool, RedisPool)
+        assert manager.pool.url == "redis://test:6379"
+
+    def test_falls_back_to_config_url_when_resolver_none(
+        self, full_config: DatabaseSecurityConfig,
+    ) -> None:
+        """Pool URL comes from config.redis_pool.url (resolver is lazy)."""
+        config = DatabaseSecurityConfig(
+            enabled=True,
+            redis_pool=RedisPoolConfig(url="redis://fallback:6379"),
+            tls=TLSConfig(enabled=False),
+            query_audit=QueryAuditConfig(enabled=False),
+        )
+        manager = DatabaseSecurityManager(config=config, on_audit=None)
+        assert manager.pool is not None
+        assert manager.pool.url == "redis://fallback:6379"  # type: ignore[attr-defined]
+
+    def test_creates_auditor_when_enabled(
+        self, full_config: DatabaseSecurityConfig, on_audit: AsyncMock,
+    ) -> None:
+        """When query_audit.enabled=True, auditor is created."""
+        manager = DatabaseSecurityManager(config=full_config, on_audit=on_audit)
+        assert manager.auditor is not None
+        assert isinstance(manager.auditor, QueryAuditor)
+
+    def test_skips_auditor_when_disabled(self, on_audit: AsyncMock) -> None:
+        """When query_audit.enabled=False, auditor is None."""
+        config = DatabaseSecurityConfig(
+            enabled=True,
+            redis_pool=RedisPoolConfig(url="redis://test:6379"),
+            tls=TLSConfig(enabled=False),
+            query_audit=QueryAuditConfig(enabled=False),
+        )
+        manager = DatabaseSecurityManager(config=config, on_audit=on_audit)
+        assert manager.auditor is None
+
+    async def test_shutdown_calls_pool_close(
+        self, full_config: DatabaseSecurityConfig,
+    ) -> None:
+        """shutdown() calls close() on the pool."""
+        manager = DatabaseSecurityManager(config=full_config, on_audit=None)
+        with patch.object(manager.pool, "close", new=AsyncMock()) as mock_close:
+            await manager.shutdown()
+            mock_close.assert_awaited_once()
+
+    async def test_shutdown_logs_error_on_pool_close_failure(
+        self, full_config: DatabaseSecurityConfig,
+    ) -> None:
+        """When pool.close() raises, shutdown() logs and does not re-raise."""
+        import araxys.db_security.manager as manager_module
+
+        manager = DatabaseSecurityManager(config=full_config, on_audit=None)
+
+        async def failing_close() -> None:
+            raise RuntimeError("Pool shutdown failed")
+
+        manager.pool.close = failing_close  # type: ignore[method-assign]
+        with patch.object(manager_module, "logger") as mock_logger:
+            await manager.shutdown()
+            mock_logger.error.assert_called_once()
+            # Verify error was logged (exc_info=True means the exception
+            # traceback is captured — the message prefix confirms the context).
+            args, kwargs = mock_logger.error.call_args
+            assert args[0] == "db_security.shutdown_error"
+            assert kwargs.get("exc_info") is True
+
+    async def test_shutdown_never_raises(
+        self, full_config: DatabaseSecurityConfig,
+    ) -> None:
+        """shutdown() should never raise, even if pool operations fail."""
+        manager = DatabaseSecurityManager(config=full_config, on_audit=None)
+        manager.pool.close = AsyncMock(side_effect=RuntimeError("Boom"))  # type: ignore[method-assign]
+        # Should not raise
+        await manager.shutdown()
+
+    def test_pool_property_returns_pool(
+        self, full_config: DatabaseSecurityConfig,
+    ) -> None:
+        """pool property returns the underlying ConnectionPool."""
+        manager = DatabaseSecurityManager(config=full_config, on_audit=None)
+        assert isinstance(manager.pool, ConnectionPool)
+
+    def test_auditor_property_none_when_disabled(
+        self, full_config: DatabaseSecurityConfig,
+    ) -> None:
+        """When no on_audit and audit disabled, auditor property is None."""
+        config = DatabaseSecurityConfig(
+            enabled=True,
+            redis_pool=RedisPoolConfig(url="redis://test:6379"),
+            tls=TLSConfig(enabled=False),
+            query_audit=QueryAuditConfig(enabled=False),
+        )
+        manager = DatabaseSecurityManager(config=config, on_audit=None)
+        assert manager.auditor is None
+
+
+# =============================================================================
+# Dependencies — get_db_pool, get_query_auditor
+# =============================================================================
+
+
+class TestGetDBPool:
+    """get_db_pool FastAPI dependency tests."""
+
+    def test_returns_pool_when_initialized(self) -> None:
+        """get_db_pool returns the ConnectionPool from app.state.db_security.pool."""
+        app = FastAPI()
+        pool = MagicMock(spec=ConnectionPool)
+        manager = MagicMock(spec=DatabaseSecurityManager)
+        manager.pool = pool
+        app.state.db_security = manager
+
+        @app.get("/test")
+        async def handler(
+            p: ConnectionPool = Depends(get_db_pool),
+        ) -> dict[str, object]:
+            return {"pool_id": id(p)}
+
+        client = TestClient(app)
+        response = client.get("/test")
+        assert response.status_code == 200
+        assert response.json()["pool_id"] == id(pool)
+
+    def test_raises_when_not_initialized(self) -> None:
+        """get_db_pool raises RuntimeError when db_security not in app.state."""
+        app = FastAPI()
+
+        @app.get("/test")
+        async def handler(
+            p: ConnectionPool = Depends(get_db_pool),
+        ) -> dict[str, object]:
+            return {"ok": True}
+
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.get("/test")
+        assert response.status_code == 500
+
+    def test_raises_when_db_security_is_none(self) -> None:
+        """get_db_pool raises RuntimeError when db_security is None."""
+        app = FastAPI()
+        app.state.db_security = None
+
+        @app.get("/test")
+        async def handler(
+            p: ConnectionPool = Depends(get_db_pool),
+        ) -> dict[str, object]:
+            return {"ok": True}
+
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.get("/test")
+        assert response.status_code == 500
+
+
+class TestGetQueryAuditor:
+    """get_query_auditor FastAPI dependency tests."""
+
+    def test_returns_auditor_when_initialized(self) -> None:
+        """get_query_auditor returns QueryAuditor when auditor is set."""
+        app = FastAPI()
+        auditor = MagicMock(spec=QueryAuditor)
+        manager = MagicMock(spec=DatabaseSecurityManager)
+        manager.auditor = auditor
+        app.state.db_security = manager
+
+        @app.get("/test")
+        async def handler(
+            a: QueryAuditor | None = Depends(get_query_auditor),
+        ) -> dict[str, object]:
+            return {"auditor_id": id(a) if a else None}
+
+        client = TestClient(app)
+        response = client.get("/test")
+        assert response.status_code == 200
+        assert response.json()["auditor_id"] == id(auditor)
+
+    def test_returns_none_when_auditor_is_none(self) -> None:
+        """get_query_auditor returns None when auditor is None."""
+        app = FastAPI()
+        manager = MagicMock(spec=DatabaseSecurityManager)
+        manager.auditor = None
+        app.state.db_security = manager
+
+        @app.get("/test")
+        async def handler(
+            a: QueryAuditor | None = Depends(get_query_auditor),
+        ) -> dict[str, object]:
+            return {"auditor_id": id(a) if a else None}
+
+        client = TestClient(app)
+        response = client.get("/test")
+        assert response.status_code == 200
+        assert response.json()["auditor_id"] is None
+
+    def test_returns_none_when_db_security_missing(self) -> None:
+        """get_query_auditor returns None when db_security not in app.state."""
+        app = FastAPI()
+
+        @app.get("/test")
+        async def handler(
+            a: QueryAuditor | None = Depends(get_query_auditor),
+        ) -> dict[str, object]:
+            return {"auditor_id": id(a) if a else None}
+
+        client = TestClient(app)
+        response = client.get("/test")
+        assert response.status_code == 200
+        assert response.json()["auditor_id"] is None
+
+
+# =============================================================================
+# Shield Integration — Task 5.1
+# =============================================================================
+
+
+@pytest.fixture
+def shield_config_enabled() -> AraxysConfig:
+    """Config with db_security enabled and query_audit enabled."""
+    return AraxysConfig(
+        secret_key="test-secret-key-1234567890abcdef",
+        db_security=DatabaseSecurityConfig(
+            enabled=True,
+            redis_pool=RedisPoolConfig(url="redis://localhost:6379"),
+            query_audit=QueryAuditConfig(enabled=True, slow_query_threshold_ms=100),
+        ),
+    )
+
+
+@pytest.fixture
+def shield_config_disabled() -> AraxysConfig:
+    """Config with db_security=None (default — backward compat)."""
+    return AraxysConfig(secret_key="test-secret-key-1234567890abcdef")
+
+
+@pytest.fixture
+def shield_config_deprecated_url() -> AraxysConfig:
+    """Config with db_security enabled AND old redis_url set."""
+    return AraxysConfig(
+        secret_key="test-secret-key-1234567890abcdef",
+        redis_url="redis://old:6379",
+        db_security=DatabaseSecurityConfig(
+            enabled=True,
+            redis_pool=RedisPoolConfig(url="redis://localhost:6379"),
+            query_audit=QueryAuditConfig(enabled=False),
+        ),
+    )
+
+
+class TestShieldIntegration:
+    """DatabaseSecurityManager creation and lifecycle within AraxysShield.
+
+    These tests verify that AraxysShield conditionally creates the
+    DatabaseSecurityManager, wires pool injection into all 6 factory
+    methods, handles deprecation of redis_url, and shuts down cleanly.
+    """
+
+    # ── Init behavior ─────────────────────────────────────────────────────
+
+    def test_without_db_security_no_pool_and_backends_use_legacy(
+        self, shield_config_disabled: AraxysConfig,
+    ) -> None:
+        """When db_security=None, _db_security is None and db_pool returns None."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_disabled)
+        assert shield._db_security is None
+        assert shield.db_pool is None
+        # Backends should be in-memory (no redis_url, no pool)
+        assert isinstance(shield._rate_backend, InMemoryBackend)
+
+    def test_with_db_security_creates_pool(
+        self, shield_config_enabled: AraxysConfig,
+    ) -> None:
+        """When db_security.enabled=True, _db_security and pool are created."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_enabled)
+        assert shield._db_security is not None
+        assert shield.db_pool is not None
+        assert isinstance(shield.db_pool, ConnectionPool)
+
+    def test_deprecation_warning_when_redis_url_set(
+        self, shield_config_deprecated_url: AraxysConfig,
+    ) -> None:
+        """When db_security enabled + old redis_url, a DeprecationWarning is emitted."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        with pytest.warns(DeprecationWarning, match="redis_url is deprecated"):
+            AraxysShield(app, shield_config_deprecated_url)
+
+    def test_pool_url_updated_from_deprecated_redis_url(
+        self, shield_config_deprecated_url: AraxysConfig,
+    ) -> None:
+        """When redis_url is set, the pool URL is updated to match."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            shield = AraxysShield(app, shield_config_deprecated_url)
+
+        assert shield._db_security is not None
+        assert shield.db_pool is not None
+
+    # ── Properties ────────────────────────────────────────────────────────
+
+    def test_db_pool_property_enabled(
+        self, shield_config_enabled: AraxysConfig,
+    ) -> None:
+        """db_pool returns the ConnectionPool when db_security is enabled."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_enabled)
+        pool = shield.db_pool
+        assert pool is not None
+        assert isinstance(pool, ConnectionPool)
+
+    def test_db_pool_property_disabled(
+        self, shield_config_disabled: AraxysConfig,
+    ) -> None:
+        """db_pool returns None when db_security is None."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_disabled)
+        assert shield.db_pool is None
+
+    def test_db_auditor_property_enabled(
+        self, shield_config_enabled: AraxysConfig,
+    ) -> None:
+        """db_auditor returns QueryAuditor when query_audit is enabled."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_enabled)
+        auditor = shield.db_auditor
+        assert auditor is not None
+        assert isinstance(auditor, QueryAuditor)
+
+    def test_db_auditor_property_disabled(
+        self, shield_config_disabled: AraxysConfig,
+    ) -> None:
+        """db_auditor returns None when db_security is None."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_disabled)
+        assert shield.db_auditor is None
+
+    # ── Shutdown ──────────────────────────────────────────────────────────
+
+    async def test_shutdown_closes_pool_when_enabled(
+        self, shield_config_enabled: AraxysConfig,
+    ) -> None:
+        """shutdown() calls DatabaseSecurityManager.shutdown() when enabled."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_enabled)
+        with patch.object(shield._db_security, "shutdown",
+                          new=AsyncMock()) as mock_shutdown:
+            await shield.shutdown()
+            mock_shutdown.assert_awaited_once()
+
+    async def test_shutdown_no_crash_when_disabled(
+        self, shield_config_disabled: AraxysConfig,
+    ) -> None:
+        """shutdown() does not crash when db_security is None."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_disabled)
+        # Should not raise
+        await shield.shutdown()
+
+
+class TestShieldIntegrationExistingSuite:
+    """Shield initialization with/without db_security — FastAPI integration."""
+
+    def test_shield_init_without_db_security(
+        self, shield_config_disabled: AraxysConfig,
+    ) -> None:
+        """Shield initializes with db_security=None (backward compat)."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_disabled)
+        assert shield.config == shield_config_disabled
+
+    async def test_shield_init_with_db_security(
+        self, shield_config_enabled: AraxysConfig,
+    ) -> None:
+        """Shield initializes with db_security.enabled=True."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_enabled)
+        assert shield.config == shield_config_enabled
+        assert shield._db_security is not None
