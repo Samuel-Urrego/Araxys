@@ -156,7 +156,7 @@ class RedisPool:
         self._cert_pin_sha256: str | None = cert_pin_sha256
         self._redis: Redis = Redis.from_url(url, ssl_context=ssl_context)
         self._last_active: float = time.time()
-        self._health_task: asyncio.Task | None = None
+        self._health_task: asyncio.Task[None] | None = None
         if health_check_interval_seconds > 0:
             try:
                 loop = asyncio.get_running_loop()
@@ -193,7 +193,7 @@ class RedisPool:
             # Idle timeout: PING if the connection has been idle too long.
             if time.time() - self._last_active > self.idle_timeout_seconds:
                 try:
-                    await self._redis.ping()
+                    await self._redis.ping()  # type: ignore[misc]
                 except Exception as exc:
                     raise ConnectionError(
                         f"Connection idle timeout — PING failed: {exc}",
@@ -248,7 +248,7 @@ class RedisPool:
         while True:
             await asyncio.sleep(self.health_check_interval_seconds)
             try:
-                await self._redis.ping()
+                await self._redis.ping()  # type: ignore[misc]
             except asyncio.CancelledError:
                 raise  # re-raise to let the task be cancelled cleanly
             except Exception:  # noqa: BLE001 — intentionally broad, health loop never raises

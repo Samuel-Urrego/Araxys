@@ -84,7 +84,7 @@ class TestRedisPoolHealthLoop:
         )
         try:
             mock_ping = AsyncMock(return_value=True)
-            p._redis.ping = mock_ping  # noqa: SLF001  # type: ignore[method-assign]
+            p._redis.ping = mock_ping  # type: ignore[method-assign]  # noqa: SLF001
 
             # Wait for at least one health check cycle
             await asyncio.sleep(0.05)
@@ -124,7 +124,7 @@ class TestRedisPoolIdleTimeout:
         )
         try:
             mock_ping = AsyncMock(return_value=True)
-            p._redis.ping = mock_ping  # noqa: SLF001  # type: ignore[method-assign]
+            p._redis.ping = mock_ping  # type: ignore[method-assign]  # noqa: SLF001
 
             # Simulate idle by setting _last_active far in the past
             p._last_active = time.time() - 600  # noqa: SLF001 — 600s > 300s idle timeout
@@ -147,7 +147,7 @@ class TestRedisPoolIdleTimeout:
         )
         try:
             mock_ping = AsyncMock(return_value=True)
-            p._redis.ping = mock_ping  # noqa: SLF001  # type: ignore[method-assign]
+            p._redis.ping = mock_ping  # type: ignore[method-assign]  # noqa: SLF001
 
             # _last_active defaults to time.time() on init (recent)
             conn = await p.acquire()
@@ -168,7 +168,7 @@ class TestRedisPoolIdleTimeout:
         )
         try:
             mock_ping = AsyncMock(return_value=True)
-            p._redis.ping = mock_ping  # noqa: SLF001  # type: ignore[method-assign]
+            p._redis.ping = mock_ping  # type: ignore[method-assign]  # noqa: SLF001
 
             # Force _last_active to be old
             p._last_active = time.time() - 600  # noqa: SLF001
@@ -192,7 +192,7 @@ class TestRedisPoolIdleTimeout:
         )
         try:
             mock_ping = AsyncMock(side_effect=OSError("Connection refused"))
-            p._redis.ping = mock_ping  # noqa: SLF001  # type: ignore[method-assign]
+            p._redis.ping = mock_ping  # type: ignore[method-assign]  # noqa: SLF001
 
             # Simulate idle
             p._last_active = time.time() - 600  # noqa: SLF001
@@ -222,7 +222,7 @@ class TestRedisPoolAcquireTimeout:
             async def _never(*args: object, **kwargs: object) -> None:
                 await asyncio.Event().wait()  # never resolves
 
-            p._redis.ping = _never  # noqa: SLF001  # type: ignore[method-assign]
+            p._redis.ping = _never  # type: ignore[method-assign,assignment]  # noqa: SLF001
 
             # Simulate an idle connection so the PING check is triggered
             p._last_active = time.time() - 600  # noqa: SLF001
@@ -242,7 +242,7 @@ class TestRedisPoolAcquireTimeout:
         )
         try:
             mock_ping = AsyncMock(return_value=True)
-            p._redis.ping = mock_ping  # noqa: SLF001  # type: ignore[method-assign]
+            p._redis.ping = mock_ping  # type: ignore[method-assign]  # noqa: SLF001
 
             conn = await p.acquire()
             assert conn is not None
