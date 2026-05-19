@@ -7,25 +7,30 @@ Task 1.3: Add get_redis_client() public accessor to RedisPool.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
+
+if TYPE_CHECKING:
+    from araxys.db_security.pool import InMemoryPool, RedisPool
 
 
 class TestRedisPoolGetRedisClient:
     """Tests for RedisPool.get_redis_client()."""
 
     @pytest.fixture
-    def pool(self):
+    def pool(self) -> RedisPool:
         from araxys.db_security.pool import RedisPool
 
         return RedisPool(url="redis://localhost:6379")
 
-    async def test_accessor_returns_client(self, pool) -> None:
+    async def test_accessor_returns_client(self, pool: RedisPool) -> None:
         """get_redis_client() returns the underlying Redis client."""
         client = pool.get_redis_client()
         assert client is not None
         assert client is pool._redis  # noqa: SLF001 — testing internal
 
-    async def test_accessor_after_close_returns_client(self, pool) -> None:
+    async def test_accessor_after_close_returns_client(self, pool: RedisPool) -> None:
         """get_redis_client() after close returns the client (no crash)."""
         await pool.close()
         client = pool.get_redis_client()
@@ -36,12 +41,12 @@ class TestInMemoryPool:
     """Basic InMemoryPool tests for coverage."""
 
     @pytest.fixture
-    def pool(self):
+    def pool(self) -> InMemoryPool:
         from araxys.db_security.pool import InMemoryPool
 
         return InMemoryPool()
 
-    async def test_acquire_and_release(self, pool) -> None:
+    async def test_acquire_and_release(self, pool: InMemoryPool) -> None:
         """Acquire returns a client, release decrements count."""
         conn = await pool.acquire()
         assert conn is not None
@@ -49,6 +54,6 @@ class TestInMemoryPool:
         await pool.release(conn)
         assert pool._active == 0  # noqa: SLF001
 
-    async def test_health(self, pool) -> None:
+    async def test_health(self, pool: InMemoryPool) -> None:
         """Health returns True when pool is open."""
         assert await pool.health() is True
