@@ -33,6 +33,7 @@ class AuditEventType(StrEnum):
     SANITIZATION_BLOCKED = "sanitization_blocked"
     IP_BANNED = "ip_banned"
     IP_UNBANNED = "ip_unbanned"
+    QUERY_EXECUTED = "query_executed"
 
 
 class SecurityEventType(StrEnum):

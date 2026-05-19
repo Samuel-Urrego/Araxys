@@ -469,6 +469,114 @@ class TelemetryConfig(BaseModel):
     )
 
 
+class RedisPoolConfig(BaseModel):
+    """Configuration for the shared Redis connection pool."""
+
+    url: str = Field(
+        default="redis://localhost:6379",
+        description="Redis connection URL",
+    )
+    max_size: int = Field(
+        default=10,
+        ge=1,
+        description="Maximum pool size",
+    )
+    idle_timeout_seconds: int = Field(
+        default=300,
+        description="Idle connection timeout in seconds",
+    )
+    acquire_timeout_seconds: float = Field(
+        default=5.0,
+        description="Timeout for acquiring a connection",
+    )
+    leak_threshold: int = Field(
+        default=10,
+        description="Outstanding connections before leak warning",
+    )
+    health_check_interval_seconds: int = Field(
+        default=30,
+        description="Interval between health checks in seconds",
+    )
+
+
+class TLSConfig(BaseModel):
+    """Configuration for TLS connections to Redis."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable TLS for Redis connections",
+    )
+    ca_cert_path: str | None = Field(
+        default=None,
+        description="Path to CA certificate file",
+    )
+    cert_pin_sha256: str | None = Field(
+        default=None,
+        description="SHA-256 pin of the server certificate",
+    )
+    min_tls_version: str = Field(
+        default="TLSv1.2",
+        description="Minimum TLS version allowed",
+    )
+
+
+class SecretsConfig(BaseModel):
+    """Configuration for external secret resolution (Vault, AWS Secrets Manager)."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable secret resolution from external providers",
+    )
+    vault_url: str | None = Field(
+        default=None,
+        description="HashiCorp Vault server URL",
+    )
+    vault_token: str | None = Field(
+        default=None,
+        description="HashiCorp Vault authentication token",
+    )
+    vault_mount_path: str = Field(
+        default="araxys",
+        description="Vault secret mount path",
+    )
+    aws_region: str | None = Field(
+        default=None,
+        description="AWS region for Secrets Manager",
+    )
+    aws_secret_prefix: str = Field(
+        default="araxys/",
+        description="Prefix for AWS secret names",
+    )
+
+
+class QueryAuditConfig(BaseModel):
+    """Configuration for query auditing."""
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable query auditing",
+    )
+    slow_query_threshold_ms: int = Field(
+        default=100,
+        ge=1,
+        description="Threshold in ms for slow query detection",
+    )
+
+
+class DatabaseSecurityConfig(BaseModel):
+    """Configuration for the database security module.
+
+    When None on AraxysConfig, the entire module is disabled and
+    existing backends operate via from_url() as today.
+    """
+
+    enabled: bool = Field(default=False, description="Enable database security module")
+    redis_pool: RedisPoolConfig = Field(default_factory=RedisPoolConfig)
+    tls: TLSConfig = Field(default_factory=TLSConfig)
+    secrets: SecretsConfig = Field(default_factory=SecretsConfig)
+    query_audit: QueryAuditConfig = Field(default_factory=QueryAuditConfig)
+
+
 class AraxysConfig(BaseSettings):
     """Master configuration for the Araxys security shield.
 
@@ -507,3 +615,5 @@ class AraxysConfig(BaseSettings):
     webhooks: WebhookConfig | None = Field(default=None)
     metrics: MetricsConfig | None = Field(default=None)
     telemetry: TelemetryConfig | None = Field(default=None)
+    # v0.5 — Database Security (optional, disabled by default)
+    db_security: DatabaseSecurityConfig | None = Field(default=None)

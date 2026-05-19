@@ -1,5 +1,9 @@
 """Tests for v0.3 configuration models."""
 
+import re
+
+import pytest
+
 from araxys.core.config import (
     AraxysConfig,
     AuditConfig,
@@ -7,15 +11,20 @@ from araxys.core.config import (
     CORSConfig,
     CSPDirectiveConfig,
     CSRFConfig,
+    DatabaseSecurityConfig,
     IPControlConfig,
     JWTConfig,
     LogShippingConfig,
     MetricsConfig,
+    QueryAuditConfig,
     RateLimitConfig,
+    RedisPoolConfig,
     SanitizeConfig,
+    SecretsConfig,
     SecureHeadersConfig,
     SessionConfig,
     TelemetryConfig,
+    TLSConfig,
     WebhookConfig,
 )
 
@@ -486,3 +495,113 @@ class TestNewConfigsInAraxysConfig:
         assert c.jwt.jwks_enabled is True
         assert c.audit.async_write is True
         assert c.audit.pii_fields == ["email"]
+
+
+class TestDatabaseSecurityConfig:
+    """DatabaseSecurityConfig and nested sub-configs (v0.5 db_security)."""
+
+    def test_redis_pool_config_defaults(self) -> None:
+        c = RedisPoolConfig()
+        assert c.url == "redis://localhost:6379"
+        assert c.max_size == 10
+        assert c.idle_timeout_seconds == 300
+        assert c.acquire_timeout_seconds == 5.0
+        assert c.leak_threshold == 10
+        assert c.health_check_interval_seconds == 30
+
+    def test_tls_config_defaults(self) -> None:
+        c = TLSConfig()
+        assert c.enabled is False
+        assert c.ca_cert_path is None
+        assert c.cert_pin_sha256 is None
+        assert c.min_tls_version == "TLSv1.2"
+
+    def test_secrets_config_defaults(self) -> None:
+        c = SecretsConfig()
+        assert c.enabled is False
+        assert c.vault_url is None
+        assert c.vault_token is None
+        assert c.vault_mount_path == "araxys"
+        assert c.aws_region is None
+        assert c.aws_secret_prefix == "araxys/"
+
+    def test_query_audit_config_defaults(self) -> None:
+        c = QueryAuditConfig()
+        assert c.enabled is True
+        assert c.slow_query_threshold_ms == 100
+
+    def test_database_security_config_defaults(self) -> None:
+        c = DatabaseSecurityConfig()
+        assert c.enabled is False
+        assert isinstance(c.redis_pool, RedisPoolConfig)
+        assert isinstance(c.tls, TLSConfig)
+        assert isinstance(c.secrets, SecretsConfig)
+        assert isinstance(c.query_audit, QueryAuditConfig)
+        # Verify nested defaults
+        assert c.redis_pool.url == "redis://localhost:6379"
+        assert c.tls.min_tls_version == "TLSv1.2"
+        assert c.query_audit.slow_query_threshold_ms == 100
+
+    def test_database_security_config_custom(self) -> None:
+        c = DatabaseSecurityConfig(
+            enabled=True,
+            redis_pool={"url": "redis://custom:6379", "max_size": 5},  # type: ignore[arg-type]
+            tls={"enabled": True, "min_tls_version": "TLSv1.3"},  # type: ignore[arg-type]
+        )
+        assert c.enabled is True
+        assert c.redis_pool.url == "redis://custom:6379"
+        assert c.redis_pool.max_size == 5
+        assert c.tls.enabled is True
+        assert c.tls.min_tls_version == "TLSv1.3"
+
+    def test_redis_pool_ge_validation(self) -> None:
+        with pytest.raises(
+            Exception, match=re.escape("Input should be greater than or equal to 1")
+        ):
+            RedisPoolConfig(max_size=0)
+
+        with pytest.raises(
+            Exception, match=re.escape("Input should be greater than or equal to 1")
+        ):
+            QueryAuditConfig(slow_query_threshold_ms=0)
+
+
+class TestDatabaseSecurityInAraxysConfig:
+    """db_security must be optional in AraxysConfig."""
+
+    def test_db_security_defaults_to_none(self) -> None:
+        c = AraxysConfig(secret_key="test-secret-key-must-be-32-chars!!")
+        assert c.db_security is None
+
+    def test_db_security_explicit_none(self) -> None:
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            db_security=None,
+        )
+        assert c.db_security is None
+
+    def test_db_security_with_defaults(self) -> None:
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            db_security={},  # type: ignore[arg-type]
+        )
+        assert c.db_security is not None
+        assert c.db_security.enabled is False
+        assert c.db_security.redis_pool.url == "redis://localhost:6379"
+
+    def test_db_security_custom_values(self) -> None:
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            db_security={  # type: ignore[arg-type]
+                "enabled": True,
+                "redis_pool": {"url": "redis://secure:6380", "max_size": 20},
+                "tls": {"enabled": True},
+                "query_audit": {"slow_query_threshold_ms": 500},
+            },
+        )
+        assert c.db_security is not None
+        assert c.db_security.enabled is True
+        assert c.db_security.redis_pool.url == "redis://secure:6380"
+        assert c.db_security.redis_pool.max_size == 20
+        assert c.db_security.tls.enabled is True
+        assert c.db_security.query_audit.slow_query_threshold_ms == 500
