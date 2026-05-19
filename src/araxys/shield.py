@@ -394,8 +394,7 @@ class AraxysShield:
     ) -> InMemoryBruteForceBackend | RedisBruteForceBackend:
         """Create the brute force backend based on config."""
         if self._db_security is not None:
-            # pool._redis is the underlying redis.asyncio.Redis client
-            redis = self._db_security.pool._redis  # type: ignore[attr-defined]
+            redis = self._db_security.pool.get_redis_client()
             return RedisBruteForceBackend(redis)
         if config.brute_force is None:
             return InMemoryBruteForceBackend()
