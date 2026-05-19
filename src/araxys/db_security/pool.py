@@ -174,25 +174,38 @@ class RedisPool:
         return self._redis
 
     async def acquire(self) -> Redis:
-        """Return the underlying Redis client (or raise if exhausted)."""
-        if self._closed:
-            raise ConnectionError("Pool is closed")
-        if self._active_count >= self.max_size:
-            raise ConnectionError("Pool exhausted")
-        self._active_count += 1
-        self._check_leak()
-        if self._cert_pin_sha256:
-            await self._verify_cert_pin(self._redis)
-        # Idle timeout: PING if the connection has been idle too long.
-        if time.time() - self._last_active > self.idle_timeout_seconds:
-            try:
-                await self._redis.ping()
-            except Exception as exc:
-                raise ConnectionError(
-                    f"Connection idle timeout — PING failed: {exc}",
-                ) from exc
-        self._last_active = time.time()
-        return self._redis
+        """Return the underlying Redis client (or raise if exhausted).
+
+        Enforces ``acquire_timeout_seconds`` via :func:`asyncio.wait_for`.
+        Raises :exc:`araxys.core.exceptions.ConnectionError` on timeout.
+        """
+
+        async def _acquire_body() -> Redis:
+            if self._closed:
+                raise ConnectionError("Pool is closed")
+            if self._active_count >= self.max_size:
+                raise ConnectionError("Pool exhausted")
+            self._active_count += 1
+            self._check_leak()
+            if self._cert_pin_sha256:
+                await self._verify_cert_pin(self._redis)
+            # Idle timeout: PING if the connection has been idle too long.
+            if time.time() - self._last_active > self.idle_timeout_seconds:
+                try:
+                    await self._redis.ping()
+                except Exception as exc:
+                    raise ConnectionError(
+                        f"Connection idle timeout — PING failed: {exc}",
+                    ) from exc
+            self._last_active = time.time()
+            return self._redis
+
+        try:
+            return await asyncio.wait_for(
+                _acquire_body(), timeout=self.acquire_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            raise ConnectionError("Acquire timed out")
 
     async def release(self, conn: Redis) -> None:
         """Decrement the active-connection counter."""
