@@ -62,6 +62,16 @@ from araxys.core.types import (
 from araxys.cors.middleware import CORSMiddleware
 from araxys.csrf.dependencies import csrf_protected, set_csrf_cookie
 from araxys.csrf.tokens import CSRFHandler
+from araxys.db_security import (
+    ConnectionPool,
+    ConnectionStringResolver,
+    DatabaseSecurityManager,
+    InMemoryPool,
+    QueryAuditor,
+    RedisPool,
+    get_db_pool,
+    get_query_auditor,
+)
 from araxys.ip_access.backends import IPAccessBackend
 from araxys.ip_access.middleware import IPAccessMiddleware
 from araxys.jwt_auth.dependencies import create_jwks_router
@@ -150,4 +160,13 @@ __all__ = [
     "JWKSStore",
     "InMemoryJWKSStore",
     "create_jwks_router",
+    # v0.5 Database Security
+    "ConnectionPool",
+    "ConnectionStringResolver",
+    "DatabaseSecurityManager",
+    "InMemoryPool",
+    "QueryAuditor",
+    "RedisPool",
+    "get_db_pool",
+    "get_query_auditor",
 ]

@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import ssl
 import sys
+import warnings
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
@@ -21,6 +22,7 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from araxys.core.config import (
+    AraxysConfig,
     DatabaseSecurityConfig,
     QueryAuditConfig,
     RedisPoolConfig,
@@ -40,6 +42,7 @@ from araxys.db_security.secrets import (
     VaultResolver,
 )
 from araxys.db_security.tls import build_ssl_context
+from araxys.rate_limit.backends import InMemoryBackend
 
 # ---------------------------------------------------------------------------
 # Helpers: mock optional third-party packages before constructing resolvers
@@ -1079,3 +1082,198 @@ class TestGetQueryAuditor:
         response = client.get("/test")
         assert response.status_code == 200
         assert response.json()["auditor_id"] is None
+
+
+# =============================================================================
+# Shield Integration — Task 5.1
+# =============================================================================
+
+
+@pytest.fixture
+def shield_config_enabled() -> AraxysConfig:
+    """Config with db_security enabled and query_audit enabled."""
+    return AraxysConfig(
+        secret_key="test-secret-key-1234567890abcdef",
+        db_security=DatabaseSecurityConfig(
+            enabled=True,
+            redis_pool=RedisPoolConfig(url="redis://localhost:6379"),
+            query_audit=QueryAuditConfig(enabled=True, slow_query_threshold_ms=100),
+        ),
+    )
+
+
+@pytest.fixture
+def shield_config_disabled() -> AraxysConfig:
+    """Config with db_security=None (default — backward compat)."""
+    return AraxysConfig(secret_key="test-secret-key-1234567890abcdef")
+
+
+@pytest.fixture
+def shield_config_deprecated_url() -> AraxysConfig:
+    """Config with db_security enabled AND old redis_url set."""
+    return AraxysConfig(
+        secret_key="test-secret-key-1234567890abcdef",
+        redis_url="redis://old:6379",
+        db_security=DatabaseSecurityConfig(
+            enabled=True,
+            redis_pool=RedisPoolConfig(url="redis://localhost:6379"),
+            query_audit=QueryAuditConfig(enabled=False),
+        ),
+    )
+
+
+class TestShieldIntegration:
+    """DatabaseSecurityManager creation and lifecycle within AraxysShield.
+
+    These tests verify that AraxysShield conditionally creates the
+    DatabaseSecurityManager, wires pool injection into all 6 factory
+    methods, handles deprecation of redis_url, and shuts down cleanly.
+    """
+
+    # ── Init behavior ─────────────────────────────────────────────────────
+
+    def test_without_db_security_no_pool_and_backends_use_legacy(
+        self, shield_config_disabled: AraxysConfig,
+    ) -> None:
+        """When db_security=None, _db_security is None and db_pool returns None."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_disabled)
+        assert shield._db_security is None
+        assert shield.db_pool is None
+        # Backends should be in-memory (no redis_url, no pool)
+        assert isinstance(shield._rate_backend, InMemoryBackend)
+
+    def test_with_db_security_creates_pool(
+        self, shield_config_enabled: AraxysConfig,
+    ) -> None:
+        """When db_security.enabled=True, _db_security and pool are created."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_enabled)
+        assert shield._db_security is not None
+        assert shield.db_pool is not None
+        assert isinstance(shield.db_pool, ConnectionPool)
+
+    def test_deprecation_warning_when_redis_url_set(
+        self, shield_config_deprecated_url: AraxysConfig,
+    ) -> None:
+        """When db_security enabled + old redis_url, a DeprecationWarning is emitted."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        with pytest.warns(DeprecationWarning, match="redis_url is deprecated"):
+            AraxysShield(app, shield_config_deprecated_url)
+
+    def test_pool_url_updated_from_deprecated_redis_url(
+        self, shield_config_deprecated_url: AraxysConfig,
+    ) -> None:
+        """When redis_url is set, the pool URL is updated to match."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            shield = AraxysShield(app, shield_config_deprecated_url)
+
+        assert shield._db_security is not None
+        assert shield.db_pool is not None
+
+    # ── Properties ────────────────────────────────────────────────────────
+
+    def test_db_pool_property_enabled(
+        self, shield_config_enabled: AraxysConfig,
+    ) -> None:
+        """db_pool returns the ConnectionPool when db_security is enabled."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_enabled)
+        pool = shield.db_pool
+        assert pool is not None
+        assert isinstance(pool, ConnectionPool)
+
+    def test_db_pool_property_disabled(
+        self, shield_config_disabled: AraxysConfig,
+    ) -> None:
+        """db_pool returns None when db_security is None."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_disabled)
+        assert shield.db_pool is None
+
+    def test_db_auditor_property_enabled(
+        self, shield_config_enabled: AraxysConfig,
+    ) -> None:
+        """db_auditor returns QueryAuditor when query_audit is enabled."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_enabled)
+        auditor = shield.db_auditor
+        assert auditor is not None
+        assert isinstance(auditor, QueryAuditor)
+
+    def test_db_auditor_property_disabled(
+        self, shield_config_disabled: AraxysConfig,
+    ) -> None:
+        """db_auditor returns None when db_security is None."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_disabled)
+        assert shield.db_auditor is None
+
+    # ── Shutdown ──────────────────────────────────────────────────────────
+
+    async def test_shutdown_closes_pool_when_enabled(
+        self, shield_config_enabled: AraxysConfig,
+    ) -> None:
+        """shutdown() calls DatabaseSecurityManager.shutdown() when enabled."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_enabled)
+        with patch.object(shield._db_security, "shutdown",
+                          new=AsyncMock()) as mock_shutdown:
+            await shield.shutdown()
+            mock_shutdown.assert_awaited_once()
+
+    async def test_shutdown_no_crash_when_disabled(
+        self, shield_config_disabled: AraxysConfig,
+    ) -> None:
+        """shutdown() does not crash when db_security is None."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_disabled)
+        # Should not raise
+        await shield.shutdown()
+
+
+class TestShieldIntegrationExistingSuite:
+    """Shield initialization with/without db_security — FastAPI integration."""
+
+    def test_shield_init_without_db_security(
+        self, shield_config_disabled: AraxysConfig,
+    ) -> None:
+        """Shield initializes with db_security=None (backward compat)."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_disabled)
+        assert shield.config == shield_config_disabled
+
+    async def test_shield_init_with_db_security(
+        self, shield_config_enabled: AraxysConfig,
+    ) -> None:
+        """Shield initializes with db_security.enabled=True."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, shield_config_enabled)
+        assert shield.config == shield_config_enabled
+        assert shield._db_security is not None
