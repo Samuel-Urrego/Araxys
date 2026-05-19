@@ -139,7 +139,7 @@ class RedisPool:
         max_size: int = 10,
         idle_timeout_seconds: int = 300,
         acquire_timeout_seconds: float = 5.0,
-        health_check_interval_seconds: int = 30,
+        health_check_interval_seconds: float = 30,
         leak_threshold: int = 10,
         ssl_context: ssl.SSLContext | None = None,
         cert_pin_sha256: str | None = None,

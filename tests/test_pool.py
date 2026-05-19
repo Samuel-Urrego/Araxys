@@ -13,27 +13,31 @@ from __future__ import annotations
 
 import asyncio
 import time
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
 import pytest
+
+if TYPE_CHECKING:
+    from araxys.db_security.pool import InMemoryPool, RedisPool
 
 
 class TestRedisPoolGetRedisClient:
     """Tests for RedisPool.get_redis_client()."""
 
     @pytest.fixture
-    def pool(self) -> "RedisPool":
+    def pool(self) -> RedisPool:
         from araxys.db_security.pool import RedisPool
 
         return RedisPool(url="redis://localhost:6379")
 
-    async def test_accessor_returns_client(self, pool: "RedisPool") -> None:
+    async def test_accessor_returns_client(self, pool: RedisPool) -> None:
         """get_redis_client() returns the underlying Redis client."""
         client = pool.get_redis_client()
         assert client is not None
         assert client is pool._redis  # noqa: SLF001 — testing internal
 
-    async def test_accessor_after_close_returns_client(self, pool: "RedisPool") -> None:
+    async def test_accessor_after_close_returns_client(self, pool: RedisPool) -> None:
         """get_redis_client() after close returns the client (no crash)."""
         await pool.close()
         client = pool.get_redis_client()
@@ -80,7 +84,7 @@ class TestRedisPoolHealthLoop:
         )
         try:
             mock_ping = AsyncMock(return_value=True)
-            p._redis.ping = mock_ping  # noqa: SLF001
+            p._redis.ping = mock_ping  # noqa: SLF001  # type: ignore[method-assign]
 
             # Wait for at least one health check cycle
             await asyncio.sleep(0.05)
@@ -120,7 +124,7 @@ class TestRedisPoolIdleTimeout:
         )
         try:
             mock_ping = AsyncMock(return_value=True)
-            p._redis.ping = mock_ping  # noqa: SLF001
+            p._redis.ping = mock_ping  # noqa: SLF001  # type: ignore[method-assign]
 
             # Simulate idle by setting _last_active far in the past
             p._last_active = time.time() - 600  # noqa: SLF001 — 600s > 300s idle timeout
@@ -143,7 +147,7 @@ class TestRedisPoolIdleTimeout:
         )
         try:
             mock_ping = AsyncMock(return_value=True)
-            p._redis.ping = mock_ping  # noqa: SLF001
+            p._redis.ping = mock_ping  # noqa: SLF001  # type: ignore[method-assign]
 
             # _last_active defaults to time.time() on init (recent)
             conn = await p.acquire()
@@ -164,7 +168,7 @@ class TestRedisPoolIdleTimeout:
         )
         try:
             mock_ping = AsyncMock(return_value=True)
-            p._redis.ping = mock_ping  # noqa: SLF001
+            p._redis.ping = mock_ping  # noqa: SLF001  # type: ignore[method-assign]
 
             # Force _last_active to be old
             p._last_active = time.time() - 600  # noqa: SLF001
@@ -188,7 +192,7 @@ class TestRedisPoolIdleTimeout:
         )
         try:
             mock_ping = AsyncMock(side_effect=OSError("Connection refused"))
-            p._redis.ping = mock_ping  # noqa: SLF001
+            p._redis.ping = mock_ping  # noqa: SLF001  # type: ignore[method-assign]
 
             # Simulate idle
             p._last_active = time.time() - 600  # noqa: SLF001
@@ -215,10 +219,10 @@ class TestRedisPoolAcquireTimeout:
             # Make the idle PING hang forever by mocking
             import asyncio
 
-            async def _never(*args, **kwargs):
+            async def _never(*args: object, **kwargs: object) -> None:
                 await asyncio.Event().wait()  # never resolves
 
-            p._redis.ping = _never  # noqa: SLF001
+            p._redis.ping = _never  # noqa: SLF001  # type: ignore[method-assign]
 
             # Simulate an idle connection so the PING check is triggered
             p._last_active = time.time() - 600  # noqa: SLF001
@@ -238,7 +242,7 @@ class TestRedisPoolAcquireTimeout:
         )
         try:
             mock_ping = AsyncMock(return_value=True)
-            p._redis.ping = mock_ping  # noqa: SLF001
+            p._redis.ping = mock_ping  # noqa: SLF001  # type: ignore[method-assign]
 
             conn = await p.acquire()
             assert conn is not None
@@ -250,12 +254,12 @@ class TestInMemoryPool:
     """Basic InMemoryPool tests for coverage."""
 
     @pytest.fixture
-    def pool(self) -> "InMemoryPool":
+    def pool(self) -> InMemoryPool:
         from araxys.db_security.pool import InMemoryPool
 
         return InMemoryPool()
 
-    async def test_acquire_and_release(self, pool: "InMemoryPool") -> None:
+    async def test_acquire_and_release(self, pool: InMemoryPool) -> None:
         """Acquire returns a client, release decrements count."""
         conn = await pool.acquire()
         assert conn is not None
@@ -263,6 +267,6 @@ class TestInMemoryPool:
         await pool.release(conn)
         assert pool._active == 0  # noqa: SLF001
 
-    async def test_health(self, pool: "InMemoryPool") -> None:
+    async def test_health(self, pool: InMemoryPool) -> None:
         """Health returns True when pool is open."""
         assert await pool.health() is True
