@@ -468,3 +468,144 @@ class TestScanHeaders:
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             resp = await c.get("/test?username[$ne]=admin")
             assert resp.status_code == 200
+
+
+# ── v0.6 — JSON body full scan (Task 1.4) ──────────────────────────────────
+
+
+class TestJSONBodyScan:
+    """JSON body leaf strings are scanned for NoSQL/command/path-traversal."""
+
+    @pytest.fixture
+    def body_scan_config(self) -> SanitizeConfig:
+        """Config with body scanning enabled but SQLi/XSS disabled for isolation."""
+        return SanitizeConfig(
+            block_sqli=False,
+            strip_xss=False,
+            check_nosql_injection=True,
+            check_command_injection=True,
+            check_path_traversal=True,
+        )
+
+    @pytest.fixture
+    def body_scan_app(self, body_scan_config: SanitizeConfig) -> FastAPI:
+        from araxys.sanitize.middleware import SanitizeMiddleware
+
+        app = FastAPI()
+
+        @app.post("/body")
+        async def test_post() -> dict[str, str]:
+            return {"status": "ok"}
+
+        app.add_middleware(SanitizeMiddleware, config=body_scan_config)
+        return app
+
+    @pytest.fixture
+    async def body_scan_client(
+        self, body_scan_app: FastAPI
+    ) -> AsyncGenerator[AsyncClient]:
+        transport = ASGITransport(app=body_scan_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
+
+    async def test_nosql_in_json_body_blocked(
+        self, body_scan_client: AsyncClient
+    ) -> None:
+        """NoSQL $where pattern in JSON body value returns 400."""
+        resp = await body_scan_client.post(
+            "/body", json={"query": '{"$where": "sleep(5000)"}'}
+        )
+        assert resp.status_code == 400
+
+    async def test_command_injection_in_json_body_blocked(
+        self, body_scan_client: AsyncClient
+    ) -> None:
+        """Command injection in JSON body value returns 400."""
+        resp = await body_scan_client.post(
+            "/body", json={"cmd": "; cat /etc/passwd"}
+        )
+        assert resp.status_code == 400
+
+    async def test_path_traversal_in_json_body_blocked(
+        self, body_scan_client: AsyncClient
+    ) -> None:
+        """Path traversal in JSON body value returns 400."""
+        resp = await body_scan_client.post(
+            "/body", json={"path": "../../etc/passwd"}
+        )
+        assert resp.status_code == 400
+
+    async def test_nested_json_attack_blocked(
+        self, body_scan_client: AsyncClient
+    ) -> None:
+        """Nested JSON with attack in deep value is blocked."""
+        resp = await body_scan_client.post(
+            "/body",
+            json={
+                "user": {
+                    "profile": {
+                        "bio": "../../../etc/shadow",
+                    }
+                }
+            },
+        )
+        assert resp.status_code == 400
+
+    async def test_clean_json_body_passes(
+        self, body_scan_client: AsyncClient
+    ) -> None:
+        """Clean JSON body passes through."""
+        resp = await body_scan_client.post(
+            "/body", json={"username": "john", "age": 30}
+        )
+        assert resp.status_code == 200
+
+    async def test_all_checks_disabled_clean_passes(self) -> None:
+        """All scan flags disabled — clean request passes."""
+        config = SanitizeConfig(
+            block_sqli=False,
+            strip_xss=False,
+            check_nosql_injection=False,
+            check_command_injection=False,
+            check_path_traversal=False,
+        )
+        from araxys.sanitize.middleware import SanitizeMiddleware
+
+        app = FastAPI()
+
+        @app.post("/body")
+        async def test_post() -> dict[str, str]:
+            return {"status": "ok"}
+
+        app.add_middleware(SanitizeMiddleware, config=config)
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            resp = await c.post(
+                "/body", json={"username": "john"}
+            )
+            assert resp.status_code == 200
+
+    async def test_all_checks_disabled_attack_passes(self) -> None:
+        """All scan flags disabled — attack payload passes through."""
+        config = SanitizeConfig(
+            block_sqli=False,
+            strip_xss=False,
+            check_nosql_injection=False,
+            check_command_injection=False,
+            check_path_traversal=False,
+        )
+        from araxys.sanitize.middleware import SanitizeMiddleware
+
+        app = FastAPI()
+
+        @app.post("/body")
+        async def test_post() -> dict[str, str]:
+            return {"status": "ok"}
+
+        app.add_middleware(SanitizeMiddleware, config=config)
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            resp = await c.post(
+                "/body", json={"cmd": "; cat /etc/passwd"}
+            )
+            assert resp.status_code == 200
