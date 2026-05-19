@@ -115,6 +115,10 @@ class SessionManager:
         """Return the number of active sessions for a user."""
         return await self._backend.count_sessions(user_id)
 
+    async def refresh_session(self, session_id: str) -> bool:
+        """Refresh a session's expiry window. Returns True if session found."""
+        return await self._backend.refresh_session(session_id)
+
     async def start_cleanup(self) -> None:
         """Start the background cleanup loop for expired sessions.
 

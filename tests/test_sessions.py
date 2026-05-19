@@ -419,6 +419,27 @@ class TestSessionManager:
         # Should be stopped/cancelled
         assert manager._cleanup_task is None or manager._cleanup_task.done()
 
+    async def test_refresh_session_returns_bool(
+        self, config: object, backend: SessionBackend, event_bus: MagicMock
+    ) -> None:
+        """SessionManager.refresh_session should return True for valid session."""
+        from araxys.sessions.manager import SessionManager
+
+        manager = SessionManager(config, backend, event_bus)  # type: ignore[arg-type]
+        session_id = await manager.create("user_1", "jti_abc")
+        result = await manager.refresh_session(session_id)
+        assert result is True
+
+    async def test_refresh_session_unknown_returns_false(
+        self, config: object, backend: SessionBackend, event_bus: MagicMock
+    ) -> None:
+        """SessionManager.refresh_session should return False for unknown."""
+        from araxys.sessions.manager import SessionManager
+
+        manager = SessionManager(config, backend, event_bus)  # type: ignore[arg-type]
+        result = await manager.refresh_session("nonexistent")
+        assert result is False
+
 
 # ── Redis Backend Tests ──────────────────────────────────────────────────
 
@@ -480,6 +501,91 @@ class _SharedRedisPool:
 
     async def close(self) -> None:
         self._active = 0
+
+
+class TestInMemorySessionBackendRefresh:
+    """Tests for InMemorySessionBackend.refresh_session()."""
+
+    @pytest.fixture
+    async def backend(self) -> AsyncGenerator[SessionBackend]:
+        from araxys.sessions.storage import InMemorySessionBackend
+
+        yield InMemorySessionBackend(session_ttl_seconds=3600)
+
+    async def test_refresh_updates_expires_at(
+        self, backend: SessionBackend
+    ) -> None:
+        """refresh_session should update expires_at to a later time."""
+        session_id = await backend.create_session("user_1", "jti_abc")
+        record_before = await backend.get_session(session_id)
+        assert record_before is not None
+        original_expires = record_before.expires_at
+
+        # Small delay to ensure time difference
+        import asyncio
+
+        await asyncio.sleep(0.01)
+        result = await backend.refresh_session(session_id)
+        assert result is True
+
+        record_after = await backend.get_session(session_id)
+        assert record_after is not None
+        assert record_after.expires_at is not None
+        assert record_after.expires_at > original_expires  # type: ignore[operator]
+
+    async def test_refresh_unknown_returns_false(
+        self, backend: SessionBackend
+    ) -> None:
+        """refresh_session on unknown session_id should return False."""
+        result = await backend.refresh_session("nonexistent")
+        assert result is False
+
+
+class TestRedisSessionBackendRefresh:
+    """Tests for RedisSessionBackend.refresh_session()."""
+
+    @pytest.fixture
+    async def backend(self) -> AsyncGenerator[SessionBackend]:
+        from araxys.sessions.storage import RedisSessionBackend
+
+        yield RedisSessionBackend(pool=_SharedRedisPool(), session_ttl_seconds=3600)
+
+    async def test_refresh_resets_ttl_on_both_keys(
+        self, backend: SessionBackend
+    ) -> None:
+        """refresh_session should reset EXPIRE on both session and user keys."""
+        from araxys.sessions.storage import RedisSessionBackend
+
+        assert isinstance(backend, RedisSessionBackend)
+        pool = backend._pool
+        assert isinstance(pool, _SharedRedisPool)
+        conn = await pool.acquire()
+        try:
+            session_id = await backend.create_session("user_1", "jti_abc")
+            skey = f"araxys:sessions:{session_id}"
+            ukey = "araxys:sessions:user:user_1"
+
+            ttl_before = await conn.ttl(skey)
+
+            result = await backend.refresh_session(session_id)
+            assert result is True
+
+            ttl_after = await conn.ttl(skey)
+            assert ttl_after >= ttl_before, (
+                f"TTL should reset, got {ttl_after} < {ttl_before}"
+            )
+
+            ukey_ttl = await conn.ttl(ukey)
+            assert ukey_ttl > 0, f"User key TTL should be > 0, got {ukey_ttl}"
+        finally:
+            await pool.release(conn)
+
+    async def test_refresh_unknown_returns_false(
+        self, backend: SessionBackend
+    ) -> None:
+        """refresh_session on unknown session_id should return False."""
+        result = await backend.refresh_session("nonexistent")
+        assert result is False
 
 
 class TestRedisSessionBackendTTL:

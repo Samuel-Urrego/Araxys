@@ -63,6 +63,14 @@ class SessionBackend(Protocol):
         """Revoke the oldest session for a user. Returns revoked session_id or None."""
         ...
 
+    async def refresh_session(self, session_id: str) -> bool:
+        """Refresh a session's expiry. Returns True if session was found."""
+        ...
+
+    async def cleanup_expired(self) -> int:
+        """Remove expired sessions. Returns the number removed."""
+        ...
+
 
 class InMemorySessionBackend:
     """In-memory session storage for development and testing.
@@ -116,6 +124,25 @@ class InMemorySessionBackend:
         oldest = min(user_sessions, key=lambda s: s.created_at)
         del self._sessions[oldest.session_id]
         return oldest.session_id
+
+    async def refresh_session(self, session_id: str) -> bool:
+        if session_id not in self._sessions:
+            return False
+        self._sessions[session_id].expires_at = (
+            time.time() + self._session_ttl_seconds
+        )
+        return True
+
+    async def cleanup_expired(self) -> int:
+        now = time.time()
+        expired = [
+            sid
+            for sid, rec in self._sessions.items()
+            if rec.expires_at is not None and rec.expires_at < now
+        ]
+        for sid in expired:
+            del self._sessions[sid]
+        return len(expired)
 
 
 class RedisSessionBackend:
@@ -287,6 +314,85 @@ class RedisSessionBackend:
         oldest = min(records, key=lambda r: r.created_at)
         await self.revoke_session(oldest.session_id)
         return oldest.session_id
+
+    async def refresh_session(self, session_id: str) -> bool:
+        record = await self.get_session(session_id)
+        if record is None:
+            return False
+        skey = self._session_key(session_id)
+        ukey = self._user_key(record.user_id)
+        ttl = self._session_ttl_seconds
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                pipe = conn.pipeline()
+                pipe.expire(skey, ttl)
+                pipe.expire(ukey, ttl)
+                await pipe.execute()
+                return True
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
+        pipe = self._redis.pipeline()
+        pipe.expire(skey, ttl)
+        pipe.expire(ukey, ttl)
+        await pipe.execute()
+        return True
+
+    async def cleanup_expired(self) -> int:
+        """Safety net: remove orphaned session IDs from user SETs.
+
+        Primary TTL mechanism is Redis EXPIRE. This scans user SET keys
+        and removes members whose session HASH has already expired.
+        """
+        removed = 0
+        cursor = 0
+        while True:
+            if self._pool:
+                conn = await self._pool.acquire()
+                try:
+                    cursor, keys = await conn.scan(
+                        cursor, match="araxys:sessions:user:*", count=100
+                    )
+                finally:
+                    await self._pool.release(conn)
+            else:
+                assert self._redis is not None
+                cursor, keys = await self._redis.scan(
+                    cursor, match="araxys:sessions:user:*", count=100
+                )
+            norm_keys: set[str] = cast("set[str]", keys)
+            for ukey in norm_keys:
+                members: set[str]
+                if self._pool:
+                    conn = await self._pool.acquire()
+                    try:
+                        members = cast("set[str]", await conn.smembers(ukey))  # type: ignore[misc]
+                    finally:
+                        await self._pool.release(conn)
+                else:
+                    assert self._redis is not None
+                    members = cast("set[str]", await self._redis.smembers(ukey))  # type: ignore[misc]
+                for member in members:
+                    skey = self._session_key(member)
+                    if self._pool:
+                        conn = await self._pool.acquire()
+                        try:
+                            ttl = await conn.ttl(skey)
+                            if ttl < 0:
+                                await conn.srem(ukey, member)  # type: ignore[misc]
+                                removed += 1
+                        finally:
+                            await self._pool.release(conn)
+                    else:
+                        assert self._redis is not None
+                        ttl = await self._redis.ttl(skey)
+                        if ttl < 0:
+                            await self._redis.srem(ukey, member)  # type: ignore[misc]
+                            removed += 1
+            if cursor == 0:
+                break
+        return removed
 
 
 
