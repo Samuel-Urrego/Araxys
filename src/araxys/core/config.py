@@ -403,6 +403,11 @@ class SessionConfig(BaseModel):
         ge=1,
         description="Maximum concurrent sessions per user",
     )
+    session_ttl_seconds: int = Field(
+        default=3600,
+        ge=1,
+        description="Session time-to-live in seconds (1 hour default)",
+    )
     cleanup_interval_seconds: int = Field(
         default=60,
         ge=1,

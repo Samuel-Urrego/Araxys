@@ -5,6 +5,7 @@ Tests follow strict TDD: written before implementation.
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
@@ -54,6 +55,55 @@ class TestSessionRecord:
             created_at=datetime.now(UTC),
         )
         assert record.metadata == {}
+
+    def test_expires_at_defaults_to_none(self) -> None:
+        """SessionRecord.expires_at should default to None."""
+        from araxys.sessions.storage import SessionRecord
+
+        record = SessionRecord(
+            session_id="sess_1",
+            user_id="user_1",
+            jti="jti_1",
+            created_at=datetime.now(UTC),
+        )
+        assert record.expires_at is None
+
+    def test_expires_at_can_be_set(self) -> None:
+        """SessionRecord.expires_at can be set to a float timestamp."""
+        from araxys.sessions.storage import SessionRecord
+
+        now = datetime.now(UTC)
+        future = time.time() + 3600
+        record = SessionRecord(
+            session_id="sess_1",
+            user_id="user_1",
+            jti="jti_1",
+            created_at=now,
+            expires_at=future,
+        )
+        assert record.expires_at == future
+        assert isinstance(record.expires_at, float)
+
+
+# ── SessionConfig Tests ──────────────────────────────────────────────────
+
+
+class TestSessionConfig:
+    """Tests for SessionConfig."""
+
+    def test_session_ttl_seconds_default(self) -> None:
+        """SessionConfig.session_ttl_seconds should default to 3600."""
+        from araxys.core.config import SessionConfig
+
+        config = SessionConfig()
+        assert config.session_ttl_seconds == 3600
+
+    def test_session_ttl_seconds_can_be_set(self) -> None:
+        """SessionConfig.session_ttl_seconds can be overridden."""
+        from araxys.core.config import SessionConfig
+
+        config = SessionConfig(session_ttl_seconds=7200)
+        assert config.session_ttl_seconds == 7200
 
 
 # ── InMemory Backend Tests ───────────────────────────────────────────────
@@ -182,6 +232,41 @@ class TestInMemorySessionBackend:
         """revoke_oldest should return None when user has no sessions."""
         result = await backend.revoke_oldest("nobody")
         assert result is None
+
+
+class TestInMemorySessionBackendWithTTL:
+    """Tests for InMemorySessionBackend with session_ttl_seconds."""
+
+    @pytest.fixture
+    async def backend(self) -> AsyncGenerator[SessionBackend]:
+        from araxys.sessions.storage import InMemorySessionBackend
+
+        yield InMemorySessionBackend(session_ttl_seconds=3600)
+
+    async def test_create_session_sets_expires_at(
+        self, backend: SessionBackend
+    ) -> None:
+        """create_session should set expires_at with TTL when configured."""
+        before = time.time()
+        session_id = await backend.create_session("user_1", "jti_abc")
+        record = await backend.get_session(session_id)
+        assert record is not None
+        assert record.expires_at is not None
+        # expires_at should be approximately before + 3600
+        assert record.expires_at >= before + 3550  # allow small timing diff
+        assert record.expires_at <= before + 3650
+
+    async def test_create_session_no_ttl_still_sets_expires_at(
+        self, backend: SessionBackend
+    ) -> None:
+        """create_session always sets expires_at; zero TTL means immediate expiry."""
+        from araxys.sessions.storage import InMemorySessionBackend
+
+        zero_ttl = InMemorySessionBackend(session_ttl_seconds=0)
+        session_id = await zero_ttl.create_session("user_1", "jti_abc")
+        record = await zero_ttl.get_session(session_id)
+        assert record is not None
+        assert record.expires_at is not None
 
 
 # ── SessionManager Tests ────────────────────────────────────────────────

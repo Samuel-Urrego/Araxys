@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import json
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -29,6 +30,7 @@ class SessionRecord:
     jti: str
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)
+    expires_at: float | None = None
 
 
 @runtime_checkable
@@ -69,8 +71,9 @@ class InMemorySessionBackend:
     a per-user index for efficient listing and counting.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, session_ttl_seconds: int = 3600) -> None:
         self._sessions: dict[str, SessionRecord] = {}
+        self._session_ttl_seconds = session_ttl_seconds
 
     async def create_session(
         self, user_id: str, jti: str, metadata: dict[str, Any] | None = None
@@ -82,6 +85,7 @@ class InMemorySessionBackend:
             jti=jti,
             created_at=datetime.now(UTC),
             metadata=metadata or {},
+            expires_at=time.time() + self._session_ttl_seconds,
         )
         self._sessions[session_id] = record
         return session_id
@@ -128,8 +132,10 @@ class RedisSessionBackend:
         redis_url: str | None = None,
         *,
         pool: ConnectionPool | None = None,
+        session_ttl_seconds: int = 3600,
     ) -> None:
         self._pool = pool
+        self._session_ttl_seconds = session_ttl_seconds
         self._redis: Redis | None = None
         if pool is None and redis_url:
             try:
