@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Pydantic-v2-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic">
   <img src="https://img.shields.io/badge/uv-package%20manager-DE5FE9?style=for-the-badge&logo=uv&logoColor=white" alt="uv">
   <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/version-0.4.0-blue?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.5.0-blue?style=for-the-badge" alt="Version">
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
   <img src="https://img.shields.io/badge/OpenTelemetry-optional-8B5CF6?style=flat-square&logo=opentelemetry&logoColor=white" alt="OTEL">
   <img src="https://img.shields.io/badge/Prometheus-optional-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/structlog-logging-4B8BBE?style=flat-square" alt="structlog">
-  <img src="https://img.shields.io/badge/tests-490%20passed-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-637%20passed-brightgreen?style=flat-square" alt="Tests">
 </p>
 
 ---
@@ -327,6 +327,13 @@ src/araxys/
 │   ├── encryption.py   # AES-256-GCM + PBKDF2
 │   ├── logger.py       # Structured logger
 │   └── events.py       # Event types
+├── db_security/        # 🗄️ Database security (v0.5)
+│   ├── pool.py         # Connection pooling + health
+│   ├── secrets.py      # Env→Vault→AWS resolver chain
+│   ├── tls.py          # TLS config + cert pinning
+│   ├── audit.py        # Query auditor + slow detection
+│   ├── manager.py      # Lifecycle orchestrator
+│   └── dependencies.py # FastAPI DI
 └── shield.py           # ⚡ Main orchestrator + shutdown()
 ```
 
@@ -511,7 +518,7 @@ uv run pytest tests/ -v
 uv run pytest tests/ --cov=araxys --cov-report=term-missing
 ```
 
-**490 tests** covering all 15 modules — CORS, IP access, CSRF, brute force, sessions, telemetry, webhooks, metrics, rate limiting, honeypots, API keys, JWT, headers, sanitization, and audit logging.
+**637 tests** covering all 16 modules — CORS, IP access, CSRF, brute force, sessions, telemetry, webhooks, metrics, rate limiting, honeypots, API keys, JWT, headers, sanitization, audit logging, and database security.
 
 ---
 

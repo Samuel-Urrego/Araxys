@@ -34,6 +34,9 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 | `AraxysTracer` | `araxys.telemetry.tracer` | OTEL span context manager with no-op fallback. |
 | `APIKeyManager`| `araxys.api_keys.manager` | Key generation, SHA-256 hashing, and verification. |
 | `JWTManager` | `araxys.jwt_auth.tokens` | Token creation (HS256/RS256/ES256), decoding, JWKS (RFC 7517), introspection (RFC 7662), blacklist checks. |
+| `DatabaseSecurityManager` | `araxys.db_security.manager` | v0.5 — shared Redis pool lifecycle, secret resolver chain, TLS cert pinning, query auditing. |
+| `ConnectionPool` | `araxys.db_security.pool` | Protocol for Redis connection pools — InMemoryPool (no-op) + RedisPool (health, leak detection, idle timeout). |
+| `QueryAuditor` | `araxys.db_security.audit` | Emits `AuditEntry(QUERY_EXECUTED)` with slow query detection (>100ms threshold). |
 | `Storage` | `araxys.*.storage` | Protocols for Redis or InMemory persistence. |
 | `Scope` | `araxys.core.types` | Enum for permission-based access control. |
 | `SecurityEventType` | `araxys.core.types` | Enum for all 12 security event types. |
@@ -59,6 +62,9 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 - **Audit Async Writer**: `LogWriter` uses `aiofiles` (optional). Falls back to synchronous writes when `aiofiles` is not installed. Rotation is size-based with `asyncio.Lock` for thread safety.
 - **CSP Builder**: `build_csp_header()` is a pure function. COOP/CORP default to `"same-origin"` (secure-by-default). Only add headers when their config value is not `None`.
 - **Sanitize Scanner**: `scan_query_params()` scans BOTH parameter names AND values (NoSQL operators often hide in names like `?username[$ne]=admin`). Detectors are pure functions `(value: str) -> str | None`.
+- **DB Security Backward Compat**: `db_security=None` (default) means ALL 6 Redis backends use independent `from_url()` calls — zero behavior change. When `db_security.enabled=True`, the shared pool replaces all `from_url()` calls. The old `redis_url` config field is deprecated when db_security is enabled.
+- **Cert Pinning**: `cert_pin_sha256` in `TLSConfig` is verified at `RedisPool.acquire()` time, not at SSL context creation. Uses asyncio writer's `get_extra_info('ssl_object')` to access the peer certificate.
+- **Secrets Resolver Chain**: Resolvers are tried in order (EnvVar → Vault → AWS) and each is fail-soft (returns `None` on error, never raises). ChainedResolver returns first non-None or None if all fail.
 
 ## 🛠️ Common Usage Patterns
 
@@ -155,8 +161,8 @@ The `araxys` CLI is the preferred way for agents to perform environment manageme
 - **OTEL mocks**: Use `unittest.mock` to mock `opentelemetry` imports — never require the real SDK in tests.
 - **HIBP tests**: Mock `httpx.AsyncClient` responses for `check_hibp()` — never hit the real API in tests.
 
-## 📊 Test Coverage (v0.4)
-- **490 tests** across 14 test files
+## 📊 Test Coverage (v0.5)
+- **637 tests** across 16 test files
 - Unit: ~330 tests (backends, stateless logic, pure functions, detectors)
 - Integration: ~160 tests (middleware via `httpx.AsyncClient` + `TestClient`)
 - Key pure functions: `build_csp_header()`, `mask_pii()`, `detect_nosql_injection()`, `detect_command_injection()`, `detect_path_traversal()`, `extract_user_id()`, `extract_api_key()`, `match_path()`

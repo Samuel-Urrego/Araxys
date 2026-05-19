@@ -1,6 +1,6 @@
 [project]
 name = "araxys"
-version = "0.4.0"
+version = "0.5.0"
 description = "Plug & play security library for FastAPI — CORS, CSRF, IP blocking, rate limiting, honeypots, JWT (RS256/ES256), API keys, brute force, sessions, OTEL, Prometheus metrics, encrypted audit logging with async I/O, CSP headers, sanitization (NoSQL/command/path-traversal), and more."
 readme = "README.md"
 authors = [
