@@ -19,8 +19,30 @@ logger = structlog.get_logger("araxys.sanitize")
 def detect_sqli(value: str) -> str | None:
     """Check a string for SQL injection patterns.
 
+    Uses ``SqlInjectionAnalyzer`` (sqlparse-based) when available;
+    falls back to regex patterns from ``patterns.py`` otherwise.
+
+    When the sqlparse-based analyzer is available and runs to completion
+    (even with zero findings), its verdict is authoritative — the regex
+    fallback is NOT consulted.  This eliminates false positives on text
+    that merely *contains* SQL keywords but isn't actual SQL.
+
     Returns the description of the matched pattern, or None if clean.
     """
+    # Try sqlparse-based analyzer first (more accurate, fewer false positives).
+    try:
+        from araxys.sanitize.sqlparser import SqlInjectionAnalyzer
+
+        analyzer = SqlInjectionAnalyzer()
+        findings = analyzer.analyze(value)
+        if findings:
+            return findings[0].description
+        # Analyzer ran cleanly → verdict is authoritative.
+        return None
+    except ImportError:
+        pass  # sqlparse not installed — fall through to regex
+
+    # Fallback: legacy regex patterns
     for pattern, description in SQLI_PATTERNS:
         if pattern.search(value):
             return description
