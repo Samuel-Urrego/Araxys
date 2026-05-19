@@ -8,6 +8,7 @@ first-non-None-wins semantics.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any, Protocol, runtime_checkable
 
@@ -62,7 +63,8 @@ class VaultResolver:
 
     async def resolve(self, name: str) -> str | None:
         try:
-            secret = self._client.secrets.kv.v2.read_secret_version(
+            secret = await asyncio.to_thread(
+                self._client.secrets.kv.v2.read_secret_version,
                 path=name,
                 mount_point=self._mount_path,
             )
@@ -99,7 +101,8 @@ class AWSSecretsResolver:
 
     async def resolve(self, name: str) -> str | None:
         try:
-            response = self._client.get_secret_value(
+            response = await asyncio.to_thread(
+                self._client.get_secret_value,
                 SecretId=f"{self._secret_prefix}{name}",
             )
             return response.get("SecretString")  # type: ignore[no-any-return]
