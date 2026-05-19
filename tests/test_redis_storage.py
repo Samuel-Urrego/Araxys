@@ -120,6 +120,9 @@ class _FakePool:
     async def health(self) -> bool:
         return True
 
+    def get_redis_client(self) -> Redis:
+        return self._redis
+
     async def close(self) -> None:
         await self._redis.aclose()
 

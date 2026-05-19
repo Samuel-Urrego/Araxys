@@ -390,6 +390,9 @@ class _SharedRedisPool:
     async def health(self) -> bool:
         return True
 
+    def get_redis_client(self) -> Redis:
+        return self._redis
+
     async def close(self) -> None:
         self._active = 0
 
@@ -420,24 +423,24 @@ class TestRedisSessionBackendMetadata:
     async def test_metadata_round_trip_list(
         self, backend: SessionBackend
     ) -> None:
-        """Round-trip with list metadata."""
+        """Round-trip with list inside dict metadata."""
         session_id = await backend.create_session(
-            "user_1", "jti_2", metadata=[1, "two", 3.0]
+            "user_1", "jti_2", metadata={"items": [1, "two", 3.0]}
         )
         record = await backend.get_session(session_id)
         assert record is not None
-        assert record.metadata == [1, "two", 3.0]
+        assert record.metadata == {"items": [1, "two", 3.0]}
 
     async def test_metadata_round_trip_int(
         self, backend: SessionBackend
     ) -> None:
-        """Round-trip with int metadata."""
+        """Round-trip with int inside dict metadata."""
         session_id = await backend.create_session(
-            "user_1", "jti_3", metadata=42
+            "user_1", "jti_3", metadata={"value": 42}
         )
         record = await backend.get_session(session_id)
         assert record is not None
-        assert record.metadata == 42
+        assert record.metadata == {"value": 42}
 
     async def test_empty_metadata_becomes_empty_dict(
         self, backend: SessionBackend
