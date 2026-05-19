@@ -133,3 +133,17 @@ class IPBlockedError(AraxysError):
     ) -> None:
         self.ip_address = ip_address
         super().__init__(message or f"IP blocked: {ip_address}")
+
+
+class ConnectionError(AraxysError):
+    """Raised when a database connection cannot be established or pool is exhausted."""
+
+    def __init__(self, message: str = "Database connection error") -> None:
+        super().__init__(message)
+
+
+class TLSConfigurationError(AraxysError):
+    """Raised when TLS configuration is invalid or cannot be applied."""
+
+    def __init__(self, message: str = "TLS configuration error") -> None:
+        super().__init__(message)

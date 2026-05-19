@@ -5,11 +5,13 @@ from datetime import UTC, datetime
 from araxys.core.exceptions import (
     AraxysError,
     BruteForceLockedError,
+    ConnectionError,
     CSRFValidationError,
     IPBlockedError,
     PasswordValidationError,
+    TLSConfigurationError,
 )
-from araxys.core.types import SecurityEvent, SecurityEventType
+from araxys.core.types import AuditEventType, SecurityEvent, SecurityEventType
 
 
 class TestSecurityEventType:
@@ -136,3 +138,63 @@ class TestNewExceptions:
         assert issubclass(BruteForceLockedError, AraxysError)
         assert issubclass(PasswordValidationError, AraxysError)
         assert issubclass(IPBlockedError, AraxysError)
+
+
+class TestDatabaseSecurityExceptions:
+    """ConnectionError and TLSConfigurationError (v0.5 db_security)."""
+
+    def test_connection_error_is_araxys_error(self) -> None:
+        exc = ConnectionError()
+        assert isinstance(exc, AraxysError)
+
+    def test_connection_error_default_message(self) -> None:
+        exc = ConnectionError()
+        assert "Database connection error" in str(exc)
+
+    def test_connection_error_custom_message(self) -> None:
+        exc = ConnectionError(message="Redis is unreachable")
+        assert "Redis is unreachable" in str(exc)
+
+    def test_tls_configuration_error_is_araxys_error(self) -> None:
+        exc = TLSConfigurationError()
+        assert isinstance(exc, AraxysError)
+
+    def test_tls_configuration_error_default_message(self) -> None:
+        exc = TLSConfigurationError()
+        assert "TLS configuration error" in str(exc)
+
+    def test_tls_configuration_error_custom_message(self) -> None:
+        exc = TLSConfigurationError(message="Invalid min TLS version")
+        assert "Invalid min TLS version" in str(exc)
+
+    def test_exception_hierarchy(self) -> None:
+        assert issubclass(ConnectionError, AraxysError)
+        assert issubclass(TLSConfigurationError, AraxysError)
+
+
+class TestAuditEventType:
+    """AuditEventType enum — verify QUERY_EXECUTED is present."""
+
+    def test_query_executed_exists(self) -> None:
+        assert hasattr(AuditEventType, "QUERY_EXECUTED")
+        assert AuditEventType.QUERY_EXECUTED.value == "query_executed"
+
+    def test_all_values_present(self) -> None:
+        values = {e.value for e in AuditEventType}
+        expected = {
+            "login_success",
+            "login_failed",
+            "rate_limited",
+            "honeypot_triggered",
+            "api_key_created",
+            "api_key_revoked",
+            "api_key_verified",
+            "api_key_rejected",
+            "token_rotated",
+            "token_revoked",
+            "sanitization_blocked",
+            "ip_banned",
+            "ip_unbanned",
+            "query_executed",
+        }
+        assert values == expected
