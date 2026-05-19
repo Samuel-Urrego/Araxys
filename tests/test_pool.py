@@ -199,6 +199,53 @@ class TestRedisPoolIdleTimeout:
             await p.close()
 
 
+class TestRedisPoolAcquireTimeout:
+    """Tests for RedisPool acquire timeout enforcement (Task 2.3)."""
+
+    async def test_acquire_timeout_raises_connection_error(self) -> None:
+        """ConnectionError raised when acquire body exceeds timeout."""
+        from araxys.db_security.pool import RedisPool
+        from araxys.core.exceptions import ConnectionError as AraxysConnectionError
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            acquire_timeout_seconds=0.01,
+        )
+        try:
+            # Make the idle PING hang forever by mocking
+            import asyncio
+
+            async def _never(*args, **kwargs):
+                await asyncio.Event().wait()  # never resolves
+
+            p._redis.ping = _never  # noqa: SLF001
+
+            # Simulate an idle connection so the PING check is triggered
+            p._last_active = time.time() - 600  # noqa: SLF001
+
+            with pytest.raises(AraxysConnectionError, match="timed out"):
+                await p.acquire()
+        finally:
+            await p.close()
+
+    async def test_acquire_completes_within_timeout(self) -> None:
+        """Normal acquire completes successfully within the timeout."""
+        from araxys.db_security.pool import RedisPool
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            acquire_timeout_seconds=5.0,
+        )
+        try:
+            mock_ping = AsyncMock(return_value=True)
+            p._redis.ping = mock_ping  # noqa: SLF001
+
+            conn = await p.acquire()
+            assert conn is not None
+        finally:
+            await p.close()
+
+
 class TestInMemoryPool:
     """Basic InMemoryPool tests for coverage."""
 
