@@ -503,6 +503,113 @@ class _SharedRedisPool:
         self._active = 0
 
 
+class TestInMemorySessionBackendCleanup:
+    """Tests for InMemorySessionBackend cleanup of expired sessions."""
+
+    @pytest.fixture
+    async def backend(self) -> AsyncGenerator[SessionBackend]:
+        from araxys.sessions.storage import InMemorySessionBackend
+
+        yield InMemorySessionBackend(session_ttl_seconds=3600)
+
+    async def test_cleanup_removes_expired_session(
+        self, backend: SessionBackend
+    ) -> None:
+        """cleanup_expired should remove sessions past their TTL."""
+        from araxys.sessions.storage import InMemorySessionBackend
+
+        assert isinstance(backend, InMemorySessionBackend)
+        # Create a session and manually set expires_at in the past
+        session_id = await backend.create_session("user_1", "jti_abc")
+        backend._sessions[session_id].expires_at = 0.0  # long expired
+
+        removed = await backend.cleanup_expired()
+        assert removed == 1
+        record = await backend.get_session(session_id)
+        assert record is None
+
+    async def test_cleanup_no_expired_is_noop(
+        self, backend: SessionBackend
+    ) -> None:
+        """cleanup_expired with no expired sessions should return 0."""
+        await backend.create_session("user_1", "jti_1")
+        await backend.create_session("user_1", "jti_2")
+
+        removed = await backend.cleanup_expired()
+        assert removed == 0
+        sessions = await backend.list_sessions("user_1")
+        assert len(sessions) == 2
+
+    async def test_cleanup_handles_mixed_expired(
+        self, backend: SessionBackend
+    ) -> None:
+        """cleanup_expired should remove only expired sessions."""
+        from araxys.sessions.storage import InMemorySessionBackend
+
+        fresh_id = await backend.create_session("user_1", "jti_fresh")
+        stale_id = await backend.create_session("user_1", "jti_stale")
+        assert isinstance(backend, InMemorySessionBackend)
+        backend._sessions[stale_id].expires_at = 0.0  # expired
+
+        removed = await backend.cleanup_expired()
+        assert removed == 1
+
+        # Fresh session should still exist
+        assert await backend.get_session(fresh_id) is not None
+        # Stale session should be gone
+        assert await backend.get_session(stale_id) is None
+
+
+class TestSessionManagerCleanupLoop:
+    """Tests for SessionManager._cleanup_loop()."""
+
+    @pytest.fixture
+    def config(self) -> object:
+        from araxys.core.config import SessionConfig
+
+        return SessionConfig(max_concurrent_per_user=5, cleanup_interval_seconds=60)
+
+    @pytest.fixture
+    async def backend(self) -> AsyncGenerator[SessionBackend]:
+        from araxys.sessions.storage import InMemorySessionBackend
+
+        yield InMemorySessionBackend(session_ttl_seconds=3600)
+
+    @pytest.fixture
+    def event_bus(self) -> MagicMock:
+        bus = MagicMock()
+        bus.emit = AsyncMock()
+        return bus
+
+    async def test_cleanup_loop_calls_backend_cleanup_expired(
+        self, config: object, backend: SessionBackend, event_bus: MagicMock
+    ) -> None:
+        """_cleanup_loop should call backend.cleanup_expired()."""
+        from araxys.sessions.manager import SessionManager
+        from araxys.sessions.storage import InMemorySessionBackend
+
+        manager = SessionManager(config, backend, event_bus)  # type: ignore[arg-type]
+
+        # Create an expired session
+        session_id = await backend.create_session("user_1", "jti_abc")
+        if isinstance(backend, InMemorySessionBackend):
+            backend._sessions[session_id].expires_at = 0.0
+
+        # Reset the loop interval so it fires quickly
+        manager._cleanup_interval = 0.01  # type: ignore[assignment]
+        await manager.start_cleanup()
+
+        # Wait for at least one loop iteration
+        import asyncio
+
+        await asyncio.sleep(0.05)
+        await manager.stop_cleanup()
+
+        # The expired session should be cleaned
+        record = await backend.get_session(session_id)
+        assert record is None
+
+
 class TestInMemorySessionBackendRefresh:
     """Tests for InMemorySessionBackend.refresh_session()."""
 

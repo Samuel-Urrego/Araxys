@@ -148,10 +148,9 @@ class SessionManager:
         while True:
             await asyncio.sleep(self._cleanup_interval)
             try:
-                # In a real implementation, this would iterate stored sessions
-                # and remove those past their TTL. For now the loop provides
-                # the framework for this.
-                pass
+                removed = await self._backend.cleanup_expired()
+                if removed > 0:
+                    logger.info("Cleaned %d expired session(s)", removed)
             except Exception:
                 logger.exception("Error during session cleanup")
 
