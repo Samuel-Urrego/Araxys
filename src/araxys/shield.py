@@ -370,8 +370,8 @@ class AraxysShield:
     ) -> InMemoryIPAccessBackend | RedisIPAccessBackend:
         """Create the IP access backend based on config."""
         if self._db_security is not None:
-            # pool._redis is the underlying redis.asyncio.Redis client
-            redis = self._db_security.pool._redis  # type: ignore[attr-defined]
+            # get_redis_client() is the public accessor
+            redis = self._db_security.pool.get_redis_client()
             return RedisIPAccessBackend(redis)
         if config.ip_control is None:
             return InMemoryIPAccessBackend()
