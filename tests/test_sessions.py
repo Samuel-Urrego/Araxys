@@ -479,7 +479,7 @@ class TestRedisSessionBackendMetadata:
         try:
             key = f"araxys:sessions:{session_id}"
             # Write single-quoted repr like old str() would produce
-            await conn.hset(key, "metadata", "{'clean': 'data'}")
+            await conn.hset(key, "metadata", "{'clean': 'data'}")  # type: ignore[misc]
         finally:
             await pool.release(conn)
 
