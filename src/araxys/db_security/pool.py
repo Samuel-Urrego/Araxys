@@ -183,6 +183,15 @@ class RedisPool:
         self._check_leak()
         if self._cert_pin_sha256:
             await self._verify_cert_pin(self._redis)
+        # Idle timeout: PING if the connection has been idle too long.
+        if time.time() - self._last_active > self.idle_timeout_seconds:
+            try:
+                await self._redis.ping()
+            except Exception as exc:
+                raise ConnectionError(
+                    f"Connection idle timeout — PING failed: {exc}",
+                ) from exc
+        self._last_active = time.time()
         return self._redis
 
     async def release(self, conn: Redis) -> None:
