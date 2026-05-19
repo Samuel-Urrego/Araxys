@@ -87,6 +87,7 @@ class DatabaseSecurityManager:
             acquire_timeout_seconds=config.redis_pool.acquire_timeout_seconds,
             leak_threshold=config.redis_pool.leak_threshold,
             ssl_context=ssl_context,
+            cert_pin_sha256=config.tls.cert_pin_sha256,
         )
 
         # Create auditor if enabled and callback provided.

@@ -20,6 +20,7 @@ import pytest
 from fakeredis.aioredis import FakeRedis
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
+from redis.asyncio import Redis
 
 from araxys.core.config import (
     AraxysConfig,
@@ -285,6 +286,190 @@ class TestRedisPool:
         self, pool: RedisPool,
     ) -> None:
         assert isinstance(pool, ConnectionPool)
+
+
+# =============================================================================
+# Cert Pinning — RedisPool._verify_cert_pin
+# =============================================================================
+
+
+class TestCertPinning:
+    """RedisPool cert pinning verification tests.
+
+    _verify_cert_pin accesses the underlying asyncio connection's writer
+    to retrieve the SSL object and the peer certificate.
+    """
+
+    # ── Helpers ──────────────────────────────────────────────────────────
+
+    def _make_pool(self, pin: str | None = "abc123") -> RedisPool:
+        """Create a RedisPool with a mocked underlying Redis client."""
+        pool = RedisPool("redis://localhost:6379", cert_pin_sha256=pin)
+        pool._redis = MagicMock(spec=Redis)
+        return pool
+
+    def _make_mock_writer(
+        self, ssl_object: MagicMock | None,
+    ) -> MagicMock:
+        """Create a mock asyncio writer with the given ssl_object."""
+        writer = MagicMock()
+        writer.get_extra_info.return_value = ssl_object
+        return writer
+
+    def _make_mock_ssl(self, cert_der: bytes | None = b"fake_der") -> MagicMock:
+        """Create a mock SSL object with a controlled getpeercert."""
+        ssl_obj = MagicMock()
+        ssl_obj.getpeercert.return_value = cert_der
+        return ssl_obj
+
+    def _wire_mock_connection(
+        self,
+        pool: RedisPool,
+        writer: MagicMock | None = None,
+    ) -> tuple[MagicMock, MagicMock]:
+        """Wire a mock connection pool into the underlying Redis client.
+
+        Returns ``(mock_connection, mock_conn_pool)`` so callers can verify
+        expectations on either the connection itself or the pool.
+        """
+        mock_connection = MagicMock()
+        if writer is not None:
+            mock_connection._writer = writer
+        mock_connection.is_connected = True
+        # connect() is called with await in production code
+        mock_connection.connect = AsyncMock()
+
+        mock_conn_pool = MagicMock()
+        mock_conn_pool.get_connection.return_value = mock_connection
+        # release() is called with await in production code
+        mock_conn_pool.release = AsyncMock()
+        pool._redis.connection_pool = mock_conn_pool
+
+        return mock_connection, mock_conn_pool
+
+    # ── Pin matches ────────────────────────────────────────────────────
+
+    async def test_pin_match(self) -> None:
+        """When cert SHA-256 matches the pin, _verify_cert_pin returns."""
+        pool = self._make_pool(pin="abc123")
+        ssl_obj = self._make_mock_ssl(cert_der=b"real_cert_der")
+        writer = self._make_mock_writer(ssl_object=ssl_obj)
+        conn, conn_pool = self._wire_mock_connection(pool, writer=writer)
+
+        with patch("hashlib.sha256",
+                   return_value=MagicMock(hexdigest=lambda: "abc123")):
+            await pool._verify_cert_pin(pool._redis)
+
+        # Verify the chain was exercised
+        ssl_obj.getpeercert.assert_called_once_with(binary_form=True)
+        conn_pool.release.assert_called_once_with(conn)
+
+    # ── Pin mismatch ─────────────────────────────────────────────────
+
+    async def test_pin_mismatch(self) -> None:
+        """When cert SHA-256 does NOT match pin, TLSConfigurationError."""
+        pool = self._make_pool(pin="expected_hash")
+        ssl_obj = self._make_mock_ssl(cert_der=b"real_cert_der")
+        writer = self._make_mock_writer(ssl_object=ssl_obj)
+        _, _ = self._wire_mock_connection(pool, writer=writer)
+
+        with (
+            patch("hashlib.sha256",
+                  return_value=MagicMock(hexdigest=lambda: "wrong_hash")),
+            pytest.raises(TLSConfigurationError, match="pin mismatch") as exc,
+        ):
+            await pool._verify_cert_pin(pool._redis)
+
+        assert "expected_hash" in str(exc.value)
+        assert "wrong_hash" in str(exc.value)
+
+    # ── No TLS (non-SSL connection) ──────────────────────────────────
+
+    async def test_no_tls_on_connection(self) -> None:
+        """When the writer has no SSL object, TLSConfigurationError raised."""
+        pool = self._make_pool(pin="abc123")
+        writer = self._make_mock_writer(ssl_object=None)  # no SSL
+        self._wire_mock_connection(pool, writer=writer)
+
+        with pytest.raises(
+            TLSConfigurationError,
+            match="TLS is not enabled",
+        ):
+            await pool._verify_cert_pin(pool._redis)
+
+    # ── No peer certificate ──────────────────────────────────────────
+
+    async def test_no_peer_certificate(self) -> None:
+        """When getpeercert returns None/empty, TLSConfigurationError."""
+        pool = self._make_pool(pin="abc123")
+        ssl_obj = self._make_mock_ssl(cert_der=None)  # no cert
+        writer = self._make_mock_writer(ssl_object=ssl_obj)
+        self._wire_mock_connection(pool, writer=writer)
+
+        with pytest.raises(
+            TLSConfigurationError,
+            match="No peer certificate",
+        ):
+            await pool._verify_cert_pin(pool._redis)
+
+    # ── Unexpected error wrapped ─────────────────────────────────────
+
+    async def test_unexpected_error_wrapped_to_tls_error(self) -> None:
+        """Any unexpected exception wraps to TLSConfigurationError."""
+        pool = self._make_pool(pin="abc123")
+        mock_conn_pool = MagicMock()
+        mock_conn_pool.get_connection.side_effect = RuntimeError(
+            "Something went terribly wrong",
+        )
+        pool._redis.connection_pool = mock_conn_pool
+
+        with pytest.raises(
+            TLSConfigurationError,
+            match="Cannot verify certificate pin",
+        ):
+            await pool._verify_cert_pin(pool._redis)
+
+
+class TestRedisPoolCertPinIntegration:
+    """RedisPool.acquire() integration with cert pinning."""
+
+    @pytest.fixture
+    def pool(self) -> RedisPool:
+        p = RedisPool("redis://localhost:6379", max_size=5, leak_threshold=3)
+        p._redis = FakeRedis(decode_responses=True)
+        return p
+
+    async def test_init_accepts_cert_pin_sha256(self) -> None:
+        """cert_pin_sha256 is stored on the pool instance."""
+        pool = RedisPool(
+            "redis://localhost:6379",
+            cert_pin_sha256="my_pinned_hash",
+        )
+        assert pool._cert_pin_sha256 == "my_pinned_hash"
+
+    async def test_init_accepts_default_none(self) -> None:
+        """When not provided, cert_pin_sha256 defaults to None."""
+        pool = RedisPool("redis://localhost:6379")
+        assert pool._cert_pin_sha256 is None
+
+    async def test_acquire_skips_pin_when_not_set(self, pool: RedisPool) -> None:
+        """When cert_pin_sha256 is None, acquire does NOT call _verify."""
+        with patch.object(pool, "_verify_cert_pin", new=AsyncMock()) as mock_verify:
+            conn = await pool.acquire()
+            assert conn is pool._redis
+            mock_verify.assert_not_awaited()
+
+    async def test_acquire_calls_verify_when_pin_set(self) -> None:
+        """When cert_pin_sha256 is set, acquire calls _verify_cert_pin."""
+        pool = RedisPool(
+            "redis://localhost:6379",
+            cert_pin_sha256="abc123",
+        )
+        pool._redis = FakeRedis(decode_responses=True)
+        with patch.object(pool, "_verify_cert_pin", new=AsyncMock()) as mock_verify:
+            conn = await pool.acquire()
+            assert conn is pool._redis
+            mock_verify.assert_awaited_once_with(pool._redis)
 
 
 # =============================================================================

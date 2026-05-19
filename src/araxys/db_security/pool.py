@@ -7,6 +7,7 @@ leak detection, and idle timeout).
 
 from __future__ import annotations
 
+import hashlib
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -15,7 +16,7 @@ if TYPE_CHECKING:
 import structlog
 from redis.asyncio import Redis
 
-from araxys.core.exceptions import ConnectionError
+from araxys.core.exceptions import ConnectionError, TLSConfigurationError
 
 logger = structlog.get_logger("araxys.db_security.pool")
 
@@ -109,6 +110,11 @@ class RedisPool:
         Number of outstanding acquires that triggers a warning.
     ssl_context:
         Optional SSL context for TLS-wrapped Redis connections.
+    cert_pin_sha256:
+        Optional SHA-256 fingerprint of the expected server certificate.
+        When set, :meth:`acquire` verifies the server cert matches the
+        pin before returning the connection. Raises
+        :exc:`TLSConfigurationError` on mismatch.
     """
 
     def __init__(
@@ -120,6 +126,7 @@ class RedisPool:
         acquire_timeout_seconds: float = 5.0,
         leak_threshold: int = 10,
         ssl_context: ssl.SSLContext | None = None,
+        cert_pin_sha256: str | None = None,
     ) -> None:
         self.url = url
         self.max_size = max_size
@@ -129,6 +136,7 @@ class RedisPool:
         self._active_count: int = 0
         self._leak_warned: bool = False
         self._closed: bool = False
+        self._cert_pin_sha256: str | None = cert_pin_sha256
         self._redis: Redis = Redis.from_url(url, ssl_context=ssl_context)
 
     async def acquire(self) -> Redis:
@@ -139,6 +147,8 @@ class RedisPool:
             raise ConnectionError("Pool exhausted")
         self._active_count += 1
         self._check_leak()
+        if self._cert_pin_sha256:
+            await self._verify_cert_pin(self._redis)
         return self._redis
 
     async def release(self, conn: Redis) -> None:
@@ -179,3 +189,65 @@ class RedisPool:
                 f"(threshold={self.leak_threshold})",
             )
             self._leak_warned = True
+
+    async def _verify_cert_pin(self, conn: Redis) -> None:
+        """Verify the server certificate's SHA-256 fingerprint.
+
+        Retrieves the peer certificate from the underlying asyncio
+        connection, computes its SHA-256 digest, and compares against
+        the pinned value stored in ``self._cert_pin_sha256``.
+
+        Parameters
+        ----------
+        conn:
+            The Redis client whose connection should be checked.
+
+        Raises
+        ------
+        TLSConfigurationError:
+            - If the connection does not use TLS.
+            - If no peer certificate is available.
+            - If the certificate fingerprint does not match the pin.
+        """
+        try:
+            connection = conn.connection_pool.get_connection(  # type: ignore[no-untyped-call]
+                "_pin_check",
+            )
+            try:
+                if not connection.is_connected:
+                    await connection.connect()
+
+                writer = getattr(connection, "_writer", None)
+                if writer is None:
+                    raise TLSConfigurationError(
+                        "TLS is not enabled on this connection",
+                    )
+
+                ssl_object = writer.get_extra_info("ssl_object")
+                if ssl_object is None:
+                    raise TLSConfigurationError(
+                        "TLS is not enabled on this connection",
+                    )
+
+                cert_der = ssl_object.getpeercert(binary_form=True)
+                if not cert_der:
+                    raise TLSConfigurationError(
+                        "No peer certificate available",
+                    )
+
+                cert_sha256 = hashlib.sha256(cert_der).hexdigest()
+                assert self._cert_pin_sha256 is not None  # Guard ensures this
+                if cert_sha256 != self._cert_pin_sha256:
+                    raise TLSConfigurationError(
+                        f"Certificate pin mismatch: expected "
+                        f"sha256={self._cert_pin_sha256[:16]}..., "
+                        f"got sha256={cert_sha256[:16]}...",
+                    )
+            finally:
+                await conn.connection_pool.release(connection)
+        except TLSConfigurationError:
+            raise
+        except Exception as exc:
+            raise TLSConfigurationError(
+                f"Cannot verify certificate pin: {exc}",
+            ) from exc
