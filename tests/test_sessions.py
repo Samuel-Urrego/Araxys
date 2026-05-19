@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -444,22 +444,28 @@ class TestSessionManager:
 # ── Redis Backend Tests ──────────────────────────────────────────────────
 
 
+try:
+    from fakeredis.aioredis import FakeRedis  # noqa: F401
+    _HAS_FAKEREDIS = True
+except ImportError:
+    _HAS_FAKEREDIS = False
+
+
 @pytest.mark.skipif(
-    True,  # We'll let fakeredis handle it when available
-    reason="RedisSessionBackend requires fakeredis or real redis",
+    not _HAS_FAKEREDIS,
+    reason="RedisSessionBackend tests require fakeredis",
 )
 class TestRedisSessionBackend:
-    """Tests for RedisSessionBackend.
+    """Tests for RedisSessionBackend using _SharedRedisPool.
 
-    These tests are skipped if fakeredis is not available.
+    Requires fakeredis; skipped if not available.
     """
 
     @pytest.fixture
-    async def backend(self) -> SessionBackend:
+    async def backend(self) -> AsyncGenerator[SessionBackend]:
         from araxys.sessions.storage import RedisSessionBackend
 
-        backend = RedisSessionBackend("redis://localhost:6379")
-        return backend
+        yield RedisSessionBackend(pool=_SharedRedisPool())
 
     async def test_redis_create_and_get(
         self, backend: SessionBackend
@@ -757,6 +763,35 @@ class TestRedisSessionBackendTTL:
             skey = f"araxys:sessions:{session_id}"
             exists = await conn.exists(skey)
             assert exists == 0, "Session key should be DELeted, not expired"
+        finally:
+            await pool.release(conn)
+
+    async def test_cleanup_removes_orphaned_user_set_member(
+        self, backend: SessionBackend
+    ) -> None:
+        """cleanup_expired should remove orphaned session IDs from user SET."""
+        from araxys.sessions.storage import RedisSessionBackend
+
+        assert isinstance(backend, RedisSessionBackend)
+        pool = backend._pool
+        assert isinstance(pool, _SharedRedisPool)
+        conn = await pool.acquire()
+        try:
+            session_id = await backend.create_session("user_1", "jti_abc")
+            skey = f"araxys:sessions:{session_id}"
+            ukey = "araxys:sessions:user:user_1"
+
+            # Simulate the session HASH being gone (as if Redis EXPIRE removed it)
+            await conn.delete(skey)
+
+            # Run cleanup — should detect orphaned member and remove it
+            removed = await backend.cleanup_expired()
+            assert removed >= 1, "Cleanup should remove the orphaned member"
+
+            # The user SET should no longer contain the orphaned session_id
+            members = await conn.smembers(ukey)  # type: ignore[misc]
+            norm: set[str] = cast("set[str]", members)
+            assert session_id not in norm
         finally:
             await pool.release(conn)
 
