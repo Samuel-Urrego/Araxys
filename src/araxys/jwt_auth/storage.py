@@ -13,10 +13,15 @@ from __future__ import annotations
 import base64
 import time
 import uuid
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
+    from araxys.db_security.pool import ConnectionPool
 
 
 @runtime_checkable
@@ -64,24 +69,51 @@ class RedisTokenStorage:
     Requires the ``redis`` extra: ``pip install araxys[redis]``.
     """
 
-    def __init__(self, redis_url: str) -> None:
-        try:
-            from redis.asyncio import from_url
-        except ImportError as exc:
-            raise ImportError(
-                "RedisTokenStorage requires the 'redis' package. "
-                "Install it with: pip install araxys[redis]"
-            ) from exc
-        self._redis = from_url(redis_url, decode_responses=True)
+    def __init__(
+        self,
+        redis_url: str | None = None,
+        *,
+        pool: ConnectionPool | None = None,
+    ) -> None:
+        self._pool = pool
+        self._redis: Redis | None = None
+        if pool is None and redis_url:
+            try:
+                from redis.asyncio import from_url
+            except ImportError as exc:
+                raise ImportError(
+                    "RedisTokenStorage requires the 'redis' package. "
+                    "Install it with: pip install araxys[redis]"
+                ) from exc
+            self._redis = from_url(redis_url, decode_responses=True)
 
     def _key(self, jti: str) -> str:
         return f"araxys:jti_blacklist:{jti}"
 
     async def blacklist_jti(self, jti: str, ttl_seconds: int) -> None:
-        await self._redis.setex(self._key(jti), ttl_seconds, "1")
+        key = self._key(jti)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                await conn.setex(key, ttl_seconds, "1")
+                return
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
+        await self._redis.setex(key, ttl_seconds, "1")
 
     async def is_blacklisted(self, jti: str) -> bool:
-        return await self._redis.exists(self._key(jti)) > 0  # type: ignore
+        key = self._key(jti)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                result = await conn.exists(key)
+                return bool(result)
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
+        result = await self._redis.exists(key)
+        return bool(result)
 
 
 def _base64url_encode(data: bytes) -> str:

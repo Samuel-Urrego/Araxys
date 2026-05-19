@@ -10,7 +10,12 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
+    from araxys.db_security.pool import ConnectionPool
 
 
 @runtime_checkable
@@ -126,15 +131,23 @@ class RedisBackend:
     Requires the ``redis`` extra: ``pip install araxys[redis]``.
     """
 
-    def __init__(self, redis_url: str) -> None:
-        try:
-            from redis.asyncio import from_url
-        except ImportError as exc:
-            raise ImportError(
-                "RedisBackend requires the 'redis' package. "
-                "Install it with: pip install araxys[redis]"
-            ) from exc
-        self._redis = from_url(redis_url, decode_responses=True)
+    def __init__(
+        self,
+        redis_url: str | None = None,
+        *,
+        pool: ConnectionPool | None = None,
+    ) -> None:
+        self._pool = pool
+        self._redis: Redis | None = None
+        if pool is None and redis_url:
+            try:
+                from redis.asyncio import from_url
+            except ImportError as exc:
+                raise ImportError(
+                    "RedisBackend requires the 'redis' package. "
+                    "Install it with: pip install araxys[redis]"
+                ) from exc
+            self._redis = from_url(redis_url, decode_responses=True)
 
     def _rate_key(self, key: str) -> str:
         return f"araxys:rate:{key}"
@@ -147,6 +160,17 @@ class RedisBackend:
 
     async def increment(self, key: str, window_seconds: int) -> int:
         rkey = self._rate_key(key)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                pipe = conn.pipeline()
+                pipe.incr(rkey)
+                pipe.expire(rkey, window_seconds, nx=True)
+                results = await pipe.execute()
+                return int(results[0])
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
         pipe = self._redis.pipeline()
         pipe.incr(rkey)
         pipe.expire(rkey, window_seconds, nx=True)
@@ -154,27 +178,84 @@ class RedisBackend:
         return int(results[0])
 
     async def get_count(self, key: str) -> int:
-        val = await self._redis.get(self._rate_key(key))
+        rkey = self._rate_key(key)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                val = await conn.get(rkey)
+                return int(val) if val else 0
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
+        val = await self._redis.get(rkey)
         return int(val) if val else 0
 
     async def ban(self, ip: str, duration_seconds: int) -> None:
-        await self._redis.setex(self._ban_key(ip), duration_seconds, "1")
+        bkey = self._ban_key(ip)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                await conn.setex(bkey, duration_seconds, "1")
+                return
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
+        await self._redis.setex(bkey, duration_seconds, "1")
 
     async def is_banned(self, ip: str) -> bool:
-        return await self._redis.exists(self._ban_key(ip)) > 0  # type: ignore
+        bkey = self._ban_key(ip)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                result = await conn.exists(bkey)
+                return bool(result)
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
+        result = await self._redis.exists(bkey)
+        return bool(result)
 
     async def get_ban_expiry(self, ip: str) -> int:
-        ttl = await self._redis.ttl(self._ban_key(ip))
-        return max(0, ttl)  # type: ignore
+        bkey = self._ban_key(ip)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                ttl = await conn.ttl(bkey)
+                return max(0, ttl)  # type: ignore[no-any-return]
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
+        ttl = await self._redis.ttl(bkey)
+        return max(0, ttl)  # type: ignore[no-any-return]
 
     async def get_violation_count(self, ip: str) -> int:
-        val = await self._redis.get(self._violation_key(ip))
+        vkey = self._violation_key(ip)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                val = await conn.get(vkey)
+                return int(val) if val else 0
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
+        val = await self._redis.get(vkey)
         return int(val) if val else 0
 
     async def increment_violations(self, ip: str) -> int:
         rkey = self._violation_key(ip)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                pipe = conn.pipeline()
+                pipe.incr(rkey)
+                pipe.expire(rkey, 3600, nx=True)
+                results = await pipe.execute()
+                return int(results[0])
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
         pipe = self._redis.pipeline()
         pipe.incr(rkey)
-        pipe.expire(rkey, 3600, nx=True)  # Violations expire after 1 hour
+        pipe.expire(rkey, 3600, nx=True)
         results = await pipe.execute()
         return int(results[0])
