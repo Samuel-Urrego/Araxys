@@ -75,6 +75,10 @@ testpaths = ["tests"]
 python_version = "3.13"
 strict = true
 
+[[tool.mypy.overrides]]
+module = ["boto3", "hvac"]
+ignore_missing_imports = true
+
 [dependency-groups]
 dev = [
     "types-aiofiles>=25.1.0.20260508",

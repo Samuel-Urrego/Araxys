@@ -55,7 +55,7 @@ class VaultResolver:
         token: str,
         mount_path: str = "araxys",
     ) -> None:
-        import hvac  # type: ignore[import-untyped]
+        import hvac
 
         self._mount_path = mount_path
         self._client = hvac.Client(url=url, token=token)
@@ -92,7 +92,7 @@ class AWSSecretsResolver:
         secret_prefix: str = "araxys/",
         region_name: str | None = None,
     ) -> None:
-        import boto3  # type: ignore[import-not-found]
+        import boto3
 
         self._secret_prefix = secret_prefix
         self._client = boto3.client("secretsmanager", region_name=region_name)
