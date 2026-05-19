@@ -16,7 +16,7 @@ from starlette.responses import JSONResponse, Response
 
 from araxys.core.exceptions import SanitizationError
 from araxys.sanitize.filters import sanitize_payload
-from araxys.sanitize.scanner import scan_headers, scan_query_params
+from araxys.sanitize.scanner import scan_headers, scan_query_params, scan_value
 
 if TYPE_CHECKING:
     from starlette.requests import Request
@@ -47,6 +47,32 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: Any, config: SanitizeConfig) -> None:
         super().__init__(app)
         self._config = config
+
+    @staticmethod
+    def _scan_body_leaves(
+        data: Any, config: SanitizeConfig
+    ) -> str | None:
+        """Recursively walk *data* leaf strings and run *scan_value* on each.
+
+        Returns the first threat description found, or ``None``.
+        """
+        if isinstance(data, str):
+            return scan_value(data, config)
+
+        if isinstance(data, dict):
+            for value in data.values():
+                threat = SanitizeMiddleware._scan_body_leaves(value, config)
+                if threat is not None:
+                    return threat
+
+        if isinstance(data, list):
+            for item in data:
+                threat = SanitizeMiddleware._scan_body_leaves(item, config)
+                if threat is not None:
+                    return threat
+
+        # int, float, bool, None — skip
+        return None
 
     def _block_response(self, threat_type: str) -> JSONResponse:
         """Create a 400 rejection response."""
@@ -112,6 +138,16 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
                     "threat_type": exc.threat_type,
                 },
             )
+
+        # Phase 4 — JSON body leaf-string scan (NoSQL, command, path traversal)
+        if any((
+            self._config.check_nosql_injection,
+            self._config.check_command_injection,
+            self._config.check_path_traversal,
+        )):
+            threat = self._scan_body_leaves(sanitized, self._config)
+            if threat is not None:
+                return self._block_response(threat)
 
         # Replace the request body with the sanitized version
         sanitized_body = json.dumps(sanitized).encode()

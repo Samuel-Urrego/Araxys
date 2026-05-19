@@ -7,6 +7,7 @@ plus ``InMemorySessionBackend`` for development/testing and
 
 from __future__ import annotations
 
+import ast
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -156,7 +157,7 @@ class RedisSessionBackend:
             "user_id": user_id,
             "jti": jti,
             "created_at": now,
-            "metadata": str(metadata or {}),
+            "metadata": json.dumps(metadata or {}, default=str),
         }
         if self._pool:
             conn = await self._pool.acquire()
@@ -192,12 +193,21 @@ class RedisSessionBackend:
         # Normalize to str keys for consistent access (hgetall can return
         # bytes keys depending on the connection's decode_responses setting).
         data: dict[str, str] = cast("dict[str, str]", raw)
+        raw_metadata = data.get("metadata")
+        if raw_metadata:
+            try:
+                metadata: Any = json.loads(raw_metadata)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                # Fallback for old str()-serialized format (single-quoted Python repr)
+                metadata = ast.literal_eval(raw_metadata)
+        else:
+            metadata = {}
         return SessionRecord(
             session_id=data["session_id"],
             user_id=data["user_id"],
             jti=data["jti"],
             created_at=datetime.fromisoformat(data["created_at"]),
-            metadata=json.loads(data["metadata"]) if data.get("metadata") else {},
+            metadata=metadata,
         )
 
     async def list_sessions(self, user_id: str) -> list[SessionRecord]:

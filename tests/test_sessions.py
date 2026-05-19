@@ -14,6 +14,8 @@ import pytest
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
+    from redis.asyncio import Redis
+
     from araxys.sessions.storage import SessionBackend
 
 
@@ -360,3 +362,124 @@ class TestRedisSessionBackend:
         record = await backend.get_session(session_id)
         assert record is not None
         assert record.user_id == "user_1"
+
+
+# ── Metadata serialization tests (v0.6) ────────────────────────────────────
+
+
+class _SharedRedisPool:
+    """Test pool that reuses a single FakeRedis instance."""
+
+    def __init__(self) -> None:
+        from fakeredis.aioredis import FakeRedis
+
+        self._redis = FakeRedis(decode_responses=True)
+        self._max_size = 10
+        self._active = 0
+
+    async def acquire(self) -> Redis:
+        if self._active >= self._max_size:
+            raise ConnectionError("Pool exhausted")
+        self._active += 1
+        return self._redis
+
+    async def release(self, conn: Redis) -> None:
+        if self._active > 0:
+            self._active -= 1
+
+    async def health(self) -> bool:
+        return True
+
+    async def close(self) -> None:
+        self._active = 0
+
+
+class TestRedisSessionBackendMetadata:
+    """Tests for JSON metadata serialization fix (Task 1.1, v0.6).
+
+    Uses _SharedRedisPool (fakeredis) to test without a real Redis.
+    """
+
+    @pytest.fixture
+    async def backend(self) -> AsyncGenerator[SessionBackend]:
+        from araxys.sessions.storage import RedisSessionBackend
+
+        yield RedisSessionBackend(pool=_SharedRedisPool())
+
+    async def test_metadata_round_trip_dict(
+        self, backend: SessionBackend
+    ) -> None:
+        """Round-trip with dict metadata preserves all values."""
+        session_id = await backend.create_session(
+            "user_1", "jti_1", metadata={"key": 42, "nested": [1, 2], "flag": True}
+        )
+        record = await backend.get_session(session_id)
+        assert record is not None
+        assert record.metadata == {"key": 42, "nested": [1, 2], "flag": True}
+
+    async def test_metadata_round_trip_list(
+        self, backend: SessionBackend
+    ) -> None:
+        """Round-trip with list metadata."""
+        session_id = await backend.create_session(
+            "user_1", "jti_2", metadata=[1, "two", 3.0]
+        )
+        record = await backend.get_session(session_id)
+        assert record is not None
+        assert record.metadata == [1, "two", 3.0]
+
+    async def test_metadata_round_trip_int(
+        self, backend: SessionBackend
+    ) -> None:
+        """Round-trip with int metadata."""
+        session_id = await backend.create_session(
+            "user_1", "jti_3", metadata=42
+        )
+        record = await backend.get_session(session_id)
+        assert record is not None
+        assert record.metadata == 42
+
+    async def test_empty_metadata_becomes_empty_dict(
+        self, backend: SessionBackend
+    ) -> None:
+        """None metadata is stored as {}."""
+        session_id = await backend.create_session("user_1", "jti_4")
+        record = await backend.get_session(session_id)
+        assert record is not None
+        assert record.metadata == {}
+
+    async def test_datetime_in_metadata_does_not_raise(
+        self, backend: SessionBackend
+    ) -> None:
+        """datetime object in metadata serializes via default=str."""
+        session_id = await backend.create_session(
+            "user_1", "jti_5", metadata={"now": datetime.now(UTC)}
+        )
+        record = await backend.get_session(session_id)
+        assert record is not None
+        assert "now" in record.metadata
+
+    async def test_old_single_quote_format_recovery(
+        self, backend: SessionBackend
+    ) -> None:
+        """Old str() format (single-quoted) loads via ast.literal_eval fallback."""
+        session_id = await backend.create_session(
+            "user_1", "jti_6", metadata={"clean": "data"}
+        )
+        # Directly write old-format metadata to simulate pre-fix data
+        from araxys.sessions.storage import RedisSessionBackend
+
+        assert isinstance(backend, RedisSessionBackend)
+        pool = backend._pool
+        assert isinstance(pool, _SharedRedisPool)
+        conn = await pool.acquire()
+        try:
+            key = f"araxys:sessions:{session_id}"
+            # Write single-quoted repr like old str() would produce
+            await conn.hset(key, "metadata", "{'clean': 'data'}")
+        finally:
+            await pool.release(conn)
+
+        record = await backend.get_session(session_id)
+        assert record is not None
+        assert record.metadata == {"clean": "data"}

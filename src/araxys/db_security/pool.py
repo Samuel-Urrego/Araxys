@@ -43,6 +43,14 @@ class ConnectionPool(Protocol):
     async def health(self) -> bool:
         """Check whether the pool is healthy (e.g. can reach Redis)."""
 
+    def get_redis_client(self) -> Redis:
+        """Public accessor for the underlying Redis client.
+
+        Returns the :class:`redis.asyncio.Redis` instance used by this
+        pool. Callers should not mutate the client directly.
+        """
+        ...
+
     async def close(self) -> None:
         """Close all connections and release resources."""
 
@@ -60,6 +68,12 @@ class InMemoryPool:
         self._active: int = 0
         self._closed: bool = False
 
+    def get_redis_client(self) -> Redis:
+        """Return a new FakeRedis instance."""
+        from fakeredis.aioredis import FakeRedis
+
+        return FakeRedis(decode_responses=True)
+
     async def acquire(self) -> Redis:
         """Return a FakeRedis instance, or raise if exhausted/closed."""
         if self._closed:
@@ -67,9 +81,7 @@ class InMemoryPool:
         if self._active >= self.max_size:
             raise ConnectionError("Pool exhausted")
         self._active += 1
-        from fakeredis.aioredis import FakeRedis
-
-        return FakeRedis(decode_responses=True)
+        return self.get_redis_client()
 
     async def release(self, conn: Redis) -> None:
         """Return a connection (decrement active count)."""
@@ -138,6 +150,14 @@ class RedisPool:
         self._closed: bool = False
         self._cert_pin_sha256: str | None = cert_pin_sha256
         self._redis: Redis = Redis.from_url(url, ssl_context=ssl_context)
+
+    def get_redis_client(self) -> Redis:
+        """Public accessor for the underlying Redis client.
+
+        Returns the :class:`redis.asyncio.Redis` instance used by this
+        pool. Callers should not mutate the client directly.
+        """
+        return self._redis
 
     async def acquire(self) -> Redis:
         """Return the underlying Redis client (or raise if exhausted)."""

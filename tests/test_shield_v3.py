@@ -303,3 +303,35 @@ class TestMetricsEndpoint:
         client = TestClient(app)
         response = client.get("/metrics")
         assert response.status_code == 404
+
+
+# ── v0.6 — pool accessor via shield ────────────────────────────────────────
+
+
+class TestShieldPoolAccessor:
+    """Shield creates backends using the public get_redis_client() accessor."""
+
+    async def test_shield_initializes_with_db_security_pool(self) -> None:
+        """Shield initializes with db_security enabled and pool with accessor."""
+        from araxys import AraxysShield
+        from araxys.core.config import (
+            AraxysConfig,
+            DatabaseSecurityConfig,
+            RedisPoolConfig,
+        )
+
+        config = AraxysConfig(
+            secret_key="test-secret-key-1234567890abcdef",
+            db_security=DatabaseSecurityConfig(
+                enabled=True,
+                redis_pool=RedisPoolConfig(url="redis://localhost:6379"),
+            ),
+        )
+        app = FastAPI()
+        shield = AraxysShield(app, config)
+        assert shield._db_security is not None  # noqa: SLF001
+        pool = shield._db_security.pool  # noqa: SLF001
+        # The pool should have get_redis_client method
+        assert hasattr(pool, "get_redis_client")
+        client = pool.get_redis_client()
+        assert client is not None
