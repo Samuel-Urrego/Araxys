@@ -1159,6 +1159,78 @@ class TestQueryValidator:
 
 
 # =============================================================================
+# ConnectionPool.validate_query (v0.7)
+# =============================================================================
+
+
+class TestInMemoryPoolValidateQuery:
+    """InMemoryPool.validate_query — no-op that always passes."""
+
+    async def test_validate_query_returns_passed(self) -> None:
+        pool = InMemoryPool(max_size=10)
+        result = pool.validate_query("SELECT 1")
+        assert result.passed is True
+        assert result.reason is None
+
+    async def test_validate_query_with_params(self) -> None:
+        pool = InMemoryPool(max_size=10)
+        result = pool.validate_query(
+            "SELECT * FROM users WHERE id = %s", (1,),
+        )
+        assert result.passed is True
+        assert result.reason is None
+
+    async def test_validate_query_any_input_passes(self) -> None:
+        pool = InMemoryPool(max_size=10)
+        result = pool.validate_query("DROP TABLE users", None)
+        assert result.passed is True
+
+    async def test_validate_query_is_protocol_conformant(self) -> None:
+        """InMemoryPool should satisfy the ConnectionPool Protocol."""
+        pool = InMemoryPool(max_size=10)
+        assert isinstance(pool, ConnectionPool)
+
+
+class TestRedisPoolValidateQuery:
+    """RedisPool.validate_query — delegates to QueryValidator."""
+
+    @pytest.fixture
+    def validator(self) -> QueryValidator:
+        return QueryValidator(QueryValidationConfig(mode="warn"))
+
+    @pytest.fixture
+    def pool(self, validator: QueryValidator) -> RedisPool:
+        p = RedisPool(
+            "redis://localhost:6379",
+            max_size=5,
+            query_validator=validator,
+        )
+        p._redis = FakeRedis(decode_responses=True)
+        return p
+
+    async def test_delegates_to_validator(self, pool: RedisPool) -> None:
+        result = pool.validate_query("SELECT 1", None)
+        assert result.passed is True
+        assert result.reason is not None  # '1' is an inline literal
+
+    async def test_parameterized_query_passes(self, pool: RedisPool) -> None:
+        result = pool.validate_query(
+            "SELECT * FROM users WHERE id = %s", (42,),
+        )
+        assert result.passed is True
+        assert result.reason is None
+
+    async def test_without_validator_returns_passed(self) -> None:
+        pool = RedisPool("redis://localhost:6379")
+        pool._redis = FakeRedis(decode_responses=True)
+        result = pool.validate_query("SELECT 1", None)
+        assert result.passed is True
+
+    async def test_protocol_conformance(self, pool: RedisPool) -> None:
+        assert isinstance(pool, ConnectionPool)
+
+
+# =============================================================================
 # DatabaseSecurityManager
 # =============================================================================
 

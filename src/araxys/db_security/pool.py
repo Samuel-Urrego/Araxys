@@ -16,6 +16,11 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     import ssl
 
+    from araxys.db_security.query_validator import (
+        QueryValidationResult,
+        QueryValidator,
+    )
+
 import structlog
 from redis.asyncio import Redis
 
@@ -57,6 +62,28 @@ class ConnectionPool(Protocol):
     async def close(self) -> None:
         """Close all connections and release resources."""
 
+    def validate_query(
+        self,
+        template: str,
+        params: tuple | None = None,
+    ) -> QueryValidationResult:
+        """Validate a SQL query template for parameterization safety.
+
+        Parameters
+        ----------
+        template:
+            The SQL query string (may contain placeholders).
+        params:
+            Bound parameters, if any.
+
+        Returns
+        -------
+        QueryValidationResult
+            ``passed=True`` for safe queries; in ``warn`` mode,
+            interpolated queries still return ``passed=True`` but with
+            a descriptive ``reason``.
+        """
+
 
 class InMemoryPool:
     """No-op pool for testing.
@@ -70,6 +97,16 @@ class InMemoryPool:
         self.max_size = max_size
         self._active: int = 0
         self._closed: bool = False
+
+    def validate_query(
+        self,
+        template: str,
+        params: tuple | None = None,
+    ) -> QueryValidationResult:
+        """No-op — always returns ``passed=True``."""
+        from araxys.db_security.query_validator import QueryValidationResult
+
+        return QueryValidationResult(passed=True, reason=None)
 
     def get_redis_client(self) -> Redis:
         """Return a new FakeRedis instance."""
@@ -149,6 +186,7 @@ class RedisPool:
         reconnect_retries: int = 3,
         ssl_context: ssl.SSLContext | None = None,
         cert_pin_sha256: str | None = None,
+        query_validator: QueryValidator | None = None,
     ) -> None:
         self.url = url
         self.max_size = max_size
@@ -157,6 +195,7 @@ class RedisPool:
         self.health_check_interval_seconds = health_check_interval_seconds
         self.leak_threshold = leak_threshold
         self._active_count: int = 0
+        self._query_validator = query_validator
         self._leak_warned: bool = False
         self._closed: bool = False
         self._cert_pin_sha256: str | None = cert_pin_sha256
@@ -243,6 +282,28 @@ class RedisPool:
         self._closed = True
         self._active_count = 0
         await self._redis.aclose()
+
+    # ------------------------------------------------------------------
+    # Query validation
+    # ------------------------------------------------------------------
+
+    def validate_query(
+        self,
+        template: str,
+        params: tuple | None = None,
+    ) -> QueryValidationResult:
+        """Delegate to :attr:`_query_validator` or return ``passed=True``.
+
+        When no ``QueryValidator`` was provided at init, the validation
+        is a no-op (returns ``passed=True`` with no reason).
+        """
+        if self._query_validator is None:
+            from araxys.db_security.query_validator import (
+                QueryValidationResult,
+            )
+
+            return QueryValidationResult(passed=True, reason=None)
+        return self._query_validator.validate(template, params)
 
     # ------------------------------------------------------------------
     # Background health check
