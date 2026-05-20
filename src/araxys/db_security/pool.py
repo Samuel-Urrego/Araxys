@@ -65,7 +65,7 @@ class ConnectionPool(Protocol):
     def validate_query(
         self,
         template: str,
-        params: tuple | None = None,
+        params: tuple[object, ...] | None = None,
     ) -> QueryValidationResult:
         """Validate a SQL query template for parameterization safety.
 
@@ -101,7 +101,7 @@ class InMemoryPool:
     def validate_query(
         self,
         template: str,
-        params: tuple | None = None,
+        params: tuple[object, ...] | None = None,
     ) -> QueryValidationResult:
         """No-op — always returns ``passed=True``."""
         from araxys.db_security.query_validator import QueryValidationResult
@@ -290,7 +290,7 @@ class RedisPool:
     def validate_query(
         self,
         template: str,
-        params: tuple | None = None,
+        params: tuple[object, ...] | None = None,
     ) -> QueryValidationResult:
         """Delegate to :attr:`_query_validator` or return ``passed=True``.
 

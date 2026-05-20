@@ -65,7 +65,7 @@ def _has_inline_literals(sql: str) -> bool:
     if not parsed:
         return False
     for statement in parsed:
-        for token in statement.flatten():
+        for token in statement.flatten():  # type: ignore[no-untyped-call]
             if token.ttype is None:
                 continue
             ttype_str = str(token.ttype)
@@ -90,7 +90,7 @@ class QueryValidator:
     def validate(
         self,
         template: str,
-        params: tuple | None = None,
+        params: tuple[object, ...] | None = None,
     ) -> QueryValidationResult:
         """Validate *template* for safe vs. interpolated SQL.
 

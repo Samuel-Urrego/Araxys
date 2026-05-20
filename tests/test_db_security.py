@@ -1283,7 +1283,7 @@ class TestQueryAuditorValidationMetadata:
         await auditor.emit(event)
 
         on_audit.assert_awaited_once()
-        entry: AuditEntry = on_audit.await_args[0][0]  # type: ignore[assignment]
+        entry: AuditEntry = on_audit.await_args[0][0]  # type: ignore[index]
         metadata = entry.metadata
         assert metadata.get("validation") is not None
         assert metadata["validation"]["passed"] is True
@@ -1298,7 +1298,7 @@ class TestQueryAuditorValidationMetadata:
         await auditor.emit(event)
 
         on_audit.assert_awaited_once()
-        entry: AuditEntry = on_audit.await_args[0][0]  # type: ignore[assignment]
+        entry: AuditEntry = on_audit.await_args[0][0]  # type: ignore[index]
         assert entry.metadata.get("validation") is None
 
 

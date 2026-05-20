@@ -289,8 +289,8 @@ class TestRedisPoolReconnect:
             health_check_interval_seconds=0,
         )
         old_client = p._redis  # noqa: SLF001
-        old_client.ping = AsyncMock(return_value=True)
-        old_client.aclose = AsyncMock()
+        old_client.ping = AsyncMock(return_value=True)  # type: ignore[method-assign]
+        old_client.aclose = AsyncMock()  # type: ignore[method-assign]
 
         new_client = MagicMock()
         new_client.ping = AsyncMock(return_value=True)
@@ -324,7 +324,7 @@ class TestRedisPoolReconnect:
         async def slow_aclose() -> None:
             await asyncio.sleep(0.1)
 
-        p._redis.aclose = slow_aclose  # type: ignore[method-assign]  # noqa: SLF001
+        p._redis.aclose = slow_aclose  # type: ignore[method-assign,assignment]  # noqa: SLF001
 
         new_client = MagicMock()
         new_client.ping = AsyncMock(return_value=True)

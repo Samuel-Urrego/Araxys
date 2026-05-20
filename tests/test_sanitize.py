@@ -700,8 +700,8 @@ class TestBodySizeLimit:
         from starlette.responses import JSONResponse
 
         response = await middleware.dispatch(
-            await _make_request(scope, receive),
-            lambda _req: body_limit_app(scope, receive, send),  # type: ignore[arg-type]
+            await _make_request(scope, receive),  # type: ignore[arg-type]
+            lambda _req: body_limit_app(scope, receive, send),  # type: ignore[arg-type,return-value]
         )
         assert isinstance(response, JSONResponse)
         assert response.status_code == 413

@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from araxys.db_security.query_validator import QueryValidationResult
+
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
@@ -507,6 +509,14 @@ class _SharedRedisPool:
 
     async def close(self) -> None:
         self._active = 0
+
+    def validate_query(
+        self,
+        template: str,
+        params: tuple[object, ...] | None = None,
+    ) -> QueryValidationResult:
+        """No-op: test pool always returns passed."""
+        return QueryValidationResult(passed=True, reason=None)
 
 
 class TestInMemorySessionBackendCleanup:

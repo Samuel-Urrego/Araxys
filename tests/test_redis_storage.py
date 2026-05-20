@@ -9,6 +9,7 @@ from fakeredis.aioredis import FakeRedis
 from araxys.api_keys.models import APIKeyRecord
 from araxys.api_keys.storage import RedisAPIKeyStorage
 from araxys.core.types import Scope
+from araxys.db_security.query_validator import QueryValidationResult
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
@@ -125,6 +126,14 @@ class _FakePool:
 
     async def close(self) -> None:
         await self._redis.aclose()
+
+    def validate_query(
+        self,
+        template: str,
+        params: tuple[object, ...] | None = None,
+    ) -> QueryValidationResult:
+        """No-op: test pool always returns passed."""
+        return QueryValidationResult(passed=True, reason=None)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
