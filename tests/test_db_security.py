@@ -26,15 +26,17 @@ from araxys.core.config import (
     AraxysConfig,
     DatabaseSecurityConfig,
     QueryAuditConfig,
+    QueryValidationConfig,
     RedisPoolConfig,
     TLSConfig,
 )
-from araxys.core.exceptions import ConnectionError, TLSConfigurationError
+from araxys.core.exceptions import ConnectionError, TLSConfigurationError, ValidationError
 from araxys.core.types import AuditEntry, AuditEventType
 from araxys.db_security.audit import QueryAuditor, QueryEvent
 from araxys.db_security.dependencies import get_db_pool, get_query_auditor
 from araxys.db_security.manager import DatabaseSecurityManager
 from araxys.db_security.pool import ConnectionPool, InMemoryPool, RedisPool
+from araxys.db_security.query_validator import QueryValidationResult, QueryValidator
 from araxys.db_security.secrets import (
     AWSSecretsResolver,
     ChainedResolver,
@@ -1021,6 +1023,139 @@ class TestQueryAuditor:
         assert args is not None
         entry: AuditEntry = args[0][0]
         assert entry.detail is None
+
+
+# =============================================================================
+# QueryValidator (v0.7)
+# =============================================================================
+
+
+class TestQueryValidationResult:
+    """QueryValidationResult frozen dataclass tests."""
+
+    def test_frozen(self) -> None:
+        r = QueryValidationResult(passed=True, reason=None)
+        with pytest.raises(Exception, match="cannot assign to field"):
+            r.passed = False  # type: ignore[misc]
+
+    def test_default_construction(self) -> None:
+        r = QueryValidationResult(passed=True, reason=None)
+        assert r.passed is True
+        assert r.reason is None
+
+    def test_with_reason(self) -> None:
+        r = QueryValidationResult(passed=True, reason="Inline literal detected")
+        assert r.passed is True
+        assert r.reason == "Inline literal detected"
+
+    def test_failed_result(self) -> None:
+        r = QueryValidationResult(passed=False, reason="Something went wrong")
+        assert r.passed is False
+        assert r.reason == "Something went wrong"
+
+
+class TestQueryValidator:
+    """QueryValidator — parameterized vs interpolated SQL detection."""
+
+    # ── Parameterized queries (safe) ────────────────────────────────────
+
+    def test_parameterized_with_percent_s(self) -> None:
+        config = QueryValidationConfig(mode="warn")
+        validator = QueryValidator(config)
+        result = validator.validate(
+            "SELECT * FROM users WHERE id = %s",
+            (1,),
+        )
+        assert result.passed is True
+        assert result.reason is None
+
+    def test_parameterized_with_qmark(self) -> None:
+        validator = QueryValidator(QueryValidationConfig(mode="warn"))
+        result = validator.validate(
+            "SELECT * FROM users WHERE id = ?",
+            (42,),
+        )
+        assert result.passed is True
+        assert result.reason is None
+
+    def test_parameterized_with_named_placeholder(self) -> None:
+        validator = QueryValidator(QueryValidationConfig(mode="warn"))
+        result = validator.validate(
+            "SELECT * FROM users WHERE id = :uid",
+            (1,),
+        )
+        assert result.passed is True
+        assert result.reason is None
+
+    def test_parameterized_with_params_tuple(self) -> None:
+        validator = QueryValidator(QueryValidationConfig(mode="warn"))
+        result = validator.validate(
+            "INSERT INTO users (name, age) VALUES (%s, %s)",
+            ("Alice", 30),
+        )
+        assert result.passed is True
+        assert result.reason is None
+
+    # ── Interpolated queries (inline literals, no placeholders) ─────────
+
+    def test_interpolated_warn_with_inline_string(self) -> None:
+        validator = QueryValidator(QueryValidationConfig(mode="warn"))
+        result = validator.validate(
+            "SELECT * FROM users WHERE name = 'admin'",
+            None,
+        )
+        assert result.passed is True
+        assert result.reason is not None
+        assert "inline literal" in result.reason.lower()
+
+    def test_interpolated_warn_with_inline_number(self) -> None:
+        validator = QueryValidator(QueryValidationConfig(mode="warn"))
+        result = validator.validate(
+            "SELECT * FROM users WHERE id = 1",
+            None,
+        )
+        assert result.passed is True
+        assert result.reason is not None
+
+    # ── Block mode ─────────────────────────────────────────────────────
+
+    def test_interpolated_block_raises(self) -> None:
+        validator = QueryValidator(QueryValidationConfig(mode="block"))
+        with pytest.raises(ValidationError) as excinfo:
+            validator.validate(
+                "SELECT * FROM users WHERE id = 1",
+                None,
+            )
+        assert "inline literal" in str(excinfo.value).lower()
+
+    def test_interpolated_block_with_string(self) -> None:
+        validator = QueryValidator(QueryValidationConfig(mode="block"))
+        with pytest.raises(ValidationError):
+            validator.validate(
+                "SELECT * FROM users WHERE name = 'admin'",
+                None,
+            )
+
+    # ── Clean queries (no placeholders, no inline values) ───────────────
+
+    def test_clean_query_returns_passed(self) -> None:
+        validator = QueryValidator(QueryValidationConfig(mode="warn"))
+        result = validator.validate("SELECT NOW()", None)
+        assert result.passed is True
+        assert result.reason is None
+
+    def test_empty_template_returns_passed(self) -> None:
+        validator = QueryValidator(QueryValidationConfig(mode="warn"))
+        result = validator.validate("", None)
+        assert result.passed is True
+
+    # ── Edge: placeholders with empty params ────────────────────────────
+
+    def test_placeholders_with_empty_params_passed(self) -> None:
+        """Placeholders with no params — no inline values so it's safe."""
+        validator = QueryValidator(QueryValidationConfig(mode="warn"))
+        result = validator.validate("SELECT 1", ())
+        assert result.passed is True
 
 
 # =============================================================================

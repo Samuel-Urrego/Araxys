@@ -147,3 +147,10 @@ class TLSConfigurationError(AraxysError):
 
     def __init__(self, message: str = "TLS configuration error") -> None:
         super().__init__(message)
+
+
+class ValidationError(AraxysError):
+    """Raised when validation of a query or input fails."""
+
+    def __init__(self, message: str = "Validation error") -> None:
+        super().__init__(message)
