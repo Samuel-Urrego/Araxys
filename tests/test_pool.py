@@ -341,14 +341,14 @@ class TestRedisPoolReconnect:
 
         # Only one should have actually reconnected (closed old client, created new)
         assert len(reconnect_calls) == 2  # Both returned
-        # The second should have early-returned because lock was held or _closed was already reset
-        # Verify the new client was only set once — _redis was only assigned once
+        # The second skipped because the lock was already held
+        # Verify the new client was only set once
         assert p._redis is new_client  # noqa: SLF001
         assert p._closed is False  # noqa: SLF001
 
     async def test_health_loop_triggers_reconnect_after_threshold(self) -> None:
         """Health loop calls _reconnect() after N consecutive PING failures."""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import AsyncMock
 
         from araxys.db_security.pool import RedisPool
 

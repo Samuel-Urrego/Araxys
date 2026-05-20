@@ -649,7 +649,9 @@ class TestBodySizeLimit:
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             yield c
 
-    async def test_oversized_body_rejected(self, body_limit_client: AsyncClient) -> None:
+    async def test_oversized_body_rejected(
+        self, body_limit_client: AsyncClient
+    ) -> None:
         """POST with Content-Length > max_body_bytes returns 413."""
         large_body = "x" * self.OVERSIZED
         resp = await body_limit_client.post(

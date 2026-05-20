@@ -30,7 +30,11 @@ from araxys.core.config import (
     RedisPoolConfig,
     TLSConfig,
 )
-from araxys.core.exceptions import ConnectionError, TLSConfigurationError, ValidationError
+from araxys.core.exceptions import (
+    ConnectionError,
+    TLSConfigurationError,
+    ValidationError,
+)
 from araxys.core.types import AuditEntry, AuditEventType
 from araxys.db_security.audit import QueryAuditor, QueryEvent
 from araxys.db_security.dependencies import get_db_pool, get_query_auditor
