@@ -17,6 +17,7 @@ from araxys.core.config import (
     LogShippingConfig,
     MetricsConfig,
     QueryAuditConfig,
+    QueryValidationConfig,
     RateLimitConfig,
     RedisPoolConfig,
     SanitizeConfig,
@@ -497,6 +498,22 @@ class TestNewConfigsInAraxysConfig:
         assert c.audit.pii_fields == ["email"]
 
 
+class TestQueryValidationConfig:
+    """QueryValidationConfig for query parameterization enforcement (v0.7)."""
+
+    def test_default_mode_is_warn(self) -> None:
+        c = QueryValidationConfig()
+        assert c.mode == "warn"
+
+    def test_custom_mode_block(self) -> None:
+        c = QueryValidationConfig(mode="block")
+        assert c.mode == "block"
+
+    def test_invalid_mode_raises(self) -> None:
+        with pytest.raises(Exception, match="mode"):
+            QueryValidationConfig(mode="invalid")  # type: ignore[arg-type]
+
+
 class TestDatabaseSecurityConfig:
     """DatabaseSecurityConfig and nested sub-configs (v0.5 db_security)."""
 
@@ -541,6 +558,26 @@ class TestDatabaseSecurityConfig:
         assert c.redis_pool.url == "redis://localhost:6379"
         assert c.tls.min_tls_version == "TLSv1.2"
         assert c.query_audit.slow_query_threshold_ms == 100
+
+    def test_database_security_config_has_query_validation(self) -> None:
+        """DatabaseSecurityConfig has query_validation with default_factory."""
+        c = DatabaseSecurityConfig()
+        assert c.query_validation is not None
+        assert isinstance(c.query_validation, QueryValidationConfig)
+        assert c.query_validation.mode == "warn"
+
+    def test_database_security_config_query_validation_explicit(self) -> None:
+        """query_validation can be overridden."""
+        c = DatabaseSecurityConfig(
+            query_validation={"mode": "block"},  # type: ignore[arg-type]
+        )
+        assert c.query_validation is not None
+        assert c.query_validation.mode == "block"
+
+    def test_database_security_config_query_validation_none(self) -> None:
+        """query_validation can be set to None."""
+        c = DatabaseSecurityConfig(query_validation=None)
+        assert c.query_validation is None
 
     def test_database_security_config_custom(self) -> None:
         c = DatabaseSecurityConfig(

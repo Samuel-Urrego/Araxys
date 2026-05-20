@@ -8,6 +8,8 @@ Uses Pydantic Settings for env var support:
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
@@ -579,6 +581,20 @@ class QueryAuditConfig(BaseModel):
     )
 
 
+class QueryValidationConfig(BaseModel):
+    """Configuration for SQL parameterization enforcement.
+
+    When mode is ``warn``, queries with inline literals are logged but
+    allowed.  When mode is ``block``, unparameterized queries raise
+    :exc:`araxys.core.exceptions.ValidationError`.
+    """
+
+    mode: Literal["warn", "block"] = Field(
+        default="warn",
+        description="Enforcement mode: warn (log) or block (raise)",
+    )
+
+
 class DatabaseSecurityConfig(BaseModel):
     """Configuration for the database security module.
 
@@ -591,6 +607,10 @@ class DatabaseSecurityConfig(BaseModel):
     tls: TLSConfig = Field(default_factory=TLSConfig)
     secrets: SecretsConfig = Field(default_factory=SecretsConfig)
     query_audit: QueryAuditConfig = Field(default_factory=QueryAuditConfig)
+    query_validation: QueryValidationConfig | None = Field(
+        default_factory=QueryValidationConfig,
+        description="Optional query parameterization validation config",
+    )
 
 
 class AraxysConfig(BaseSettings):
