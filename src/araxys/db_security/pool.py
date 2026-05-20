@@ -290,8 +290,6 @@ class RedisPool:
             logger.info("db_pool.reconnect_skipped")
             return
         async with self._reconnect_lock:
-            if not self._closed:
-                return
             try:
                 await self._redis.aclose()
                 self._redis = Redis.from_url(

@@ -296,7 +296,6 @@ class TestRedisPoolReconnect:
         new_client.ping = AsyncMock(return_value=True)
 
         with patch("araxys.db_security.pool.Redis.from_url", return_value=new_client):
-            p._closed = True  # Simulate closed state  # noqa: SLF001
             await p._reconnect()  # noqa: SLF001
 
         # Old client was closed
@@ -326,7 +325,6 @@ class TestRedisPoolReconnect:
             await asyncio.sleep(0.1)
 
         p._redis.aclose = slow_aclose  # type: ignore[method-assign]  # noqa: SLF001
-        p._closed = True  # noqa: SLF001
 
         new_client = MagicMock()
         new_client.ping = AsyncMock(return_value=True)
