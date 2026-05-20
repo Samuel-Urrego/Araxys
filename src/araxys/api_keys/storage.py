@@ -103,11 +103,21 @@ class RedisAPIKeyStorage:
             conn = await self._pool.acquire()
             try:
                 await conn.set(key, record.model_dump_json())
+                if record.expires_at:
+                    ttl = int(
+                        (record.expires_at - datetime.now(UTC)).total_seconds()
+                    )
+                    if ttl > 0:
+                        await conn.expire(key, ttl)
                 return
             finally:
                 await self._pool.release(conn)
         assert self._redis is not None
         await self._redis.set(key, record.model_dump_json())
+        if record.expires_at:
+            ttl = int((record.expires_at - datetime.now(UTC)).total_seconds())
+            if ttl > 0:
+                await self._redis.expire(key, ttl)
 
     async def get_by_prefix(self, prefix: str) -> APIKeyRecord | None:
         from araxys.api_keys.models import APIKeyRecord

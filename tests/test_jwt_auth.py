@@ -392,20 +392,29 @@ class TestIntrospection:
     ) -> None:
         from datetime import datetime, timedelta
 
+        import jwt as _jwt
+
         manager = JWTManager(
             config=JWTConfig(
-                access_token_ttl_minutes=1,
+                access_token_ttl_minutes=30,
             ),
             secret_key="test-secret-key-must-be-32-chars!!",
             storage=storage,
         )
-        # Create token with an already-expired exp via extra_claims
-        expired_ts = datetime.now(UTC) - timedelta(hours=1)
-        pair = await manager.create_token_pair(
-            subject="user-expired",
-            extra_claims={"exp": expired_ts},
+        # Create a genuinely expired token by signing with an exp in the past
+        now = datetime.now(UTC)
+        payload = {
+            "sub": "user-expired",
+            "token_type": "access",
+            "scopes": [],
+            "exp": now - timedelta(hours=1),
+            "iat": now - timedelta(hours=2),
+            "jti": "expired-jti-test",
+        }
+        expired_token = _jwt.encode(
+            payload, "test-secret-key-must-be-32-chars!!", algorithm="HS256"
         )
-        result = await manager.introspect_token(pair.access_token)
+        result = await manager.introspect_token(expired_token)
         assert result["active"] is False
 
     async def test_introspect_invalid_token(

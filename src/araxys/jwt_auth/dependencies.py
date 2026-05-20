@@ -23,12 +23,14 @@ Usage::
 
 from __future__ import annotations
 
+import hmac
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, HTTPException, Security, status
+from fastapi import APIRouter, HTTPException, Request, Security, status
 from fastapi.security import OAuth2PasswordBearer
 
 from araxys.core.exceptions import TokenExpired, TokenInvalid
+from araxys.jwt_auth.tokens import compute_bind_hash
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -55,6 +57,7 @@ def require_jwt(
 
     async def _dependency(
         token: str | None = Security(_oauth2_scheme),
+        request: Request | None = None,
     ) -> TokenPayload:
         if jwt_manager is None:
             raise HTTPException(
@@ -81,6 +84,23 @@ def require_jwt(
                 detail=f"Invalid token: {exc.reason}",
                 headers={"WWW-Authenticate": "Bearer"},
             ) from exc
+
+        # Check token binding (if enabled in JWT config)
+        if jwt_manager._config.token_binding and "bind" in payload.model_dump():
+            if request is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token binding requires request context",
+                )
+            client_ip = request.client.host if request.client else "unknown"
+            user_agent = request.headers.get("user-agent", "")
+            expected_bind = compute_bind_hash(client_ip, user_agent)
+            if not hmac.compare_digest(payload.model_dump().get("bind", ""), expected_bind):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token is bound to a different client",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
 
         # Check scopes
         if scopes:

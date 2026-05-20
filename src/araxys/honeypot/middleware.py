@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
 
+from araxys.core.ip import get_client_ip
+
 if TYPE_CHECKING:
     from starlette.requests import Request
 
@@ -30,16 +32,24 @@ class HoneypotMiddleware(BaseHTTPMiddleware):
         The ASGI application.
     backend:
         Shared rate-limit backend that stores ban state.
+    trusted_proxies:
+        Optional list of IPs/CIDRs of trusted reverse proxies.
     """
 
-    def __init__(self, app: Any, backend: RateLimitBackend) -> None:
+    def __init__(
+        self,
+        app: Any,
+        backend: RateLimitBackend,
+        trusted_proxies: list[str] | None = None,
+    ) -> None:
         super().__init__(app)
         self._backend = backend
+        self._trusted_proxies = trusted_proxies or []
 
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
-        ip = self._get_client_ip(request)
+        ip = get_client_ip(request, trusted_proxies=self._trusted_proxies)
 
         if await self._backend.is_banned(ip):
             return JSONResponse(
@@ -48,11 +58,3 @@ class HoneypotMiddleware(BaseHTTPMiddleware):
             )
 
         return await call_next(request)
-
-    def _get_client_ip(self, request: Request) -> str:
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        if request.client:
-            return request.client.host
-        return "unknown"

@@ -14,6 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import JSONResponse, Response
 
 from araxys.core.exceptions import RateLimitExceeded
+from araxys.core.ip import get_client_ip
 from araxys.rate_limit.identity import extract_api_key, extract_user_id
 from araxys.rate_limit.limiter import RateLimiter
 
@@ -35,6 +36,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         Rate limit storage backend.
     config:
         Rate limiting configuration.
+    trusted_proxies:
+        Optional list of IPs/CIDRs of trusted reverse proxies.
     """
 
     def __init__(
@@ -42,20 +45,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         app: Any,
         backend: RateLimitBackend,
         config: RateLimitConfig,
+        trusted_proxies: list[str] | None = None,
     ) -> None:
         super().__init__(app)
         self._limiter = RateLimiter(backend=backend, config=config)
         self._config = config
-
-    def _get_client_ip(self, request: Request) -> str:
-        """Extract the real client IP, respecting reverse proxy headers."""
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            # Take the first IP in the chain (original client)
-            return forwarded.split(",")[0].strip()
-        if request.client:
-            return request.client.host
-        return "unknown"
+        self._trusted_proxies = trusted_proxies or []
 
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
@@ -66,7 +61,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if await self._limiter.is_path_excluded(path):
             return await call_next(request)
 
-        ip = self._get_client_ip(request)
+        ip = get_client_ip(request, trusted_proxies=self._trusted_proxies)
 
         # Extract identity when per-user or per-key tracking is enabled
         # (graceful fallback to None if headers are missing)
@@ -102,3 +97,4 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             response.headers[header] = str(value)
 
         return response
+

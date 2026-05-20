@@ -1,14 +1,14 @@
 [project]
 name = "araxys"
-version = "0.7.0"
-description = "Plug & play security library for FastAPI — CORS, CSRF, IP blocking, rate limiting, honeypots, JWT (RS256/ES256), API keys, brute force, sessions, OTEL, Prometheus metrics, encrypted audit logging with async I/O, CSP headers, sanitization (NoSQL/command/path-traversal), database security (connection pooling, TLS, secrets, query audit), and SQL injection parser (sqlparse)."
+version = "0.8.0"
+description = "Plug & play security library for FastAPI — CORS (glob subdomain), CSRF (expiring tokens), IP blocking (trusted proxies), rate limiting (fixed + sliding window), honeypots (URL + passive hidden fields), JWT (RS256/ES256, token binding, leeway), API keys (sk_/pk_ prefix, last_used_at), brute force (with TTL), sessions (JWT blacklist on revoke), OTEL, Prometheus metrics (auth-protected), encrypted audit logging with hash-chain integrity + async I/O, CSP headers (structured Permissions-Policy), sanitization (NoSQL/command/path-traversal, JSON + form-urlencoded + multipart), database security (connection pooling, TLS, secrets, query audit), and SQL injection parser (sqlparse)."
 readme = "README.md"
 authors = [
     { name = "Samuel Esteban Urrego Valencia", email = "urregodev@gmail.com" },
 ]
 requires-python = ">=3.13"
 license = { text = "MIT" }
-keywords = ["fastapi", "security", "rate-limiting", "jwt", "rs256", "es256", "jwks", "middleware", "honeypot", "csp", "csrf", "audit-logging", "nosql-injection", "sanitization", "sql-injection", "sqlparse", "connection-pooling"]
+keywords = ["fastapi", "security", "rate-limiting", "jwt", "rs256", "es256", "jwks", "token-binding", "middleware", "honeypot", "csp", "csrf", "audit-logging", "nosql-injection", "sanitization", "sql-injection", "sqlparse", "connection-pooling", "permissions-policy"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Framework :: FastAPI",

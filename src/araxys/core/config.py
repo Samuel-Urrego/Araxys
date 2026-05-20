@@ -18,6 +18,14 @@ class RateLimitConfig(BaseModel):
     """Configuration for the dynamic rate limiting module."""
 
     enabled: bool = True
+    algorithm: Literal["fixed", "sliding"] = Field(
+        default="fixed",
+        description=(
+            "Rate limiting algorithm. 'fixed' uses simple window counters; "
+            "'sliding' uses a weighted previous-window approximation that "
+            "prevents 2x bursts at window boundaries."
+        ),
+    )
     window_seconds: int = Field(
         default=60, ge=1, description="Sliding window size in seconds"
     )
@@ -113,6 +121,52 @@ class JWTConfig(BaseModel):
         default=False,
         description="Enable JWKS endpoint generation from public key",
     )
+    leeway_seconds: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Clock skew tolerance in seconds for exp/iat/nbf validation. "
+            "A value of 5-30 prevents rejecting tokens due to minor clock "
+            "differences between servers."
+        ),
+    )
+    token_binding: bool = Field(
+        default=False,
+        description=(
+            "When enabled, access tokens are bound to the client's IP and "
+            "User-Agent.  A stolen token cannot be used from a different "
+            "IP or browser.  Enabling this prevents token-theft account "
+            "takeover but may cause issues behind rotating proxies."
+        ),
+    )
+
+
+class PermissionsPolicyConfig(BaseModel):
+    """Structured configuration for the ``Permissions-Policy`` header.
+
+    Each directive accepts ``"*"`` (all origins), ``"self"`` (same origin),
+    ``"none"`` (disabled), or a space-separated list of origins.
+    ``None`` means the directive is not included in the header.
+    """
+
+    camera: str | None = Field(default=None, description="camera directive")
+    microphone: str | None = Field(default=None, description="microphone directive")
+    geolocation: str | None = Field(default=None, description="geolocation directive")
+    interest_cohort: str | None = Field(
+        default=None, description="interest-cohort (FLoC) directive"
+    )
+    usb: str | None = Field(default=None, description="usb directive")
+    bluetooth: str | None = Field(default=None, description="bluetooth directive")
+    payment: str | None = Field(default=None, description="payment directive")
+    accelerometer: str | None = Field(default=None, description="accelerometer directive")
+    gyroscope: str | None = Field(default=None, description="gyroscope directive")
+    magnetometer: str | None = Field(default=None, description="magnetometer directive")
+    midi: str | None = Field(default=None, description="midi directive")
+    autoplay: str | None = Field(default=None, description="autoplay directive")
+    fullscreen: str | None = Field(default=None, description="fullscreen directive")
+    picture_in_picture: str | None = Field(
+        default=None, description="picture-in-picture directive"
+    )
 
 
 class SecureHeadersConfig(BaseModel):
@@ -157,6 +211,13 @@ class SecureHeadersConfig(BaseModel):
         default=None,
         description="Structured CSP directive config for building the CSP header",
     )
+    permissions_policy_directives: PermissionsPolicyConfig | None = Field(
+        default=None,
+        description=(
+            "Structured Permissions-Policy configuration. "
+            "Takes precedence over the raw ``permissions_policy`` string."
+        ),
+    )
 
 
 class SanitizeConfig(BaseModel):
@@ -181,12 +242,12 @@ class SanitizeConfig(BaseModel):
         description="Paths excluded from sanitization (e.g. file upload endpoints)",
     )
     scan_query_params: bool = Field(
-        default=False,
-        description="Scan HTTP query parameters for injection patterns",
+        default=True,
+        description="Scan query parameter names and values for injection patterns",
     )
     scan_headers: bool = Field(
-        default=False,
-        description="Scan HTTP headers for injection patterns",
+        default=True,
+        description="Scan request header values for injection patterns",
     )
     check_nosql_injection: bool = Field(
         default=False,
@@ -266,6 +327,14 @@ class CSPDirectiveConfig(BaseModel):
         default=False,
         description="Add upgrade-insecure-requests directive",
     )
+    base_uri: list[str] = Field(
+        default_factory=lambda: ["'self'"],
+        description="base-uri directive — restricts <base> tag targets",
+    )
+    form_action: list[str] = Field(
+        default_factory=lambda: ["'self'"],
+        description="form-action directive — restricts form submission targets",
+    )
 
 
 class AuditConfig(BaseModel):
@@ -301,6 +370,14 @@ class AuditConfig(BaseModel):
         default=None,
         description="Optional log shipping configuration",
     )
+    chain_integrity: bool = Field(
+        default=True,
+        description=(
+            "Enable hash-chain integrity verification.  Each entry is "
+            "linked to the previous one via SHA-256, making tampering "
+            "(deletion or modification) detectable via verify_integrity()."
+        ),
+    )
 
 
 class CORSConfig(BaseModel):
@@ -328,8 +405,15 @@ class CORSConfig(BaseModel):
     )
     max_age: int = Field(
         default=600,
-        ge=0,
         description="Preflight cache duration in seconds",
+    )
+    deny_null_origin: bool = Field(
+        default=True,
+        description=(
+            "Reject requests with Origin: null.  Null origins come from "
+            "file:// URLs, sandboxed iframes, and data: URIs — they cannot "
+            "be trusted and should normally be denied."
+        ),
     )
 
 
@@ -377,6 +461,14 @@ class BruteForceConfig(BaseModel):
         default=False,
         description="Check password against HaveIBeenPwned API",
     )
+    attempt_ttl_seconds: int = Field(
+        default=3600,
+        ge=60,
+        description=(
+            "How long attempt counters live before expiring. "
+            "Prevents stale counters from persisting indefinitely."
+        ),
+    )
 
 
 class CSRFConfig(BaseModel):
@@ -403,7 +495,7 @@ class CSRFConfig(BaseModel):
 
 
 class SessionConfig(BaseModel):
-    """Configuration for session management."""
+    """Configuration for server-side session management."""
 
     enabled: bool = False
     max_concurrent_per_user: int = Field(
@@ -459,6 +551,14 @@ class MetricsConfig(BaseModel):
     path: str = Field(
         default="/metrics",
         description="Path for the Prometheus metrics endpoint",
+    )
+    auth_token: str | None = Field(
+        default=None,
+        description=(
+            "Optional bearer token to protect the /metrics endpoint. "
+            "When set, requests must include ?token=... or "
+            "Authorization: Bearer ..."
+        ),
     )
 
 
@@ -634,6 +734,15 @@ class AraxysConfig(BaseSettings):
     redis_url: str | None = Field(
         default=None,
         description="Redis connection URL. If None, in-memory backends are used.",
+    )
+    trusted_proxies: list[str] = Field(
+        default_factory=list,
+        description=(
+            "IP addresses or CIDR ranges of trusted reverse proxies. "
+            "X-Forwarded-For is only honoured when the direct client IP "
+            "belongs to one of these ranges. Leave empty to NEVER trust "
+            "X-Forwarded-For (secure default)."
+        ),
     )
 
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)

@@ -6,12 +6,14 @@ these routes, its IP is automatically banned across the entire system.
 
 from __future__ import annotations
 
+import json
 import typing
 
 import structlog
 from fastapi import FastAPI, Request  # noqa: TC002
 from starlette.responses import JSONResponse
 
+from araxys.core.ip import get_client_ip
 from araxys.core.types import AuditEntry, AuditEventType
 
 if typing.TYPE_CHECKING:
@@ -32,6 +34,8 @@ class HoneypotTrap:
         Honeypot configuration.
     on_audit:
         Optional callback to emit audit events.
+    trusted_proxies:
+        Optional list of IPs/CIDRs of trusted reverse proxies.
     """
 
     def __init__(
@@ -39,10 +43,12 @@ class HoneypotTrap:
         backend: RateLimitBackend,
         config: HoneypotConfig,
         on_audit: typing.Callable | None = None,  # type: ignore
+        trusted_proxies: list[str] | None = None,
     ) -> None:
         self._backend = backend
         self._config = config
         self._on_audit = on_audit
+        self._trusted_proxies = trusted_proxies or []
 
     def register_routes(self, app: FastAPI) -> None:
         """Register all honeypot trap routes on the FastAPI app."""
@@ -72,7 +78,7 @@ class HoneypotTrap:
         2. Emit an audit event
         3. Return a fake response to avoid alerting the bot
         """
-        ip = self._get_client_ip(request)
+        ip = get_client_ip(request, trusted_proxies=self._trusted_proxies)
 
         # Ban the IP
         await self._backend.ban(ip, self._config.ban_duration_seconds)
@@ -95,10 +101,66 @@ class HoneypotTrap:
             content={"status": "ok"},
         )
 
-    def _get_client_ip(self, request: Request) -> str:
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        if request.client:
-            return request.client.host
-        return "unknown"
+    # ── Passive Honeypot (hidden form fields) ──────────────────────────
+
+    @staticmethod
+    def render_hidden_field(field_name: str = "_email") -> str:
+        """Return an HTML hidden form field that bots auto-fill.
+
+        Place this inside your login/registration forms.  Legitimate
+        users never see or fill this field (CSS-hidden), but bots
+        scanning for ``type="email"`` or ``name="email"`` will populate
+        it.  When the form is submitted, call ``check_hidden_field()``
+        to detect the bot.
+
+        Usage::
+
+            <form method="post">
+                {{ honeypot.render_hidden_field() | safe }}
+                ...
+            </form>
+        """
+        return (
+            f'<div style="position:absolute;left:-9999px;" aria-hidden="true">'
+            f'<input type="email" name="{field_name}" tabindex="-1" '
+            f'autocomplete="off" value="" />'
+            f"</div>"
+        )
+
+    @staticmethod
+    async def check_hidden_field(
+        request: Request,
+        field_name: str = "_email",
+    ) -> bool:
+        """Return ``True`` if the hidden honeypot field was filled.
+
+        Call this in your form handler.  A filled field means a bot
+        submitted the form — ban the IP and reject the request.
+
+        Usage::
+
+            if await HoneypotTrap.check_hidden_field(request):
+                raise HTTPException(403, "Bot detected")
+        """
+        try:
+            body = await request.body()
+        except Exception:
+            return False
+
+        # Check form-urlencoded
+        content_type = request.headers.get("content-type", "")
+        if "application/x-www-form-urlencoded" in content_type:
+            from urllib.parse import parse_qs
+            parsed = parse_qs(body.decode("utf-8", errors="replace"))
+            return field_name in parsed and bool(parsed[field_name][0])
+
+        # Check JSON
+        if "application/json" in content_type:
+            try:
+                data = json.loads(body)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return False
+            if isinstance(data, dict):
+                return field_name in data and bool(data[field_name])
+
+        return False

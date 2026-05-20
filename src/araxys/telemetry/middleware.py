@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
+from araxys.core.ip import get_client_ip
+
 if TYPE_CHECKING:
     from starlette.requests import Request
     from starlette.responses import Response
@@ -31,6 +33,8 @@ class TelemetryMiddleware(BaseHTTPMiddleware):
     tracer:
         An ``AraxysTracer`` instance. If ``None``, a default one is
         created from config.
+    trusted_proxies:
+        Optional list of IPs/CIDRs of trusted reverse proxies.
     """
 
     def __init__(
@@ -38,12 +42,14 @@ class TelemetryMiddleware(BaseHTTPMiddleware):
         app: Any,
         config: TelemetryConfig,
         tracer: AraxysTracer | None = None,
+        trusted_proxies: list[str] | None = None,
     ) -> None:
         super().__init__(app)
         self._config = config
         from araxys.telemetry.tracer import AraxysTracer
 
         self._tracer = tracer or AraxysTracer(config)
+        self._trusted_proxies = trusted_proxies or []
 
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
@@ -51,10 +57,7 @@ class TelemetryMiddleware(BaseHTTPMiddleware):
         if not self._config.enabled:
             return await call_next(request)
 
-        client_ip = request.client.host if request.client else "unknown"
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            client_ip = forwarded.split(",")[0].strip()
+        client_ip = get_client_ip(request, trusted_proxies=self._trusted_proxies)
 
         async with self._tracer.span(
             "http.request",

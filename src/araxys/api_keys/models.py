@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -31,9 +32,17 @@ class APIKeyRecord(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     owner: str = Field(description="Owner identifier for the key")
     is_active: bool = Field(default=True)
+    last_used_at: datetime | None = Field(
+        default=None,
+        description="Timestamp of last successful verification",
+    )
     label: str | None = Field(
         default=None,
         description="Optional human-readable label for the key",
+    )
+    key_type: Literal["secret", "public"] = Field(
+        default="secret",
+        description="Key type — secret keys have full access, public keys are read-only",
     )
 
 
@@ -47,6 +56,10 @@ class APIKeyResponse(BaseModel):
         description="The full API key — store it securely, shown only once"
     )
     prefix: str = Field(description="Key prefix for future reference")
+    key_type: Literal["secret", "public"] = Field(
+        default="secret",
+        description="Type of the key",
+    )
     scopes: list[Scope]
     expires_at: datetime | None
     owner: str

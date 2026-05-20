@@ -8,6 +8,8 @@ written, ensuring that sensitive data at rest is protected.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 from dataclasses import asdict
 from datetime import datetime
@@ -68,6 +70,11 @@ class AuditLogger:
 
             self._shipper = LogShipper(config.log_shipping)
 
+        # Integrity chain — each entry links to the previous one so
+        # tampering (deletion or modification) is detectable.
+        self._chain_hash: str | None = None
+        self._chain_enabled: bool = config.chain_integrity
+
     async def log(self, entry: AuditEntry) -> None:
         """Log an audit entry.
 
@@ -100,6 +107,14 @@ class AuditLogger:
         if self._config.pii_fields:
             data = mask_pii(data, self._config.pii_fields)
 
+        # Integrity chain — link to previous entry
+        if self._chain_enabled:
+            chain_entry = self._compute_chain(data)
+            data = chain_entry
+        else:
+            # Keep the serialized data as-is for backward compat
+            pass
+
         # Write to file via LogWriter (sync / async with rotation)
         if self._writer is not None:
             if self._encryption:
@@ -112,15 +127,69 @@ class AuditLogger:
         if self._shipper is not None:
             await self._shipper.ship(data)
 
+    def _compute_chain(self, data: dict) -> dict:
+        """Link the current entry to the previous one via a hash chain.
+
+        Returns *data* with added ``_chain`` (SHA-256 of prev+current)
+        and ``_prev`` (previous chain hash) fields.
+        """
+        prev = self._chain_hash or "0" * 64  # genesis block
+        serialized = json.dumps(data, sort_keys=True, default=str).encode("utf-8")
+        chain = hashlib.sha256(prev.encode() + serialized).hexdigest()
+        self._chain_hash = chain
+        return {"_chain": chain, "_prev": prev, **data}
+
+    def verify_integrity(self) -> dict:
+        """Verify the integrity chain of all written audit entries.
+
+        Returns a dict with ``valid`` (bool), ``entry_count`` (int),
+        and ``violations`` (list of line numbers) if any.
+        """
+        if not self._log_file or not self._log_file.exists():
+            return {"valid": True, "entry_count": 0, "violations": []}
+
+        entries = self._read_raw_entries()
+        violations: list[int] = []
+        expected_prev = "0" * 64
+
+        for i, entry in enumerate(entries):
+            chain = entry.get("_chain")
+            prev = entry.get("_prev", "")
+            if not chain:
+                violations.append(i + 1)
+                continue
+            if prev != expected_prev:
+                violations.append(i + 1)
+            # Recompute to verify
+            entry_copy = {k: v for k, v in entry.items() if k not in ("_chain", "_prev")}
+            serialized = json.dumps(entry_copy, sort_keys=True, default=str).encode("utf-8")
+            computed = hashlib.sha256(prev.encode() + serialized).hexdigest()
+            if not hmac.compare_digest(computed, chain):
+                violations.append(i + 1)
+            expected_prev = chain
+
+        return {
+            "valid": len(violations) == 0,
+            "entry_count": len(entries),
+            "violations": violations,
+        }
+
     def read_entries(self) -> list[dict]:  # type: ignore
         """Read and decrypt all entries from the audit log file.
 
-        Returns a list of dicts, one per logged entry.
+        Returns a list of dicts (chain metadata stripped), one per entry.
         """
+        return [
+            {k: v for k, v in entry.items() if k not in ("_chain", "_prev")}
+            for entry in self._read_raw_entries()
+        ]
+
+    def _read_raw_entries(self) -> list[dict]:
+        """Read all entries from the audit log, including chain metadata."""
         if not self._log_file or not self._log_file.exists():
             return []
 
-        entries = []
+        entries: list[dict] = []
         with self._log_file.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()

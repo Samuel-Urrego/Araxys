@@ -6,6 +6,7 @@ requests are denied.
 
 from __future__ import annotations
 
+import fnmatch
 from typing import TYPE_CHECKING, Any
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -45,6 +46,14 @@ class CORSMiddleware(BaseHTTPMiddleware):
         if origin is None:
             return await call_next(request)
 
+        # Reject null origins when configured (secure default).
+        # Null origins come from file://, sandboxed iframes, data: URIs.
+        if origin == "null" and self._config.deny_null_origin:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Origin 'null' is not allowed"},
+            )
+
         # Match origin against allowlist
         matched_origin = self._match_origin(origin)
         if matched_origin is None:
@@ -67,6 +76,9 @@ class CORSMiddleware(BaseHTTPMiddleware):
 
         Returns the origin value to echo back in the ACAO header,
         or ``None`` if the origin is not allowed.
+
+        Supports exact matches, ``"*"`` wildcard, and glob patterns
+        like ``"*.example.com"`` or ``"https://*.example.com"``.
         """
         allow_origins = self._config.allow_origins
         if not allow_origins:
@@ -75,6 +87,10 @@ class CORSMiddleware(BaseHTTPMiddleware):
             return "*"
         if origin in allow_origins:
             return origin
+        # Glob/subdomain matching: "*.example.com" matches "app.example.com"
+        for allowed in allow_origins:
+            if fnmatch.fnmatch(origin, allowed):
+                return origin
         return None
 
     def _build_preflight_response(self, matched_origin: str) -> Response:

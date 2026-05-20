@@ -154,7 +154,9 @@ class AraxysShield:
         self._webhook_delivery: WebhookDelivery | None = None
         if config.webhooks is not None and config.webhooks.enabled:
             assert self.event_bus is not None
-            self._webhook_delivery = WebhookDelivery(config.webhooks, self.event_bus)
+            self._webhook_delivery = WebhookDelivery(
+                config.webhooks, self.event_bus, config.secret_key
+            )
 
         # Metrics registry (subscribes to event bus, mounts /metrics)
         self._metrics_registry: MetricsRegistry | None = None
@@ -182,6 +184,9 @@ class AraxysShield:
                 config=config.session,
                 backend=session_backend,
                 event_bus=self.event_bus,
+                jti_blacklist=self._token_storage.blacklist_jti
+                if self._token_storage is not None
+                else None,
             )
             import asyncio
 
@@ -302,12 +307,17 @@ class AraxysShield:
         if not config.honeypot.enabled:
             return
         # Register the IP-ban check middleware
-        app.add_middleware(HoneypotMiddleware, backend=self._rate_backend)
+        app.add_middleware(
+            HoneypotMiddleware,
+            backend=self._rate_backend,
+            trusted_proxies=config.trusted_proxies,
+        )
         # Register the trap routes
         trap = HoneypotTrap(
             backend=self._rate_backend,
             config=config.honeypot,
             on_audit=self._emit_audit,
+            trusted_proxies=config.trusted_proxies,
         )
         trap.register_routes(app)
 
@@ -318,6 +328,7 @@ class AraxysShield:
             RateLimitMiddleware,
             backend=self._rate_backend,
             config=config.rate_limit,
+            trusted_proxies=config.trusted_proxies,
         )
 
     def _register_sanitize(self, app: FastAPI, config: AraxysConfig) -> None:
@@ -343,6 +354,7 @@ class AraxysShield:
             TelemetryMiddleware,
             config=config.telemetry,
             tracer=self._tracer,
+            trusted_proxies=config.trusted_proxies,
         )
 
     def _register_ip_access(self, app: FastAPI, config: AraxysConfig) -> None:
@@ -351,7 +363,10 @@ class AraxysShield:
             return
         backend = self._create_ip_backend(config)
         app.add_middleware(
-            IPAccessMiddleware, config=config.ip_control, backend=backend
+            IPAccessMiddleware,
+            config=config.ip_control,
+            backend=backend,
+            trusted_proxies=config.trusted_proxies,
         )
 
     def _register_brute_force(self, app: FastAPI, config: AraxysConfig) -> None:
@@ -393,20 +408,21 @@ class AraxysShield:
         self, config: AraxysConfig
     ) -> InMemoryBruteForceBackend | RedisBruteForceBackend:
         """Create the brute force backend based on config."""
+        bf_config = config.brute_force
+        attempt_ttl = bf_config.attempt_ttl_seconds if bf_config else 3600
         if self._db_security is not None:
             redis = self._db_security.pool.get_redis_client()
-            return RedisBruteForceBackend(redis)
-        if config.brute_force is None:
-            return InMemoryBruteForceBackend()
-        # BruteForceConfig does not have its own redis_url — use top-level
+            return RedisBruteForceBackend(redis, attempt_ttl_seconds=attempt_ttl)
+        if bf_config is None:
+            return InMemoryBruteForceBackend(attempt_ttl_seconds=attempt_ttl)
         if config.redis_url:
             logger.info("araxys.using_redis_bf_backend", url=config.redis_url)
             from redis.asyncio import from_url
 
             redis = from_url(config.redis_url, decode_responses=True)
-            return RedisBruteForceBackend(redis)
+            return RedisBruteForceBackend(redis, attempt_ttl_seconds=attempt_ttl)
         logger.info("araxys.using_inmemory_bf_backend")
-        return InMemoryBruteForceBackend()
+        return InMemoryBruteForceBackend(attempt_ttl_seconds=attempt_ttl)
 
     def _create_session_backend(
         self, config: AraxysConfig

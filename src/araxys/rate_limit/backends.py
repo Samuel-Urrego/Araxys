@@ -64,6 +64,8 @@ class InMemoryBackend:
     def __init__(self) -> None:
         # key -> (count, window_start)
         self._counters: dict[str, tuple[int, float]] = {}
+        # key -> previous window's final count (for sliding window)
+        self._prev_counts: dict[str, int] = {}
         self._window_sizes: dict[str, int] = {}
         # ip -> ban_expires_at (unix timestamp)
         self._bans: dict[str, float] = {}
@@ -77,7 +79,8 @@ class InMemoryBackend:
         if key in self._counters:
             count, window_start = self._counters[key]
             if now - window_start >= window_seconds:
-                # Window expired — reset
+                # Window expired — save previous count and reset
+                self._prev_counts[key] = count
                 self._counters[key] = (1, now)
                 return 1
             new_count = count + 1
@@ -93,9 +96,29 @@ class InMemoryBackend:
         count, window_start = self._counters[key]
         window = self._window_sizes.get(key, 60)
         if time.monotonic() - window_start >= window:
+            self._prev_counts[key] = count
             del self._counters[key]
             return 0
         return count
+
+    async def get_sliding_count(self, key: str) -> float:
+        """Return the sliding-window count: current + previous*(1 - elapsed/window).
+
+        This prevents the 2x burst that fixed windows allow at boundaries.
+        """
+        if key not in self._counters:
+            return 0.0
+        count, window_start = self._counters[key]
+        window = self._window_sizes.get(key, 60)
+        elapsed = time.monotonic() - window_start
+        if elapsed >= window:
+            self._prev_counts[key] = count
+            del self._counters[key]
+            return 0.0
+
+        prev = self._prev_counts.get(key, 0)
+        weight = 1.0 - (elapsed / window)
+        return count + prev * weight
 
     async def ban(self, ip: str, duration_seconds: int) -> None:
         self._bans[ip] = time.monotonic() + duration_seconds

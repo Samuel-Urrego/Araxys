@@ -195,6 +195,8 @@ def _make_config(**kwargs: object) -> IPControlConfig:
 def _make_app(
     config: IPControlConfig | None = None,
     backend: IPAccessBackend | None = None,
+    *,
+    trusted_proxies: list[str] | None = None,
 ) -> FastAPI:
     """Create a FastAPI app with IPAccessMiddleware."""
     from araxys.ip_access.backends import InMemoryIPAccessBackend
@@ -211,7 +213,12 @@ def _make_app(
         allowlist=set(cfg.allowlist),
         blocklist=set(cfg.blocklist),
     )
-    app.add_middleware(IPAccessMiddleware, config=cfg, backend=bk)
+    # By default, trust the test client so X-Forwarded-For tests work.
+    # ASGITransport sets request.client to ("127.0.0.1", ...).
+    proxies = trusted_proxies if trusted_proxies is not None else ["127.0.0.1"]
+    app.add_middleware(
+        IPAccessMiddleware, config=cfg, backend=bk, trusted_proxies=proxies
+    )
 
     return app
 
@@ -442,3 +449,55 @@ class TestIPAccessSecurityEvents:
 
         await bus.stop()
         mw_mod._event_bus = None  # noqa: SLF001
+
+
+class TestTrustedProxies:
+    """Verify that X-Forwarded-For is only trusted from known proxies."""
+
+    async def test_x_forwarded_for_ignored_when_no_trusted_proxies(self) -> None:
+        """Without trusted proxies, X-Forwarded-For is ignored (secure default)."""
+        # Pass trusted_proxies=[] — X-Forwarded-For must NOT be used.
+        app = _make_app(
+            config=_make_config(mode="block", blocklist=["10.0.0.0/8"]),
+            trusted_proxies=[],
+        )
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # Attacker spoofs X-Forwarded-For with a blocked IP,
+            # but since the proxy is untrusted, the real client IP
+            # (127.0.0.1) is used instead — and 127.0.0.1 is NOT blocked.
+            response = await client.get(
+                "/hello",
+                headers={"X-Forwarded-For": "10.1.2.3"},
+            )
+            # Should pass because 127.0.0.1 is not in the blocklist.
+            assert response.status_code == 200
+
+    async def test_x_forwarded_for_trusted_from_known_proxy(self) -> None:
+        """When the direct client is a trusted proxy, X-Forwarded-For IS used."""
+        app = _make_app(
+            config=_make_config(mode="block", blocklist=["10.0.0.0/8"]),
+            trusted_proxies=["127.0.0.1"],
+        )
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/hello",
+                headers={"X-Forwarded-For": "10.1.2.3"},
+            )
+            # The spoofed IP is used because 127.0.0.1 is trusted.
+            assert response.status_code == 403
+
+    async def test_x_forwarded_for_cidr_trusted(self) -> None:
+        """CIDR notation works for trusted proxy ranges."""
+        app = _make_app(
+            config=_make_config(mode="block", blocklist=["10.0.0.0/8"]),
+            trusted_proxies=["127.0.0.0/8"],
+        )
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/hello",
+                headers={"X-Forwarded-For": "10.1.2.3"},
+            )
+            assert response.status_code == 403

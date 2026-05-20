@@ -150,10 +150,47 @@ class TestRateLimiter:
 # ── 3.1 Identity Extraction Tests ─────────────────────────────────────────────
 
 class TestIdentityExtraction:
-    def test_extract_user_id_from_bearer_token(self) -> None:
+    def test_extract_user_id_returns_stable_hash(self) -> None:
+        """extract_user_id returns a 16-char hex hash of the raw Bearer token."""
         token = _make_jwt_token({"sub": "user-123", "role": "admin"})
         request = _make_request({"authorization": f"Bearer {token}"})
-        assert extract_user_id(request) == "user-123"
+        result = extract_user_id(request)
+        assert isinstance(result, str)
+        assert len(result) == 16
+        assert all(c in "0123456789abcdef" for c in result)
+
+    def test_extract_user_id_same_token_same_hash(self) -> None:
+        """The same raw token always maps to the same identifier."""
+        token = _make_jwt_token({"sub": "user-123"})
+        r1 = _make_request({"authorization": f"Bearer {token}"})
+        r2 = _make_request({"authorization": f"Bearer {token}"})
+        assert extract_user_id(r1) == extract_user_id(r2)
+
+    def test_extract_user_id_different_tokens_different_hash(self) -> None:
+        """Different raw tokens produce different identifiers."""
+        t1 = _make_jwt_token({"sub": "user-a"})
+        t2 = _make_jwt_token({"sub": "user-b"})
+        id1 = extract_user_id(_make_request({"authorization": f"Bearer {t1}"}))
+        id2 = extract_user_id(_make_request({"authorization": f"Bearer {t2}"}))
+        assert id1 != id2
+
+    def test_extract_user_id_attacker_cannot_spoof(self) -> None:
+        """An attacker forging a JWT with sub='victim' gets a *different*
+        identifier than the victim's real token because the raw token
+        strings differ."""
+        import jwt as _jwt
+        # Victim's real token (signed with HS256)
+        victim_token = _jwt.encode(
+            {"sub": "victim"}, key="real-secret-at-least-32-chars!!!", algorithm="HS256"
+        )
+        # Attacker's unsigned token (forges the same sub)
+        attacker_token = _jwt.encode(
+            {"sub": "victim"}, key="", algorithm="none"
+        )
+        vid = extract_user_id(_make_request({"authorization": f"Bearer {victim_token}"}))
+        aid = extract_user_id(_make_request({"authorization": f"Bearer {attacker_token}"}))
+        assert vid is not None and aid is not None
+        assert vid != aid  # different raw tokens → different IDs
 
     def test_extract_user_id_no_auth_header(self) -> None:
         request = _make_request({"content-type": "application/json"})
@@ -161,15 +198,6 @@ class TestIdentityExtraction:
 
     def test_extract_user_id_not_bearer(self) -> None:
         request = _make_request({"authorization": "Basic dGVzdDpwYXNz"})
-        assert extract_user_id(request) is None
-
-    def test_extract_user_id_invalid_token(self) -> None:
-        request = _make_request({"authorization": "Bearer not-a-valid-jwt"})
-        assert extract_user_id(request) is None
-
-    def test_extract_user_id_no_sub_claim(self) -> None:
-        token = _make_jwt_token({"role": "admin"})
-        request = _make_request({"authorization": f"Bearer {token}"})
         assert extract_user_id(request) is None
 
     def test_extract_api_key_from_header(self) -> None:

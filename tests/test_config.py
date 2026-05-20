@@ -454,8 +454,8 @@ class TestSanitizeConfig:
         assert c.enabled is True
         assert c.block_sqli is True
         assert c.strip_xss is True
-        assert c.scan_query_params is False
-        assert c.scan_headers is False
+        assert c.scan_query_params is True
+        assert c.scan_headers is True
         assert c.check_nosql_injection is False
         assert c.check_command_injection is False
         assert c.check_path_traversal is False
@@ -483,8 +483,8 @@ class TestNewConfigsInAraxysConfig:
         assert c.jwt.jwks_enabled is False
         assert c.rate_limit.per_user is False
         assert c.audit.async_write is False
-        assert c.sanitize.scan_query_params is False
-        assert c.secure_headers.coop == "same-origin"
+        assert c.sanitize.scan_query_params is True
+        assert c.sanitize.scan_headers is True
 
     def test_nested_config_provided(self) -> None:
         c = AraxysConfig(

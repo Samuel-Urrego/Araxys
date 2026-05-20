@@ -1,6 +1,7 @@
 """Tests for the webhooks event bus and delivery modules."""
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
@@ -167,7 +168,7 @@ class TestWebhookDelivery:
             timeout_seconds=5,
             queue_size=100,
         )
-        delivery = WebhookDelivery(config, bus)
+        delivery = WebhookDelivery(config, bus, secret_key="test-secret-key-at-least-32-chars!!")
         # Should have subscribed (we can check by inspecting subscribers)
         assert delivery._event_bus is bus
         assert len(bus._subscribers) == 1
@@ -189,7 +190,7 @@ class TestWebhookDelivery:
             timeout_seconds=5,
             queue_size=100,
         )
-        WebhookDelivery(config, bus)
+        WebhookDelivery(config, bus, secret_key="test-secret-key-at-least-32-chars!!")
         bus.start()
 
         event = SecurityEvent(
@@ -205,13 +206,19 @@ class TestWebhookDelivery:
         assert call is not None
         # call[0] = positional args tuple, call[1] = keyword args dict
         assert call[0][0] == "https://hooks.example.com/rl"
-        # Verify JSON payload structure
-        json_payload = call[1].get("json", {})
-        assert json_payload["event_type"] == "rate_limit_exceeded"
-        assert json_payload["severity"] == "warning"
-        assert json_payload["message"] == "rate limit hit"
-        assert "timestamp" in json_payload
-        assert json_payload["metadata"] == {}
+        # Payload is now sent as raw bytes with content= + HMAC headers
+        raw_body = call[1].get("content", b"{}")
+        headers = call[1].get("headers", {})
+        payload = json.loads(raw_body)
+        assert payload["event_type"] == "rate_limit_exceeded"
+        assert payload["severity"] == "warning"
+        assert payload["message"] == "rate limit hit"
+        assert "timestamp" in payload
+        assert payload["metadata"] == {}
+        # Verify HMAC signature is present
+        assert "X-Signature-256" in headers
+        assert headers["X-Signature-256"].startswith("sha256=")
+        assert "X-Webhook-Timestamp" in headers
 
         await bus.stop()
 
@@ -237,7 +244,7 @@ class TestWebhookDelivery:
             timeout_seconds=5,
             queue_size=100,
         )
-        WebhookDelivery(config, bus)
+        WebhookDelivery(config, bus, secret_key="test-secret-key-at-least-32-chars!!")
         bus.start()
 
         event = SecurityEvent(
@@ -268,7 +275,7 @@ class TestWebhookDelivery:
             timeout_seconds=5,
             queue_size=100,
         )
-        WebhookDelivery(config, bus)
+        WebhookDelivery(config, bus, secret_key="test-secret-key-at-least-32-chars!!")
         bus.start()
 
         event = SecurityEvent(

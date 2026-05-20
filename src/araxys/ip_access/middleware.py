@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
 
+from araxys.core.ip import get_client_ip
 from araxys.core.types import SecurityEvent, SecurityEventType
 
 if TYPE_CHECKING:
@@ -44,6 +45,10 @@ class IPAccessMiddleware(BaseHTTPMiddleware):
     backend:
         Backend for rule storage (default: InMemoryIPAccessBackend
         seeded from config).
+    trusted_proxies:
+        Optional list of IPs/CIDRs of trusted reverse proxies.
+        When set, ``X-Forwarded-For`` is only honoured when the
+        direct client belongs to a trusted range.
     """
 
     def __init__(
@@ -51,24 +56,17 @@ class IPAccessMiddleware(BaseHTTPMiddleware):
         app: Any,
         config: IPControlConfig,
         backend: IPAccessBackend,
+        trusted_proxies: list[str] | None = None,
     ) -> None:
         super().__init__(app)
         self._config = config
         self._backend = backend
-
-    def _get_client_ip(self, request: Request) -> str:
-        """Extract the real client IP, respecting reverse proxy headers."""
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        if request.client:
-            return request.client.host
-        return "unknown"
+        self._trusted_proxies = trusted_proxies or []
 
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
-        ip = self._get_client_ip(request)
+        ip = get_client_ip(request, trusted_proxies=self._trusted_proxies)
         mode = self._config.mode
 
         if mode == "allow":

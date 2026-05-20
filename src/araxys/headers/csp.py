@@ -27,6 +27,7 @@ _DIRECTIVE_MAP: dict[str, str] = {
     "media_src": "media-src",
     "object_src": "object-src",
     "frame_src": "frame-src",
+    "base_uri": "base-uri",
     "form_action": "form-action",
     "report_uri": "report-uri",
 }

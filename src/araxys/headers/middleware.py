@@ -18,7 +18,29 @@ if TYPE_CHECKING:
     from starlette.requests import Request
     from starlette.responses import Response
 
-    from araxys.core.config import SecureHeadersConfig
+    from araxys.core.config import PermissionsPolicyConfig, SecureHeadersConfig
+
+
+def _build_permissions_policy(config: PermissionsPolicyConfig) -> str:
+    """Build a ``Permissions-Policy`` header from structured config.
+
+    Each directive with a non-``None`` value becomes a directive in
+    the header: ``camera=(), microphone=self``, etc.
+    """
+    directives: list[str] = []
+    for field_name in config.model_fields:
+        value = getattr(config, field_name)
+        if value is None:
+            continue
+        # Convert snake_case field name to kebab-case directive name
+        directive = field_name.replace("_", "-")
+        if value == "none":
+            directives.append(f"{directive}=()")
+        elif value == "*":
+            directives.append(f"{directive}=*")
+        else:
+            directives.append(f"{directive}={value}")
+    return ", ".join(directives)
 
 
 class SecureHeadersMiddleware(BaseHTTPMiddleware):
@@ -84,8 +106,12 @@ class SecureHeadersMiddleware(BaseHTTPMiddleware):
         elif config.content_security_policy:
             headers["Content-Security-Policy"] = config.content_security_policy
 
-        # Permissions Policy
-        if config.permissions_policy:
+        # Permissions Policy — structured directives take precedence over raw
+        if config.permissions_policy_directives is not None:
+            headers["Permissions-Policy"] = _build_permissions_policy(
+                config.permissions_policy_directives
+            )
+        elif config.permissions_policy:
             headers["Permissions-Policy"] = config.permissions_policy
 
         # Cross-Origin-Opener-Policy (COOP)

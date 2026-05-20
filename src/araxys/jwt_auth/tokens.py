@@ -9,6 +9,7 @@ Implements the full OAuth2 access + refresh token flow with:
 
 from __future__ import annotations
 
+import hashlib
 import typing
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -26,6 +27,18 @@ if typing.TYPE_CHECKING:
     from araxys.jwt_auth.storage import JWKSStore, TokenStorage
 
 logger = structlog.get_logger("araxys.jwt")
+
+
+def compute_bind_hash(ip: str, user_agent: str) -> str:
+    """Compute a client fingerprint for token binding.
+
+    Returns the first 16 hex chars of ``SHA-256(ip + user_agent_prefix)``.
+    Embed this in the ``bind`` JWT claim to prevent token theft — a
+    stolen token cannot be used from a different IP or browser.
+    """
+    ua_fragment = user_agent[:128] if user_agent else ""
+    raw = f"{ip}|{ua_fragment}".encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:16]
 
 
 class TokenPair(BaseModel):
@@ -157,6 +170,20 @@ class JWTManager:
         if self._config.audience:
             payload["aud"] = self._config.audience
         if extra_claims:
+            # Forbid overriding built-in claims — an attacker who controls
+            # extra_claims could otherwise extend the token lifetime or
+            # change the token type.
+            protected = {"sub", "token_type", "scopes", "exp", "iat", "jti"}
+            if self._config.issuer:
+                protected.add("iss")
+            if self._config.audience:
+                protected.add("aud")
+            forbidden = set(extra_claims) & protected
+            if forbidden:
+                raise ValueError(
+                    f"extra_claims must not override built-in claims: "
+                    f"{', '.join(sorted(forbidden))}"
+                )
             payload.update(extra_claims)
 
         signing_key = self._get_signing_key()
@@ -168,6 +195,8 @@ class JWTManager:
         subject: str,
         scopes: list[Scope] | None = None,
         extra_claims: dict[str, Any] | None = None,
+        bind_ip: str | None = None,
+        bind_user_agent: str | None = None,
     ) -> TokenPair:
         """Generate an access + refresh token pair.
 
@@ -179,9 +208,23 @@ class JWTManager:
             Permissions embedded in the access token.
         extra_claims:
             Additional claims to include in the access token.
+        bind_ip:
+            Client IP address for token binding.  Only used when
+            ``token_binding`` is enabled in config.
+        bind_user_agent:
+            Client User-Agent for token binding.
         """
         access_ttl = timedelta(minutes=self._config.access_token_ttl_minutes)
         refresh_ttl = timedelta(days=self._config.refresh_token_ttl_days)
+
+        # Compute token binding hash if enabled
+        if self._config.token_binding and bind_ip:
+            bind_hash = compute_bind_hash(
+                bind_ip, bind_user_agent or ""
+            )
+            if extra_claims is None:
+                extra_claims = {}
+            extra_claims = {**extra_claims, "bind": bind_hash}
 
         access_token, _ = self._create_token(
             subject, "access", access_ttl, scopes, extra_claims
@@ -214,19 +257,20 @@ class JWTManager:
             If the token is malformed, has wrong type, or invalid signature.
         """
         try:
-            algorithm_hint = self._config.algorithm
-            # If JWKS is active, try all known algorithms for verification
-            if self._config.jwks_enabled and self._jwks_store is not None:
-                # Use a broader algorithm set when JWKS keys may vary
-                algorithms = ["RS256", "ES256", "HS256"]
-            else:
-                algorithms = [algorithm_hint]
+            # Only allow the configured algorithm for verification.
+            # Never pass a broad algorithm list (e.g. ["RS256", "ES256", "HS256"])
+            # because RS256/ES256 public keys are served via the JWKS endpoint and
+            # an attacker can forge HS256 tokens using a known public key as the
+            # HMAC secret — the classic JWT algorithm confusion attack.
+            algorithms = [self._config.algorithm]
 
             kwargs: dict[str, Any] = {"algorithms": algorithms}
             if self._config.audience:
                 kwargs["audience"] = self._config.audience
             if self._config.issuer:
                 kwargs["issuer"] = self._config.issuer
+            if self._config.leeway_seconds:
+                kwargs["leeway"] = self._config.leeway_seconds
 
             verification_key = self._get_verification_key()
             payload = jwt.decode(token, verification_key, **kwargs)

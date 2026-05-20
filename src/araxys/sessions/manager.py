@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import typing
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +34,11 @@ class SessionManager:
         Pluggable session storage backend.
     event_bus:
         Optional SecurityEventBus for emitting session lifecycle events.
+    jti_blacklist:
+        Optional async callback ``(jti: str, ttl_seconds: int) -> None``
+        that is invoked when a session is revoked.  Use this to blacklist
+        the associated JWT access token so that revoking a session also
+        invalidates the token.
     """
 
     def __init__(
@@ -40,10 +46,12 @@ class SessionManager:
         config: SessionConfig,
         backend: SessionBackend,
         event_bus: Any = None,
+        jti_blacklist: typing.Callable | None = None,
     ) -> None:
         self._config = config
         self._backend = backend
         self._event_bus = event_bus
+        self._jti_blacklist = jti_blacklist
         self._cleanup_task: asyncio.Task[None] | None = None
         self._cleanup_interval = config.cleanup_interval_seconds
 
@@ -86,7 +94,14 @@ class SessionManager:
         return session_id
 
     async def revoke(self, session_id: str) -> bool:
-        """Revoke a session by ID. Returns True if found and revoked."""
+        """Revoke a session by ID. Returns True if found and revoked.
+
+        If a ``jti_blacklist`` callback was provided, the session's JTI
+        is also blacklisted so the associated JWT access token is
+        invalidated.
+        """
+        # Fetch the record first to get the JTI for blacklisting
+        record = await self._backend.get_session(session_id)
         result = await self._backend.revoke_session(session_id)
         if result:
             await self._emit_event(
@@ -95,6 +110,17 @@ class SessionManager:
                 message=f"Session revoked: {session_id}",
                 metadata={"session_id": session_id},
             )
+            # Blacklist the associated JWT access token
+            if record and self._jti_blacklist:
+                import time
+                remaining = max(0, int(record.expires_at - time.time())) if record.expires_at else 3600
+                try:
+                    await self._jti_blacklist(record.jti, remaining)
+                except Exception:
+                    logger.exception(
+                        "Failed to blacklist JTI %s for session %s",
+                        record.jti, session_id,
+                    )
         return result
 
     async def list(self, user_id: str) -> list[dict[str, Any]]:

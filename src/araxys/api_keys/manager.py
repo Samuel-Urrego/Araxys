@@ -7,9 +7,11 @@ hashes, and looked up by their 8-character prefix.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 import typing
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 import structlog
 
@@ -55,14 +57,27 @@ class APIKeyManager:
         scopes: list[Scope] | None = None,
         ttl_days: int | None = None,
         label: str | None = None,
+        key_type: Literal["secret", "public"] = "secret",
     ) -> APIKeyResponse:
         """Generate a new API key.
 
         Returns the raw key — this is the ONLY time it will be available.
+
+        Parameters
+        ----------
+        key_type:
+            ``"secret"`` keys (prefixed ``sk_``) have the configured scopes.
+            ``"public"`` keys (prefixed ``pk_``) are read-only by default.
         """
-        raw_key = secrets.token_urlsafe(self.KEY_BYTES)
+        raw_random = secrets.token_urlsafe(self.KEY_BYTES)
+        type_prefix = "sk_" if key_type == "secret" else "pk_"
+        raw_key = f"{type_prefix}{raw_random}"
         prefix = raw_key[:8]
         key_hash = self._hash_key(raw_key)
+
+        # Public keys get READ-only scopes unless explicitly overridden
+        if key_type == "public" and scopes is None:
+            scopes = [Scope.READ]
 
         expires_at = None
         if ttl_days is not None:
@@ -75,6 +90,7 @@ class APIKeyManager:
             expires_at=expires_at,
             owner=owner,
             label=label,
+            key_type=key_type,
         )
 
         await self._storage.store(record)
@@ -93,6 +109,7 @@ class APIKeyManager:
         return APIKeyResponse(
             raw_key=raw_key,
             prefix=prefix,
+            key_type=key_type,
             scopes=record.scopes,
             expires_at=expires_at,
             owner=owner,
@@ -132,8 +149,8 @@ class APIKeyManager:
                 )
             raise InvalidAPIKey("API key not found or expired")
 
-        # Verify hash
-        if record.key_hash != self._hash_key(raw_key):
+        # Verify hash (constant-time comparison to prevent timing attacks)
+        if not hmac.compare_digest(record.key_hash, self._hash_key(raw_key)):
             logger.warning("api_key.hash_mismatch", prefix=prefix)
             if self._on_audit:
                 await self._on_audit(
@@ -169,6 +186,12 @@ class APIKeyManager:
                     detail=f"Key verified for {record.owner}",
                 )
             )
+
+        # Update last_used_at
+        record = record.model_copy(
+            update={"last_used_at": datetime.now(UTC)}
+        )
+        await self._storage.store(record)
 
         return record
 

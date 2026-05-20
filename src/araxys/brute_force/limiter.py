@@ -64,18 +64,29 @@ class BruteForceBackend(Protocol):
 class InMemoryBruteForceBackend:
     """In-memory brute force backend using dicts with TTL.
 
-    Attempt counters are stored in a dict. Lockout state is tracked
-    via ``time.monotonic`` timestamps. Expired lockouts are cleaned
+    Attempt counters are stored with a timestamp so stale counters
+    expire even without a ``reset()`` call.  Lockout state is tracked
+    via ``time.monotonic`` timestamps.  Expired lockouts are cleaned
     up lazily on ``is_locked`` calls.
     """
 
-    def __init__(self) -> None:
-        self._attempts: dict[str, int] = {}
+    def __init__(self, attempt_ttl_seconds: int = 3600) -> None:
+        # identifier -> (count, recorded_at_monotonic)
+        self._attempts: dict[str, tuple[int, float]] = {}
         self._lockouts: dict[str, float] = {}
+        self._attempt_ttl = attempt_ttl_seconds
 
     async def record_attempt(self, identifier: str) -> int:
-        count = self._attempts.get(identifier, 0) + 1
-        self._attempts[identifier] = count
+        now = time.monotonic()
+        entry = self._attempts.get(identifier)
+        if entry is not None:
+            count, _ts = entry
+            if now - _ts >= self._attempt_ttl:
+                count = 0  # expired — start fresh
+        else:
+            count = 0
+        count += 1
+        self._attempts[identifier] = (count, now)
         return count
 
     async def is_locked(self, identifier: str) -> bool:
@@ -95,7 +106,14 @@ class InMemoryBruteForceBackend:
         self._lockouts.pop(identifier, None)
 
     async def get_attempts(self, identifier: str) -> int:
-        return self._attempts.get(identifier, 0)
+        entry = self._attempts.get(identifier)
+        if entry is None:
+            return 0
+        count, ts = entry
+        if time.monotonic() - ts >= self._attempt_ttl:
+            del self._attempts[identifier]
+            return 0
+        return count
 
 
 # ── Redis Implementation ────────────────────────────────────────────────────
@@ -115,13 +133,17 @@ class RedisBruteForceBackend:
     _ATTEMPT_KEY_PREFIX = "araxys:brute_force:"
     _LOCKOUT_KEY_PREFIX = "araxys:brute_force:lockout:"
 
-    def __init__(self, redis: Any) -> None:
+    def __init__(self, redis: Any, attempt_ttl_seconds: int = 3600) -> None:
         self._redis = redis
+        self._attempt_ttl = attempt_ttl_seconds
 
     async def record_attempt(self, identifier: str) -> int:
         key = f"{self._ATTEMPT_KEY_PREFIX}{identifier}"
-        count = int(await self._redis.incr(key))
-        return count
+        pipe = self._redis.pipeline()
+        pipe.incr(key)
+        pipe.expire(key, self._attempt_ttl)
+        results = await pipe.execute()
+        return int(results[0])
 
     async def is_locked(self, identifier: str) -> bool:
         key = f"{self._LOCKOUT_KEY_PREFIX}{identifier}"
@@ -216,6 +238,12 @@ class BruteForceMiddleware(BaseHTTPMiddleware):
         """
         field = self._config.identifier_field
         body_bytes = await request.body()
+        # Cache the body back on the request so downstream handlers
+        # (or other middleware) can also read the body.  Without this,
+        # Starlette's BaseHTTPMiddleware can consume the stream, making
+        # request.body() / request.json() hang or return empty for
+        # handlers further down the chain.
+        request._body = body_bytes
         if not body_bytes:
             return None
 

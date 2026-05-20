@@ -10,6 +10,7 @@ rate limiting — all configurable via :class:`~araxys.core.config.RateLimitConf
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 import structlog
@@ -115,23 +116,41 @@ class RateLimiter:
             key_key = self._make_api_key_key(api_key, endpoint)
             key_count = await self._backend.increment(key_key, cfg.window_seconds)
 
+        # Resolve effective counts — use sliding window if configured
+        if cfg.algorithm == "sliding" and hasattr(self._backend, "get_sliding_count"):
+            ip_eff = await self._backend.get_sliding_count(ip_key)
+            user_eff = (
+                await self._backend.get_sliding_count(user_key)
+                if cfg.per_user and user_id
+                else 0.0
+            )
+            key_eff = (
+                await self._backend.get_sliding_count(key_key)
+                if cfg.per_api_key and api_key
+                else 0.0
+            )
+        else:
+            ip_eff = float(ip_count)
+            user_eff = float(user_count)
+            key_eff = float(key_count)
+
         limit = cfg.max_requests
-        ip_remaining = max(0, limit - ip_count)
+        ip_remaining = max(0, limit - int(ip_eff))
 
         user_remaining = limit
         if cfg.per_user and user_id:
-            user_remaining = max(0, limit - user_count)
+            user_remaining = max(0, limit - int(user_eff))
 
         api_key_remaining = limit
         if cfg.per_api_key and api_key:
-            api_key_remaining = max(0, limit - key_count)
+            api_key_remaining = max(0, limit - int(key_eff))
 
         # Effective remaining = the lowest across all active dimensions
         remaining = min(ip_remaining, user_remaining, api_key_remaining)
 
-        ip_ok = ip_count <= limit
-        user_ok = not (cfg.per_user and user_id) or user_count <= limit
-        key_ok = not (cfg.per_api_key and api_key) or key_count <= limit
+        ip_ok = ip_eff <= limit
+        user_ok = not (cfg.per_user and user_id) or user_eff <= limit
+        key_ok = not (cfg.per_api_key and api_key) or key_eff <= limit
 
         if not (ip_ok and user_ok and key_ok):
             violations = await self._backend.increment_violations(ip)
@@ -154,17 +173,17 @@ class RateLimiter:
             # Log the dimensions that exceeded
             dims = []
             if not ip_ok:
-                dims.append(f"ip={ip_count}")
+                dims.append(f"ip={int(ip_eff)}")
             if not user_ok:
-                dims.append(f"user={user_count}")
+                dims.append(f"user={int(user_eff)}")
             if not key_ok:
-                dims.append(f"key={key_count}")
+                dims.append(f"key={int(key_eff)}")
 
             logger.info(
                 "rate_limit.exceeded",
                 ip=ip,
                 endpoint=endpoint,
-                count=ip_count,
+                count=int(ip_eff),
                 limit=limit,
                 violations=violations,
                 dimensions=", ".join(dims),
@@ -174,6 +193,7 @@ class RateLimiter:
         return {
             "X-RateLimit-Limit": limit,
             "X-RateLimit-Remaining": remaining,
+            "X-RateLimit-Reset": int(time.time()) + cfg.window_seconds,
             "X-RateLimit-Window": cfg.window_seconds,
         }
 

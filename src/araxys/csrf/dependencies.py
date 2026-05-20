@@ -74,6 +74,6 @@ def set_csrf_cookie(
     config:
         The CSRF configuration.
     """
-    token = handler.generate_token()
+    token = handler.generate_token(expiry_seconds=config.token_expiry_seconds)
     cookie_value = handler.create_cookie(token, config)
     response.headers.append("Set-Cookie", cookie_value)
