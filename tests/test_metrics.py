@@ -515,7 +515,8 @@ class TestMetricsEndpoint:
         config = MetricsConfig(enabled=True)
         registry = MetricsRegistry(config)
         app = FastAPI()
-        app.add_route("/metrics", metrics_endpoint(registry, MetricsConfig()), methods=["GET"])
+        handler = metrics_endpoint(registry, MetricsConfig())
+        app.add_route("/metrics", handler, methods=["GET"])
 
         client = TestClient(app)
         response = client.get("/metrics")
@@ -536,7 +537,8 @@ class TestMetricsEndpoint:
         config = MetricsConfig(enabled=False)
         registry = MetricsRegistry(config)
         app = FastAPI()
-        app.add_route("/metrics", metrics_endpoint(registry, MetricsConfig()), methods=["GET"])
+        handler = metrics_endpoint(registry, MetricsConfig())
+        app.add_route("/metrics", handler, methods=["GET"])
 
         client = TestClient(app)
         response = client.get("/metrics")
@@ -553,7 +555,8 @@ class TestMetricsEndpoint:
         config = MetricsConfig(enabled=True)
         registry = MetricsRegistry(config)
         app = FastAPI()
-        app.add_route("/metrics", metrics_endpoint(registry, MetricsConfig()), methods=["GET"])
+        handler = metrics_endpoint(registry, MetricsConfig())
+        app.add_route("/metrics", handler, methods=["GET"])
 
         client = TestClient(app)
         response = client.get("/metrics")

@@ -110,7 +110,7 @@ class PasswordPolicy:
 
         return errors
 
-    def estimate_strength(self, password: str) -> dict:
+    def estimate_strength(self, password: str) -> dict[str, object]:
         """Estimate password strength (0-4, like zxcvbn).
 
         Returns a dict with ``score`` (0=weakest, 4=strongest) and

@@ -81,7 +81,7 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
         return JSONResponse(
             status_code=400,
             content={
-                "detail": "Request blocked — malicious content detected",
+                "detail": "Request blocked — malicious content",
                 "threat_type": threat_type,
             },
         )
@@ -169,7 +169,7 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 status_code=400,
                 content={
-                    "detail": "Request blocked — malicious content detected",
+                    "detail": "Request blocked — malicious content",
                     "threat_type": exc.threat_type,
                 },
             )
@@ -224,7 +224,9 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
                         return JSONResponse(
                             status_code=400,
                             content={
-                                "detail": "Request blocked — malicious content detected",
+                        "detail": (
+                            "Request blocked — malicious content detected"
+                        ),
                                 "threat_type": exc.threat_type,
                             },
                         )
@@ -250,7 +252,11 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
         except Exception:
             return await call_next(request)
 
-        if not self._scanning_enabled and not self._config.strip_xss and not self._config.block_sqli:
+        if not (
+            self._scanning_enabled
+            or self._config.strip_xss
+            or self._config.block_sqli
+        ):
             return await call_next(request)
 
         from starlette.datastructures import UploadFile
@@ -278,7 +284,7 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
                 return JSONResponse(
                     status_code=400,
                     content={
-                        "detail": "Request blocked — malicious content detected",
+                        "detail": "Request blocked — malicious content",
                         "threat_type": exc.threat_type,
                     },
                 )

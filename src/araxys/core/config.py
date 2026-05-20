@@ -158,7 +158,9 @@ class PermissionsPolicyConfig(BaseModel):
     usb: str | None = Field(default=None, description="usb directive")
     bluetooth: str | None = Field(default=None, description="bluetooth directive")
     payment: str | None = Field(default=None, description="payment directive")
-    accelerometer: str | None = Field(default=None, description="accelerometer directive")
+    accelerometer: str | None = Field(
+        default=None, description="accelerometer directive"
+    )
     gyroscope: str | None = Field(default=None, description="gyroscope directive")
     magnetometer: str | None = Field(default=None, description="magnetometer directive")
     midi: str | None = Field(default=None, description="midi directive")

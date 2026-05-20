@@ -95,7 +95,8 @@ def require_jwt(
             client_ip = request.client.host if request.client else "unknown"
             user_agent = request.headers.get("user-agent", "")
             expected_bind = compute_bind_hash(client_ip, user_agent)
-            if not hmac.compare_digest(payload.model_dump().get("bind", ""), expected_bind):
+            token_bind = payload.model_dump().get("bind", "")
+            if not hmac.compare_digest(token_bind, expected_bind):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Token is bound to a different client",

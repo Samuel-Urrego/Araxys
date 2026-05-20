@@ -46,7 +46,7 @@ class SessionManager:
         config: SessionConfig,
         backend: SessionBackend,
         event_bus: Any = None,
-        jti_blacklist: typing.Callable | None = None,
+        jti_blacklist: typing.Callable[..., typing.Any] | None = None,
     ) -> None:
         self._config = config
         self._backend = backend
@@ -113,7 +113,13 @@ class SessionManager:
             # Blacklist the associated JWT access token
             if record and self._jti_blacklist:
                 import time
-                remaining = max(0, int(record.expires_at - time.time())) if record.expires_at else 3600
+
+                if record.expires_at:
+                    remaining = max(
+                        0, int(record.expires_at - time.time())
+                    )
+                else:
+                    remaining = 3600
                 try:
                     await self._jti_blacklist(record.jti, remaining)
                 except Exception:

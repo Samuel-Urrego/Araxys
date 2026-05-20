@@ -14,7 +14,7 @@ import json
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -127,7 +127,7 @@ class AuditLogger:
         if self._shipper is not None:
             await self._shipper.ship(data)
 
-    def _compute_chain(self, data: dict) -> dict:
+    def _compute_chain(self, data: dict[str, Any]) -> dict[str, Any]:
         """Link the current entry to the previous one via a hash chain.
 
         Returns *data* with added ``_chain`` (SHA-256 of prev+current)
@@ -139,7 +139,7 @@ class AuditLogger:
         self._chain_hash = chain
         return {"_chain": chain, "_prev": prev, **data}
 
-    def verify_integrity(self) -> dict:
+    def verify_integrity(self) -> dict[str, Any]:
         """Verify the integrity chain of all written audit entries.
 
         Returns a dict with ``valid`` (bool), ``entry_count`` (int),
@@ -161,8 +161,13 @@ class AuditLogger:
             if prev != expected_prev:
                 violations.append(i + 1)
             # Recompute to verify
-            entry_copy = {k: v for k, v in entry.items() if k not in ("_chain", "_prev")}
-            serialized = json.dumps(entry_copy, sort_keys=True, default=str).encode("utf-8")
+            entry_copy = {
+                k: v for k, v in entry.items()
+                if k not in ("_chain", "_prev")
+            }
+            serialized = json.dumps(
+                entry_copy, sort_keys=True, default=str
+            ).encode("utf-8")
             computed = hashlib.sha256(prev.encode() + serialized).hexdigest()
             if not hmac.compare_digest(computed, chain):
                 violations.append(i + 1)
@@ -174,7 +179,7 @@ class AuditLogger:
             "violations": violations,
         }
 
-    def read_entries(self) -> list[dict]:  # type: ignore
+    def read_entries(self) -> list[dict[str, Any]]:
         """Read and decrypt all entries from the audit log file.
 
         Returns a list of dicts (chain metadata stripped), one per entry.
@@ -184,12 +189,12 @@ class AuditLogger:
             for entry in self._read_raw_entries()
         ]
 
-    def _read_raw_entries(self) -> list[dict]:
+    def _read_raw_entries(self) -> list[dict[str, Any]]:
         """Read all entries from the audit log, including chain metadata."""
         if not self._log_file or not self._log_file.exists():
             return []
 
-        entries: list[dict] = []
+        entries: list[dict[str, Any]] = []
         with self._log_file.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()

@@ -42,7 +42,10 @@ class APIKeyRecord(BaseModel):
     )
     key_type: Literal["secret", "public"] = Field(
         default="secret",
-        description="Key type — secret keys have full access, public keys are read-only",
+        description=(
+            "Key type — secret keys have full access, "
+            "public keys are read-only"
+        ),
     )
 
 

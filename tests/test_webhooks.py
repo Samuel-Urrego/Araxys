@@ -168,7 +168,10 @@ class TestWebhookDelivery:
             timeout_seconds=5,
             queue_size=100,
         )
-        delivery = WebhookDelivery(config, bus, secret_key="test-secret-key-at-least-32-chars!!")
+        delivery = WebhookDelivery(
+            config, bus,
+            secret_key="test-secret-key-at-least-32-chars!!"
+        )
         # Should have subscribed (we can check by inspecting subscribers)
         assert delivery._event_bus is bus
         assert len(bus._subscribers) == 1

@@ -37,7 +37,7 @@ def compute_bind_hash(ip: str, user_agent: str) -> str:
     stolen token cannot be used from a different IP or browser.
     """
     ua_fragment = user_agent[:128] if user_agent else ""
-    raw = f"{ip}|{ua_fragment}".encode("utf-8")
+    raw = f"{ip}|{ua_fragment}".encode()
     return hashlib.sha256(raw).hexdigest()[:16]
 
 

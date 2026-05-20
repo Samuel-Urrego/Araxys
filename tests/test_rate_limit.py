@@ -187,8 +187,12 @@ class TestIdentityExtraction:
         attacker_token = _jwt.encode(
             {"sub": "victim"}, key="", algorithm="none"
         )
-        vid = extract_user_id(_make_request({"authorization": f"Bearer {victim_token}"}))
-        aid = extract_user_id(_make_request({"authorization": f"Bearer {attacker_token}"}))
+        vid = extract_user_id(
+            _make_request({"authorization": f"Bearer {victim_token}"})
+        )
+        aid = extract_user_id(
+            _make_request({"authorization": f"Bearer {attacker_token}"})
+        )
         assert vid is not None and aid is not None
         assert vid != aid  # different raw tokens → different IDs
 
