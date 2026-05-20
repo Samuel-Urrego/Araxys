@@ -163,6 +163,7 @@ class JWTManager:
             "scopes": [s.value for s in (scopes or [])],
             "exp": now + ttl,
             "iat": now,
+            "nbf": now,  # valid immediately
             "jti": jti,
         }
 
@@ -174,7 +175,7 @@ class JWTManager:
             # Forbid overriding built-in claims — an attacker who controls
             # extra_claims could otherwise extend the token lifetime or
             # change the token type.
-            protected = {"sub", "token_type", "scopes", "exp", "iat", "jti"}
+            protected = {"sub", "token_type", "scopes", "exp", "iat", "nbf", "jti"}
             if self._config.issuer:
                 protected.add("iss")
             if self._config.audience:

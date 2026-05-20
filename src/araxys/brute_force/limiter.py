@@ -7,6 +7,7 @@ login requests to detect and block brute force attacks.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from datetime import UTC, datetime
@@ -213,6 +214,16 @@ class BruteForceMiddleware(BaseHTTPMiddleware):
                     "retry_after_seconds": self._config.lockout_duration_seconds,
                 },
             )
+
+        # Progressive delay — slow down brute force without hard lock
+        if (
+            identifier is not None
+            and self._config.progressive_delay
+        ):
+            attempts = await self._backend.get_attempts(identifier)
+            if attempts > 0:
+                delay = min(2 ** (attempts - 1), 30)  # 1s, 2s, 4s... cap 30s
+                await asyncio.sleep(delay)
 
         response = await call_next(request)
 

@@ -478,6 +478,14 @@ class BruteForceConfig(BaseModel):
             "Prevents stale counters from persisting indefinitely."
         ),
     )
+    progressive_delay: bool = Field(
+        default=False,
+        description=(
+            "Add increasing delays between failed attempts (1s, 2s, 4s...) "
+            "before the hard lockout.  Slows down brute force without "
+            "locking legitimate users."
+        ),
+    )
 
 
 class MFAConfig(BaseModel):
