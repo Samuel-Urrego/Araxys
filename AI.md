@@ -34,8 +34,10 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 | `AraxysTracer` | `araxys.telemetry.tracer` | OTEL span context manager with no-op fallback. |
 | `APIKeyManager`| `araxys.api_keys.manager` | Key generation, SHA-256 hashing, and verification. |
 | `JWTManager` | `araxys.jwt_auth.tokens` | Token creation (HS256/RS256/ES256), decoding, JWKS (RFC 7517), introspection (RFC 7662), blacklist checks. |
-| `DatabaseSecurityManager` | `araxys.db_security.manager` | v0.5 — shared Redis pool lifecycle, secret resolver chain, TLS cert pinning, query auditing. |
-| `ConnectionPool` | `araxys.db_security.pool` | Protocol for Redis connection pools — InMemoryPool (no-op) + RedisPool (health, leak detection, idle timeout). |
+| `DatabaseSecurityManager` | `araxys.db_security.manager` | v0.5 — shared Redis pool lifecycle, secret resolver chain, TLS cert pinning, query auditing, v0.7 — QueryValidator wiring. |
+| `ConnectionPool` | `araxys.db_security.pool` | Protocol for Redis connection pools — InMemoryPool (no-op) + RedisPool (health, leak, idle timeout, v0.7 — auto-reconnection, validate_query). |
+| `QueryValidator` | `araxys.db_security.query_validator` | v0.7 — sqlparse-based detection of inline SQL literals vs parameterized queries. |
+| `SessionManager` | `araxys.sessions.manager` | v0.7 — session TTL, refresh, cleanup loop for expired sessions. |
 | `QueryAuditor` | `araxys.db_security.audit` | Emits `AuditEntry(QUERY_EXECUTED)` with slow query detection (>100ms threshold). |
 | `SqlInjectionAnalyzer` | `araxys.sanitize.sqlparser` | v0.6 — sqlparse-based SQLi detection (stacked queries, UNION SELECT, tautologies, time-based, comments). Falls back to regex patterns when sqlparse not installed. |
 | `Storage` | `araxys.*.storage` | Protocols for Redis or InMemory persistence. |
@@ -70,6 +72,11 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 - **RedisPool Health Loop (v0.6)**: Background health-check task uses `loop.create_task()`. Gracefully cancelled on `close()` via `contextlib.suppress(asyncio.CancelledError)`. Health check interval is `float` (seconds).
 - **SQL Parser Fallback (v0.6)**: `SqlInjectionAnalyzer` imports `sqlparse` lazily. When `sqlparse` is not installed, `detect_sqli()` falls back to the original `patterns.py` regex patterns. The `araxys[sqlparser]` extra installs `sqlparse>=0.5.0`.
 - **JSON Body Full Scan (v0.6)**: After `sanitize_payload()` handles SQLi+XSS, `SanitizeMiddleware` now iterates leaf string values in JSON bodies and runs `scan_value()` for NoSQL, command injection, and path traversal detection. Respects `SanitizeConfig` flags.
+- **Session TTL (v0.7)**: `SessionRecord.expires_at` is a `float | None` (Unix timestamp). `SessionConfig.session_ttl_seconds` defaults to 3600 (1 hour). `RedisSessionBackend.create_session()` pipelines `EXPIRE` on both the session HASH key and user SET key.
+- **Session Cleanup (v0.7)**: `SessionManager._cleanup_loop()` runs every `cleanup_interval_seconds`, calls `backend.cleanup_expired()`. Exceptions are caught and logged — the loop never crashes. Call `start_cleanup()` / `stop_cleanup()` for lifecycle.
+- **Body Size Limit (v0.7)**: `SanitizeConfig.max_body_bytes` defaults to 10 MB. Exceeded requests get 413 `{"detail": "Request body too large"}`. Header-less requests fall back to reading the body and checking length.
+- **RedisPool Reconnection (v0.7)**: `_health_loop()` tracks consecutive PING failures; after `reconnect_retries` (default 3), calls `_reconnect()`. Guarded by `asyncio.Lock()`. `RedisPoolConfig.reconnect_retries` threads to `RedisPool`.
+- **QueryValidator (v0.7)**: `QueryValidator.validate()` uses sqlparse to detect inline SQL literals. `QueryValidationConfig.mode` is `"warn"` (default — returns `passed=True` with reason) or `"block"` (raises `ValidationError`). `ConnectionPool` Protocol now requires `validate_query()`. Test fakes must implement it.
 
 ## 🛠️ Common Usage Patterns
 
@@ -166,9 +173,9 @@ The `araxys` CLI is the preferred way for agents to perform environment manageme
 - **OTEL mocks**: Use `unittest.mock` to mock `opentelemetry` imports — never require the real SDK in tests.
 - **HIBP tests**: Mock `httpx.AsyncClient` responses for `check_hibp()` — never hit the real API in tests.
 
-## 📊 Test Coverage (v0.6)
-- **698 tests** across 19 test files
-- Unit: ~380 tests (backends, stateless logic, pure functions, detectors, sqlparser, pool)
-- Integration: ~180 tests (middleware via `httpx.AsyncClient` + `TestClient`)
-- Key pure functions: `build_csp_header()`, `mask_pii()`, `detect_nosql_injection()`, `detect_command_injection()`, `detect_path_traversal()`, `extract_user_id()`, `extract_api_key()`, `match_path()`, `SqlInjectionAnalyzer.analyze()`
-- Ruff + mypy strict enforced in CI (103 source files, 0 errors)
+## 📊 Test Coverage (v0.7)
+- **762 tests** across 20 test files
+- Unit: ~400 tests (backends, stateless logic, pure functions, detectors, sqlparser, pool, query_validator)
+- Integration: ~200 tests (middleware via `httpx.AsyncClient` + `TestClient`)
+- Key pure functions: `build_csp_header()`, `mask_pii()`, `detect_nosql_injection()`, `detect_command_injection()`, `detect_path_traversal()`, `extract_user_id()`, `extract_api_key()`, `match_path()`, `SqlInjectionAnalyzer.analyze()`, `QueryValidator.validate()`
+- Ruff + mypy strict enforced in CI (104 source files, 0 errors)
