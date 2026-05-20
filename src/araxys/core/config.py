@@ -168,6 +168,12 @@ class SanitizeConfig(BaseModel):
         ge=1,
         description="Max recursion depth for nested payload scanning",
     )
+    max_body_bytes: int = Field(
+        default=10_485_760,
+        ge=1,
+        description="Maximum request body size in bytes (default 10 MB). "
+        "Requests with larger bodies receive a 413 response.",
+    )
     exclude_paths: list[str] = Field(
         default_factory=list,
         description="Paths excluded from sanitization (e.g. file upload endpoints)",

@@ -609,3 +609,115 @@ class TestJSONBodyScan:
                 "/body", json={"cmd": "; cat /etc/passwd"}
             )
             assert resp.status_code == 200
+
+
+# ── v0.7 — Body Size Limit (Task 2.1) ────────────────────────────────────────
+
+
+class TestBodySizeLimit:
+    """Tests for body size limit enforcement in SanitizeMiddleware."""
+
+    SMALL_LIMIT = 1_000  # 1KB limit for testing
+    OVERSIZED = 2_000  # 2KB body
+
+    @pytest.fixture
+    def body_limit_config(self) -> SanitizeConfig:
+        return SanitizeConfig(
+            max_body_bytes=self.SMALL_LIMIT,
+            block_sqli=False,
+            strip_xss=False,
+        )
+
+    @pytest.fixture
+    def body_limit_app(self, body_limit_config: SanitizeConfig) -> FastAPI:
+        from araxys.sanitize.middleware import SanitizeMiddleware
+
+        app = FastAPI()
+
+        @app.post("/body")
+        async def test_post() -> dict[str, str]:
+            return {"status": "ok"}
+
+        app.add_middleware(SanitizeMiddleware, config=body_limit_config)
+        return app
+
+    @pytest.fixture
+    async def body_limit_client(
+        self, body_limit_app: FastAPI
+    ) -> AsyncGenerator[AsyncClient]:
+        transport = ASGITransport(app=body_limit_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
+
+    async def test_oversized_body_rejected(self, body_limit_client: AsyncClient) -> None:
+        """POST with Content-Length > max_body_bytes returns 413."""
+        large_body = "x" * self.OVERSIZED
+        resp = await body_limit_client.post(
+            "/body",
+            content=large_body.encode(),
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 413
+        assert resp.json() == {"detail": "Request body too large"}
+
+    async def test_oversized_body_no_header_rejected(
+        self, body_limit_app: FastAPI
+    ) -> None:
+        """POST without Content-Length header but body too large returns 413."""
+        from araxys.sanitize.middleware import SanitizeMiddleware
+
+        body = b"x" * self.OVERSIZED
+
+        # Build a raw ASGI scope WITHOUT content-length header
+        scope: dict[str, object] = {
+            "type": "http",
+            "method": "POST",
+            "path": "/body",
+            "headers": [
+                (b"content-type", b"application/json"),
+            ],
+            "scheme": "http",
+            "server": ("test", 80),
+            "raw_path": b"/body",
+            "query_string": b"",
+            "client": ("127.0.0.1", 12345),
+        }
+
+        async def receive() -> dict[str, object]:
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        async def send(_message: object) -> None:
+            pass  # We capture via the middleware response
+
+        middleware = SanitizeMiddleware(body_limit_app, config=SanitizeConfig(
+            max_body_bytes=self.SMALL_LIMIT,
+            block_sqli=False,
+            strip_xss=False,
+        ))
+
+        from starlette.responses import JSONResponse
+
+        response = await middleware.dispatch(
+            await _make_request(scope, receive),
+            lambda _req: body_limit_app(scope, receive, send),  # type: ignore[arg-type]
+        )
+        assert isinstance(response, JSONResponse)
+        assert response.status_code == 413
+        assert response.body  # non-empty
+
+    async def test_under_limit_passes(self, body_limit_client: AsyncClient) -> None:
+        """POST with body under max_body_bytes passes through."""
+        resp = await body_limit_client.post(
+            "/body", json={"hello": "world"}
+        )
+        assert resp.status_code == 200
+
+
+async def _make_request(
+    scope: dict[str, object],
+    receive: object,
+) -> object:
+    """Build a starlette Request from raw ASGI scope/receive."""
+    from starlette.requests import Request
+
+    return Request(scope=scope, receive=receive)  # type: ignore[arg-type]

@@ -107,6 +107,18 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
         if request.url.path in self._config.exclude_paths:
             return await call_next(request)
 
+        # Body size limit — check Content-Length before reading body
+        content_length_header = request.headers.get("content-length")
+        if content_length_header is not None:
+            try:
+                if int(content_length_header) > self._config.max_body_bytes:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request body too large"},
+                    )
+            except (ValueError, TypeError):
+                pass  # Malformed Content-Length header — let body reading handle
+
         # Only process JSON content
         content_type = request.headers.get("content-type", "")
         if "application/json" not in content_type:
@@ -114,6 +126,13 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
 
         # Read and parse body
         body = await request.body()
+
+        # Fallback body size check — if Content-Length was absent, check after read
+        if content_length_header is None and len(body) > self._config.max_body_bytes:
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "Request body too large"},
+            )
         if not body:
             return await call_next(request)
 
