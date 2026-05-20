@@ -615,6 +615,28 @@ class TestSessionManagerCleanupLoop:
         record = await backend.get_session(session_id)
         assert record is None
 
+    async def test_cleanup_loop_survives_backend_exception(
+        self, config: object, backend: SessionBackend, event_bus: MagicMock
+    ) -> None:
+        """_cleanup_loop must not crash when backend.cleanup_expired() raises."""
+        from araxys.sessions.manager import SessionManager
+
+        mock = MagicMock()
+        mock.cleanup_expired = AsyncMock(side_effect=RuntimeError("boom"))
+
+        manager = SessionManager(config, mock, event_bus)  # type: ignore[arg-type]
+        manager._cleanup_interval = 0.01  # type: ignore[assignment]
+        await manager.start_cleanup()
+
+        import asyncio
+
+        await asyncio.sleep(0.05)
+        # Loop should still be alive — exception was caught internally
+        assert manager._cleanup_task is not None
+        assert not manager._cleanup_task.done()
+
+        await manager.stop_cleanup()
+
 
 class TestInMemorySessionBackendRefresh:
     """Tests for InMemorySessionBackend.refresh_session()."""
@@ -654,6 +676,10 @@ class TestInMemorySessionBackendRefresh:
         assert result is False
 
 
+@pytest.mark.skipif(
+    not _HAS_FAKEREDIS,
+    reason="RedisSessionBackend tests require fakeredis",
+)
 class TestRedisSessionBackendRefresh:
     """Tests for RedisSessionBackend.refresh_session()."""
 
@@ -701,6 +727,10 @@ class TestRedisSessionBackendRefresh:
         assert result is False
 
 
+@pytest.mark.skipif(
+    not _HAS_FAKEREDIS,
+    reason="RedisSessionBackend tests require fakeredis",
+)
 class TestRedisSessionBackendTTL:
     """Tests for RedisSessionBackend EXPIRE behavior (v0.7)."""
 
@@ -796,6 +826,10 @@ class TestRedisSessionBackendTTL:
             await pool.release(conn)
 
 
+@pytest.mark.skipif(
+    not _HAS_FAKEREDIS,
+    reason="RedisSessionBackend tests require fakeredis",
+)
 class TestRedisSessionBackendMetadata:
     """Tests for JSON metadata serialization fix (Task 1.1, v0.6).
 
