@@ -78,6 +78,13 @@ class DatabaseSecurityManager:
         # Build SSL context (enabled check is inside build_ssl_context).
         ssl_context = build_ssl_context(config.tls)
 
+        # Create QueryValidator if query_validation config is present.
+        query_validator: QueryValidator | None = None
+        if config.query_validation is not None:
+            from araxys.db_security.query_validator import QueryValidator
+
+            query_validator = QueryValidator(config.query_validation)
+
         # Use config URL directly (init is synchronous; async resolver resolution
         # happens lazily in the shield layer).
         self._pool: RedisPool = RedisPool(
@@ -89,6 +96,7 @@ class DatabaseSecurityManager:
             leak_threshold=config.redis_pool.leak_threshold,
             ssl_context=ssl_context,
             cert_pin_sha256=config.tls.cert_pin_sha256,
+            query_validator=query_validator,
         )
 
         # Create auditor if enabled and callback provided.

@@ -1231,6 +1231,74 @@ class TestRedisPoolValidateQuery:
 
 
 # =============================================================================
+# QueryEvent validation field (v0.7)
+# =============================================================================
+
+
+class TestQueryEventValidation:
+    """QueryEvent gains a validation field for v0.7."""
+
+    def test_validation_default_none(self) -> None:
+        event = QueryEvent(query_text="SELECT 1")
+        assert event.validation is None
+
+    def test_validation_set_on_construction(self) -> None:
+        vr = QueryValidationResult(passed=True, reason=None)
+        event = QueryEvent(
+            query_text="SELECT 1",
+            validation=vr,
+        )
+        assert event.validation is not None
+        assert event.validation.passed is True
+        assert event.validation.reason is None
+
+    def test_validation_with_reason(self) -> None:
+        vr = QueryValidationResult(passed=True, reason="Inline literal")
+        event = QueryEvent(
+            query_text="SELECT 1",
+            validation=vr,
+        )
+        assert event.validation is not None
+        assert event.validation.reason == "Inline literal"
+
+
+class TestQueryAuditorValidationMetadata:
+    """QueryAuditor.emit() includes validation metadata."""
+
+    @pytest.fixture
+    def on_audit(self) -> AsyncMock:
+        return AsyncMock()
+
+    async def test_emit_includes_validation_in_metadata(
+        self, on_audit: AsyncMock,
+    ) -> None:
+        vr = QueryValidationResult(passed=True, reason="Inline literal detected")
+        auditor = QueryAuditor(on_audit=on_audit)
+        event = QueryEvent(query_text="SELECT 1", validation=vr)
+
+        await auditor.emit(event)
+
+        on_audit.assert_awaited_once()
+        entry: AuditEntry = on_audit.await_args[0][0]  # type: ignore[assignment]
+        metadata = entry.metadata
+        assert metadata.get("validation") is not None
+        assert metadata["validation"]["passed"] is True
+        assert "Inline literal detected" in metadata["validation"]["reason"]
+
+    async def test_emit_validation_none_omitted(
+        self, on_audit: AsyncMock,
+    ) -> None:
+        auditor = QueryAuditor(on_audit=on_audit)
+        event = QueryEvent(query_text="SELECT 1", validation=None)
+
+        await auditor.emit(event)
+
+        on_audit.assert_awaited_once()
+        entry: AuditEntry = on_audit.await_args[0][0]  # type: ignore[assignment]
+        assert entry.metadata.get("validation") is None
+
+
+# =============================================================================
 # DatabaseSecurityManager
 # =============================================================================
 
@@ -1361,6 +1429,40 @@ class TestDatabaseSecurityManager:
         )
         manager = DatabaseSecurityManager(config=config, on_audit=None)
         assert manager.auditor is None
+
+    # ── QueryValidator wiring (v0.7) ────────────────────────────────────
+
+    def test_manager_creates_query_validator_from_config(
+        self, full_config: DatabaseSecurityConfig,
+    ) -> None:
+        """Manager creates QueryValidator from config.query_validation."""
+        config = DatabaseSecurityConfig(
+            enabled=True,
+            redis_pool=RedisPoolConfig(url="redis://test:6379"),
+            tls=TLSConfig(enabled=False),
+            query_validation={"mode": "block"},  # type: ignore[arg-type]
+        )
+        manager = DatabaseSecurityManager(config=config, on_audit=None)
+        assert manager.pool is not None
+        # The pool's _query_validator should be set
+        pool = manager.pool
+        assert isinstance(pool, RedisPool)
+        assert pool._query_validator is not None
+
+    def test_manager_no_query_validator_when_config_none(
+        self, full_config: DatabaseSecurityConfig,
+    ) -> None:
+        """When query_validation is None, no validator is created."""
+        config = DatabaseSecurityConfig(
+            enabled=True,
+            redis_pool=RedisPoolConfig(url="redis://test:6379"),
+            tls=TLSConfig(enabled=False),
+            query_validation=None,
+        )
+        manager = DatabaseSecurityManager(config=config, on_audit=None)
+        pool = manager.pool
+        assert isinstance(pool, RedisPool)
+        assert pool._query_validator is None
 
 
 # =============================================================================

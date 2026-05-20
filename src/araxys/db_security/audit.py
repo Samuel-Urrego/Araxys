@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from araxys.db_security.query_validator import QueryValidationResult
+
 import structlog
 
 from araxys.core.types import AuditEntry, AuditEventType
@@ -37,6 +39,8 @@ class QueryEvent:
         When the event was created (default: UTC now).
     duration_ms:
         Optional execution duration in milliseconds.
+    validation:
+        Optional result from :class:`QueryValidator.validate`.
     """
 
     query_text: str
@@ -46,6 +50,7 @@ class QueryEvent:
         default_factory=lambda: datetime.now(UTC),
     )
     duration_ms: float | None = None
+    validation: QueryValidationResult | None = None
 
 
 class QueryAuditor:
@@ -97,15 +102,22 @@ class QueryAuditor:
                 threshold=self._slow_query_threshold_ms,
             )
 
+        metadata: dict[str, Any] = {
+            "query_text": event.query_text,
+            "query_params": event.query_params,
+            "duration_ms": event.duration_ms,
+            "connection_id": event.connection_id,
+        }
+        if event.validation is not None:
+            metadata["validation"] = {
+                "passed": event.validation.passed,
+                "reason": event.validation.reason,
+            }
+
         entry = AuditEntry(
             event_type=AuditEventType.QUERY_EXECUTED,
             detail=detail,
-            metadata={
-                "query_text": event.query_text,
-                "query_params": event.query_params,
-                "duration_ms": event.duration_ms,
-                "connection_id": event.connection_id,
-            },
+            metadata=metadata,
         )
 
         await self._on_audit(entry)

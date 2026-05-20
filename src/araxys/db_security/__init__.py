@@ -10,6 +10,7 @@ from araxys.db_security.audit import QueryAuditor, QueryEvent
 from araxys.db_security.dependencies import get_db_pool, get_query_auditor
 from araxys.db_security.manager import DatabaseSecurityManager
 from araxys.db_security.pool import ConnectionPool, InMemoryPool, RedisPool
+from araxys.db_security.query_validator import QueryValidationResult, QueryValidator
 from araxys.db_security.secrets import (
     AWSSecretsResolver,
     ChainedResolver,
@@ -40,4 +41,7 @@ __all__: list[str] = [
     # Dependencies
     "get_db_pool",
     "get_query_auditor",
+    # Query validation (v0.7)
+    "QueryValidationResult",
+    "QueryValidator",
 ]
