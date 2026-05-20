@@ -109,6 +109,7 @@ class RedisPool:
     * Leak detection (acquire/release counters with a warning threshold)
     * Max-size enforcement (configurable limit on outstanding
       acquires)
+    * Reconnection on consecutive health-check failures
     * Clean shutdown
 
     Parameters
@@ -121,8 +122,12 @@ class RedisPool:
         Unused; reserved for future TTL enforcement at the pool level.
     acquire_timeout_seconds:
         Unused; reserved for future acquire-timeout support.
+    health_check_interval_seconds:
+        Interval between background PING checks in seconds.
     leak_threshold:
         Number of outstanding acquires that triggers a warning.
+    reconnect_retries:
+        Consecutive PING failures before triggering reconnection.
     ssl_context:
         Optional SSL context for TLS-wrapped Redis connections.
     cert_pin_sha256:
@@ -141,6 +146,7 @@ class RedisPool:
         acquire_timeout_seconds: float = 5.0,
         health_check_interval_seconds: float = 30,
         leak_threshold: int = 10,
+        reconnect_retries: int = 3,
         ssl_context: ssl.SSLContext | None = None,
         cert_pin_sha256: str | None = None,
     ) -> None:
@@ -154,9 +160,12 @@ class RedisPool:
         self._leak_warned: bool = False
         self._closed: bool = False
         self._cert_pin_sha256: str | None = cert_pin_sha256
+        self._ssl_context: ssl.SSLContext | None = ssl_context
         self._redis: Redis = Redis.from_url(url, ssl_context=ssl_context)
         self._last_active: float = time.time()
         self._health_task: asyncio.Task[None] | None = None
+        self._reconnect_lock: asyncio.Lock = asyncio.Lock()
+        self._reconnect_retries: int = reconnect_retries
         if health_check_interval_seconds > 0:
             try:
                 loop = asyncio.get_running_loop()
@@ -242,17 +251,57 @@ class RedisPool:
     async def _health_loop(self) -> None:
         """Periodically PING Redis to verify connectivity.
 
-        Runs in a background asyncio task. Failures are logged via
-        structlog and never propagate.
+        Runs in a background asyncio task. After *reconnect_retries*
+        consecutive failures, a reconnection is attempted. Failures are
+        logged via structlog and never propagate.
         """
+        consecutive_failures = 0
         while True:
             await asyncio.sleep(self.health_check_interval_seconds)
             try:
                 await self._redis.ping()  # type: ignore[misc]
+                consecutive_failures = 0
             except asyncio.CancelledError:
                 raise  # re-raise to let the task be cancelled cleanly
             except Exception:  # noqa: BLE001 — intentionally broad, health loop never raises
-                logger.warning("db_pool.health_check_failed")
+                consecutive_failures += 1
+                logger.warning(
+                    "db_pool.health_check_failed",
+                    consecutive=consecutive_failures,
+                    threshold=self._reconnect_retries,
+                )
+                if consecutive_failures >= self._reconnect_retries:
+                    await self._reconnect()
+                    consecutive_failures = 0  # reset regardless of outcome
+
+    # ------------------------------------------------------------------
+    # Reconnection
+    # ------------------------------------------------------------------
+
+    async def _reconnect(self) -> None:
+        """Close the existing connection and create a new one.
+
+        Guarded by :attr:`_reconnect_lock` to prevent thundering herd.
+        On success the new client replaces ``self._redis`` and
+        ``self._closed`` is reset to ``False``. On failure the old state
+        is preserved and a warning is logged.
+        """
+        if self._reconnect_lock.locked():
+            logger.info("db_pool.reconnect_skipped")
+            return
+        async with self._reconnect_lock:
+            if not self._closed:
+                return
+            try:
+                await self._redis.aclose()
+                self._redis = Redis.from_url(
+                    self.url, ssl_context=self._ssl_context,
+                )
+                await self._redis.ping()  # type: ignore[misc]
+                self._closed = False
+                logger.info("db_pool.reconnected")
+            except Exception:  # noqa: BLE001 — preserve old state on failure
+                logger.warning("db_pool.reconnect_failed")
 
     # ------------------------------------------------------------------
     # Internal helpers

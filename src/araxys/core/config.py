@@ -508,6 +508,11 @@ class RedisPoolConfig(BaseModel):
         default=30,
         description="Interval between health checks in seconds",
     )
+    reconnect_retries: int = Field(
+        default=3,
+        ge=1,
+        description="Consecutive PING failures before attempting reconnection",
+    )
 
 
 class TLSConfig(BaseModel):
