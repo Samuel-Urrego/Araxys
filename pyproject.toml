@@ -1,7 +1,7 @@
 [project]
 name = "araxys"
 version = "0.8.0"
-description = "Plug & play security library for FastAPI — CORS (glob subdomain), CSRF (expiring tokens), IP blocking (trusted proxies), rate limiting (fixed + sliding window), honeypots (URL + passive hidden fields), JWT (RS256/ES256, token binding, leeway), API keys (sk_/pk_ prefix, last_used_at), brute force (with TTL), sessions (JWT blacklist on revoke), OTEL, Prometheus metrics (auth-protected), encrypted audit logging with hash-chain integrity + async I/O, CSP headers (structured Permissions-Policy), sanitization (NoSQL/command/path-traversal, JSON + form-urlencoded + multipart), database security (connection pooling, TLS, secrets, query audit), and SQL injection parser (sqlparse)."
+description = "Plug & play security for FastAPI — CORS (glob), CSRF (expiring), IP blocking (trusted proxies), rate limiting (fixed+sliding), honeypots (URL+passive), JWT (RS256/ES256, token binding, leeway), API keys (sk_/pk_, last_used), brute force (TTL), sessions (JWT blacklist), OTEL, Prometheus (auth), encrypted audit (hash-chain integrity), CSP (Permissions-Policy), sanitization (JSON+form+multipart), DB security (pool+TLS+secrets), SQL parser (sqlparse)"
 readme = "README.md"
 authors = [
     { name = "Samuel Esteban Urrego Valencia", email = "urregodev@gmail.com" },
