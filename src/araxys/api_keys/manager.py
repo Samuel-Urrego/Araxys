@@ -51,6 +51,26 @@ class APIKeyManager:
         """Compute SHA-256 hash of a raw API key."""
         return hashlib.sha256(raw_key.encode()).hexdigest()
 
+    @staticmethod
+    def _ip_matches(ip: str, allowed: list[str]) -> bool:
+        """Check if *ip* matches any CIDR or exact IP in *allowed*."""
+        import ipaddress
+
+        try:
+            client = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        for entry in allowed:
+            try:
+                net = ipaddress.ip_network(entry, strict=False)
+            except ValueError:
+                if ip == entry:
+                    return True
+                continue
+            if client in net:
+                return True
+        return False
+
     async def create_key(
         self,
         owner: str,
@@ -58,6 +78,7 @@ class APIKeyManager:
         ttl_days: int | None = None,
         label: str | None = None,
         key_type: Literal["secret", "public"] = "secret",
+        allowed_ips: list[str] | None = None,
     ) -> APIKeyResponse:
         """Generate a new API key.
 
@@ -91,6 +112,7 @@ class APIKeyManager:
             owner=owner,
             label=label,
             key_type=key_type,
+            allowed_ips=allowed_ips or [],
         )
 
         await self._storage.store(record)
@@ -119,6 +141,7 @@ class APIKeyManager:
         self,
         raw_key: str,
         required_scopes: list[Scope] | None = None,
+        client_ip: str | None = None,
     ) -> APIKeyRecord:
         """Verify a raw API key and check its scopes.
 
@@ -177,6 +200,15 @@ class APIKeyManager:
                     missing=list(missing),
                 )
                 raise InvalidAPIKey(f"Missing required scopes: {', '.join(missing)}")
+
+        # Check IP restriction
+        if (
+            record.allowed_ips
+            and client_ip
+            and not self._ip_matches(client_ip, record.allowed_ips)
+        ):
+            logger.warning("api_key.ip_restricted", prefix=prefix, ip=client_ip)
+            raise InvalidAPIKey("API key not allowed from this IP")
 
         if self._on_audit:
             await self._on_audit(

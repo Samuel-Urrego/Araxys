@@ -177,7 +177,7 @@ class PasswordPolicy:
 # ── HIBP Check ──────────────────────────────────────────────────────────────
 
 
-async def check_hibp(password: str) -> bool:
+async def check_hibp(password: str, *, fail_closed: bool = False) -> bool:
     """Check if a password appears in known breaches via the HIBP API.
 
     Uses the k-anonymity model: sends only the first 5 characters of
@@ -188,11 +188,19 @@ async def check_hibp(password: str) -> bool:
     ----------
     password:
         The password to check.
+    fail_closed:
+        If ``True``, API failures raise ``RuntimeError`` instead of
+        silently returning ``False``.
 
     Returns
     -------
     ``True`` if the password appears in a known breach, ``False``
-    if it was not found or the API call fails.
+    if it was not found or the API call fails (when not fail_closed).
+
+    Raises
+    ------
+    RuntimeError
+        If ``fail_closed=True`` and the API call fails.
     """
     try:
         import httpx
@@ -214,7 +222,11 @@ async def check_hibp(password: str) -> bool:
                 if line_hash_suffix.strip() == suffix:
                     return True
         return False
-    except Exception:
+    except Exception as exc:
+        if fail_closed:
+            raise RuntimeError(
+                f"HIBP API call failed: {exc}"
+            ) from exc
         # Fail open: if the API is unreachable, don't block the request
         return False
 

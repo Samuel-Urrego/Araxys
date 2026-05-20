@@ -463,6 +463,13 @@ class BruteForceConfig(BaseModel):
         default=False,
         description="Check password against HaveIBeenPwned API",
     )
+    hibp_fail_closed: bool = Field(
+        default=False,
+        description=(
+            "If True, HIBP API failures REJECT the password instead of "
+            "allowing it. Safer but may block users if HIBP is down."
+        ),
+    )
     attempt_ttl_seconds: int = Field(
         default=3600,
         ge=60,
@@ -546,6 +553,14 @@ class SessionConfig(BaseModel):
         default=3600,
         ge=1,
         description="Session time-to-live in seconds (1 hour default)",
+    )
+    idle_timeout_seconds: int | None = Field(
+        default=None,
+        ge=60,
+        description=(
+            "Idle timeout — session expires if not touched for N seconds. "
+            "None = disabled (only absolute TTL applies)."
+        ),
     )
     cleanup_interval_seconds: int = Field(
         default=60,

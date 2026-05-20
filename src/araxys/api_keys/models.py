@@ -47,6 +47,13 @@ class APIKeyRecord(BaseModel):
             "public keys are read-only"
         ),
     )
+    allowed_ips: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional IPs or CIDRs allowed to use this key. "
+            "Empty = any IP."
+        ),
+    )
 
 
 class APIKeyResponse(BaseModel):
@@ -61,7 +68,17 @@ class APIKeyResponse(BaseModel):
     prefix: str = Field(description="Key prefix for future reference")
     key_type: Literal["secret", "public"] = Field(
         default="secret",
-        description="Type of the key",
+        description=(
+            "Key type — secret keys have full access, "
+            "public keys are read-only"
+        ),
+    )
+    allowed_ips: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional IPs or CIDRs allowed to use this key. "
+            "Empty = any IP."
+        ),
     )
     scopes: list[Scope]
     expires_at: datetime | None

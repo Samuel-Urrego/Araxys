@@ -7,6 +7,7 @@ OWASP recommendations.
 
 from __future__ import annotations
 
+import secrets
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
@@ -72,6 +73,9 @@ class SecureHeadersMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._headers = self._build_headers(config)
         self._hide_server = config.hide_server
+        self._csp_has_nonce_placeholder = (
+            "'nonce-{csp_nonce}'" in self._headers.get("Content-Security-Policy", "")
+        )
 
     @staticmethod
     def _build_headers(config: SecureHeadersConfig) -> dict[str, str]:
@@ -134,6 +138,11 @@ class SecureHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         for header, value in self._headers.items():
+            # CSP nonce — generate per-request random value
+            if header == "Content-Security-Policy" and self._csp_has_nonce_placeholder:
+                nonce = secrets.token_urlsafe(16)
+                request.state.csp_nonce = nonce  # Available to templates
+                value = value.replace("'nonce-{csp_nonce}'", f"'nonce-{nonce}'")
             response.headers[header] = value
 
         # Strip the Server header when configured

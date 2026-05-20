@@ -274,7 +274,11 @@ class AraxysShield:
 
             logger.info("araxys.using_redis_backend", url=config.redis_url)
             return RedisBackend(config.redis_url)
-        logger.info("araxys.using_inmemory_backend")
+        logger.warning(
+            "araxys.using_inmemory_backend — NOT suitable for multi-worker "
+            "deployments. Each worker has its own independent counters. "
+            "Use Redis for production."
+        )
         return InMemoryBackend()
 
     def _create_token_storage(self, config: AraxysConfig):  # type: ignore

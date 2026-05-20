@@ -36,6 +36,10 @@ class TokenStorage(Protocol):
         """Check if a JTI has been revoked."""
         ...
 
+    async def blacklist_family(self, user_id: str, family_id: str) -> None:
+        """Revoke all tokens in a refresh token family (theft detection)."""
+        ...
+
 
 class InMemoryTokenStorage:
     """In-memory token storage for development and testing."""
@@ -43,6 +47,8 @@ class InMemoryTokenStorage:
     def __init__(self) -> None:
         # jti -> expires_at (monotonic)
         self._blacklist: dict[str, float] = {}
+        # family blacklist: "user_id:family_id" key
+        self._family_blacklist: set[str] = set()
 
     async def blacklist_jti(self, jti: str, ttl_seconds: int) -> None:
         self._blacklist[jti] = time.monotonic() + ttl_seconds
@@ -61,6 +67,10 @@ class InMemoryTokenStorage:
         expired = [jti for jti, exp in self._blacklist.items() if now >= exp]
         for jti in expired:
             del self._blacklist[jti]
+
+    async def blacklist_family(self, user_id: str, family_id: str) -> None:
+        """Revoke all tokens in a refresh token family."""
+        self._family_blacklist.add(f"{user_id}:{family_id}")
 
 
 class RedisTokenStorage:
@@ -114,6 +124,23 @@ class RedisTokenStorage:
         assert self._redis is not None
         result = await self._redis.exists(key)
         return bool(result)
+
+    def _family_key(self, user_id: str, family_id: str) -> str:
+        return f"araxys:family_blacklist:{user_id}:{family_id}"
+
+    async def blacklist_family(self, user_id: str, family_id: str) -> None:
+        """Revoke all tokens in a refresh token family."""
+        key = self._family_key(user_id, family_id)
+        # Blacklist for 7 days (max refresh token lifetime)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                await conn.setex(key, 604800, "1")
+                return
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
+        await self._redis.setex(key, 604800, "1")
 
 
 def _base64url_encode(data: bytes) -> str:

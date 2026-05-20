@@ -61,6 +61,7 @@ class TokenPayload(BaseModel):
     token_type: str  # "access" or "refresh"
     iss: str | None = None
     aud: str | None = None
+    family: str | None = None  # refresh token family for chain tracking
 
 
 class JWTManager:
@@ -229,7 +230,11 @@ class JWTManager:
         access_token, _ = self._create_token(
             subject, "access", access_ttl, scopes, extra_claims
         )
-        refresh_token, _ = self._create_token(subject, "refresh", refresh_ttl)
+        # Refresh tokens get a family_id for chain tracking
+        family_id = uuid.uuid4().hex
+        refresh_token, _ = self._create_token(
+            subject, "refresh", refresh_ttl, extra_claims={"family": family_id}
+        )
 
         logger.info("jwt.token_pair_created", subject=subject, scopes=scopes)
 
@@ -321,6 +326,11 @@ class JWTManager:
                         user_id=payload.sub,
                         detail="Refresh token reuse detected — possible theft",
                     )
+                )
+            # Revoke the entire token FAMILY on detected theft
+            if hasattr(self._storage, "blacklist_family") and payload.family:
+                await self._storage.blacklist_family(
+                    payload.sub, payload.family
                 )
             raise TokenRevoked()
 
