@@ -270,3 +270,40 @@ def password_policy_dependency(config: PasswordPolicyConfig) -> Any:
             raise PasswordValidationError(errors)
 
     return dependency
+
+
+# ── Password History ─────────────────────────────────────────────────────
+
+
+class PasswordHistory:
+    """Prevent password reuse by storing SHA-256 hashes of old passwords.
+
+    Parameters
+    ----------
+    max_history:
+        Number of previous passwords to remember (default 5).
+    """
+
+    def __init__(self, max_history: int = 5) -> None:
+        self._max = max_history
+
+    @staticmethod
+    def hash_password(password: str) -> str:
+        """Return a SHA-256 hex digest of *password*."""
+        return hashlib.sha256(password.encode()).hexdigest()
+
+    def check(self, password: str, history: list[str]) -> bool:
+        """Return ``True`` if *password* matches any in *history*.
+
+        *history* is a list of SHA-256 hashes from ``hash_password()``.
+        """
+        pw_hash = self.hash_password(password)
+        return any(pw_hash == old for old in history)
+
+    def add(self, password: str, history: list[str]) -> list[str]:
+        """Add *password* to *history*, trimming to ``max_history``."""
+        history = history.copy()
+        history.insert(0, self.hash_password(password))
+        if len(history) > self._max:
+            history = history[: self._max]
+        return history

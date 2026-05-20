@@ -312,6 +312,19 @@ class JWTManager:
         """
         payload = self.decode_token(refresh_token, expected_type="refresh")
 
+        # Check if the refresh token's family has been revoked
+        if (
+            payload.family
+            and hasattr(self._storage, "_family_blacklist")
+            and f"{payload.sub}:{payload.family}" in self._storage._family_blacklist
+        ):
+            logger.critical(
+                "jwt.family_revoked",
+                subject=payload.sub,
+                family=payload.family,
+            )
+            raise TokenRevoked()
+
         # Check if this refresh token has already been used (replay attack)
         if await self._storage.is_blacklisted(payload.jti):
             logger.critical(

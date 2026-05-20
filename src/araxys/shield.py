@@ -482,3 +482,13 @@ class AraxysShield:
     def db_auditor(self) -> object | None:
         """The query auditor, if db_security and query_audit are enabled."""
         return self._db_security.auditor if self._db_security else None
+
+    @property
+    def rate_backend(self) -> object | None:
+        """The rate limit backend, for admin inspection."""
+        return self._rate_backend
+
+    @property
+    def session_manager(self) -> object | None:
+        """The session manager, for admin endpoints."""
+        return self._session_manager
