@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
     from araxys.core.config import DatabaseSecurityConfig
     from araxys.core.types import AuditEntry
+    from araxys.db_security.pg_pool import PGPool
 
 logger = structlog.get_logger("araxys.db_security.manager")
 
@@ -108,6 +109,21 @@ class DatabaseSecurityManager:
                 on_audit=on_audit,
             )
 
+        # PostgreSQL pool (optional)
+        self._pg_pool: PGPool | None = None
+        if config.pg_pool is not None and config.pg_pool.enabled:
+            from araxys.db_security.pg_pool import PGPool
+
+            self._pg_pool = PGPool(
+                dsn=config.pg_pool.dsn,
+                min_size=config.pg_pool.min_size,
+                max_size=config.pg_pool.max_size,
+                acquire_timeout=config.pg_pool.acquire_timeout_seconds,
+                idle_timeout=config.pg_pool.idle_timeout_seconds,
+                health_check_interval=config.pg_pool.health_check_seconds,
+                ssl_context=ssl_context,
+            )
+
     @property
     def pool(self) -> ConnectionPool:
         """The shared connection pool."""
@@ -118,16 +134,27 @@ class DatabaseSecurityManager:
         """The query auditor, if enabled."""
         return self._auditor
 
-    async def shutdown(self) -> None:
-        """Shut down the connection pool.
+    @property
+    def pg_pool(self) -> PGPool | None:
+        """The PostgreSQL connection pool, if enabled."""
+        return self._pg_pool
 
-        Logs errors via structlog and never raises.
-        """
+    async def shutdown(self) -> None:
+        """Shut down all connection pools."""
         try:
             await self._pool.close()
-        except Exception:  # noqa: BLE001 — intentional, never raise from shutdown
+        except Exception:
             logger.error(
                 "db_security.shutdown_error",
-                msg="Error shutting down database security pool",
+                msg="Error shutting down Redis pool",
                 exc_info=True,
             )
+        if self._pg_pool is not None:
+            try:
+                await self._pg_pool.shutdown()
+            except Exception:
+                logger.error(
+                    "db_security.shutdown_error",
+                    msg="Error shutting down PostgreSQL pool",
+                    exc_info=True,
+                )

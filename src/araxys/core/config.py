@@ -473,6 +473,43 @@ class BruteForceConfig(BaseModel):
     )
 
 
+class MFAConfig(BaseModel):
+    """Configuration for Multi-Factor Authentication (TOTP)."""
+
+    enabled: bool = False
+    issuer: str = Field(
+        default="Araxys",
+        description="Issuer name displayed in authenticator apps",
+    )
+    digits: Literal[6, 8] = Field(
+        default=6,
+        description="Number of digits in the TOTP code",
+    )
+    period_seconds: int = Field(
+        default=30,
+        ge=10,
+        le=120,
+        description="TOTP time step in seconds",
+    )
+    window: int = Field(
+        default=1,
+        ge=0,
+        le=5,
+        description="Adjacent time steps to accept (±1 = ~90s validity)",
+    )
+    recovery_code_count: int = Field(
+        default=8,
+        ge=1,
+        le=20,
+        description="Number of one-time recovery codes to generate",
+    )
+    recovery_code_bytes: int = Field(
+        default=10,
+        ge=8,
+        description="Entropy per recovery code (bytes)",
+    )
+
+
 class CSRFConfig(BaseModel):
     """Configuration for CSRF double-submit cookie protection."""
 
@@ -697,6 +734,27 @@ class QueryValidationConfig(BaseModel):
     )
 
 
+class PgPoolConfig(BaseModel):
+    """Configuration for the PostgreSQL async connection pool."""
+
+    enabled: bool = Field(default=False, description="Enable PostgreSQL pool")
+    dsn: str = Field(
+        default="postgresql://localhost:5432/araxys",
+        description="PostgreSQL connection string (DSN)",
+    )
+    min_size: int = Field(default=2, ge=1, description="Minimum pool size")
+    max_size: int = Field(default=10, ge=1, description="Maximum pool size")
+    acquire_timeout_seconds: float = Field(
+        default=5.0, ge=0.5, description="Seconds to wait for a connection"
+    )
+    idle_timeout_seconds: float = Field(
+        default=300.0, ge=1.0, description="Close idle connections after N seconds"
+    )
+    health_check_seconds: float = Field(
+        default=30.0, ge=5.0, description="Seconds between liveness checks"
+    )
+
+
 class DatabaseSecurityConfig(BaseModel):
     """Configuration for the database security module.
 
@@ -706,6 +764,10 @@ class DatabaseSecurityConfig(BaseModel):
 
     enabled: bool = Field(default=False, description="Enable database security module")
     redis_pool: RedisPoolConfig = Field(default_factory=RedisPoolConfig)
+    pg_pool: PgPoolConfig | None = Field(
+        default=None,
+        description="Optional PostgreSQL connection pool configuration",
+    )
     tls: TLSConfig = Field(default_factory=TLSConfig)
     secrets: SecretsConfig = Field(default_factory=SecretsConfig)
     query_audit: QueryAuditConfig = Field(default_factory=QueryAuditConfig)
@@ -762,5 +824,6 @@ class AraxysConfig(BaseSettings):
     webhooks: WebhookConfig | None = Field(default=None)
     metrics: MetricsConfig | None = Field(default=None)
     telemetry: TelemetryConfig | None = Field(default=None)
+    mfa: MFAConfig | None = Field(default=None)
     # v0.5 — Database Security (optional, disabled by default)
     db_security: DatabaseSecurityConfig | None = Field(default=None)

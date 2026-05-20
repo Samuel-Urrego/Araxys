@@ -212,6 +212,13 @@ class AraxysShield:
                 )
             )
 
+        # MFA (TOTP)
+        self.mfa_manager: MFAManager | None = None
+        if config.mfa is not None and config.mfa.enabled:
+            from araxys.mfa.manager import MFAManager
+
+            self.mfa_manager = MFAManager(config.mfa, config.secret_key)
+
         # Telemetry tracer
         self._tracer: AraxysTracer | None = None
         if config.telemetry is not None and config.telemetry.enabled:
@@ -246,6 +253,7 @@ class AraxysShield:
             ("sessions", config.session is not None and config.session.enabled),
             ("webhooks", config.webhooks is not None and config.webhooks.enabled),
             ("metrics", config.metrics is not None and config.metrics.enabled),
+            ("mfa", config.mfa is not None and config.mfa.enabled),
             ("jwt", True),
             ("api_keys", True),
         ]
