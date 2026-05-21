@@ -33,9 +33,11 @@ from araxys.core.config import (
     SecureHeadersConfig,
     SessionConfig,
     TelemetryConfig,
+    # v0.6 configs
+    WebAuthnConfig,
     WebhookConfig,
 )
-from araxys.core.exceptions import (
+from araxys.core.exceptions import (  # type: ignore[attr-defined]
     AraxysError,
     # v0.3 exceptions
     BruteForceLockedError,
@@ -50,6 +52,7 @@ from araxys.core.exceptions import (
     TokenExpired,
     TokenInvalid,
     TokenRevoked,
+    WebAuthnError,
 )
 from araxys.core.types import (
     AuditEntry,
@@ -88,6 +91,7 @@ from araxys.sessions.storage import (
 )
 from araxys.shield import AraxysShield
 from araxys.telemetry.tracer import AraxysTracer
+from araxys.webauthn import CredentialRecord, RelyingPartyConfig, WebAuthnManager
 from araxys.webhooks.dlq import DLQConsumer, WebhookDLQBackend
 from araxys.webhooks.emitter import SecurityEventBus
 
@@ -132,6 +136,7 @@ __all__ = [
     # v0.3 exceptions
     "CSRFValidationError",
     "BruteForceLockedError",
+    "WebAuthnError",
     "PasswordValidationError",
     "IPBlockedError",
     # v0.3 modules — middleware
@@ -164,6 +169,11 @@ __all__ = [
     "JWKSStore",
     "InMemoryJWKSStore",
     "create_jwks_router",
+    # v0.6 WebAuthn / Passkeys
+    "WebAuthnConfig",
+    "WebAuthnManager",
+    "CredentialRecord",
+    "RelyingPartyConfig",
     # v0.5 Database Security
     "ConnectionPool",
     "ConnectionStringResolver",

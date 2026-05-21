@@ -54,6 +54,15 @@ from araxys.sessions.manager import SessionManager
 from araxys.sessions.storage import InMemorySessionBackend, RedisSessionBackend
 from araxys.telemetry.middleware import TelemetryMiddleware
 from araxys.telemetry.tracer import AraxysTracer
+from araxys.webauthn.challenges import (
+    InMemoryChallengeStore,
+    RedisChallengeStore,
+)
+from araxys.webauthn.manager import WebAuthnManager as _WebAuthnManager
+from araxys.webauthn.storage import (
+    InMemoryCredentialStore,
+    RedisCredentialStore,
+)
 from araxys.webhooks.delivery import WebhookDelivery
 from araxys.webhooks.dlq import DLQConsumer, WebhookDLQBackend
 from araxys.webhooks.emitter import SecurityEventBus
@@ -248,6 +257,24 @@ class AraxysShield:
 
             self.mfa_manager = MFAManager(config.mfa, config.secret_key)
 
+        # WebAuthn / Passkeys (v0.6)
+        self.webauthn_manager: _WebAuthnManager | None = None
+        if config.webauthn is not None and config.webauthn.enabled:
+            from araxys.webauthn.models import RelyingPartyConfig
+
+            rp_config = RelyingPartyConfig(
+                rp_id=config.webauthn.rp_id,
+                rp_name=config.webauthn.rp_name,
+                expected_origin=config.webauthn.origin,
+            )
+            cred_store = self._create_credential_store(config)
+            challenge_store = self._create_challenge_store(config)
+            self.webauthn_manager = _WebAuthnManager(
+                rp_config, cred_store, challenge_store
+            )
+            # Expose on app.state for FastAPI Depends injection
+            app.state.webauthn_manager = self.webauthn_manager
+
         # Telemetry tracer
         self._tracer: AraxysTracer | None = None
         if config.telemetry is not None and config.telemetry.enabled:
@@ -285,6 +312,10 @@ class AraxysShield:
             ("mfa", config.mfa is not None and config.mfa.enabled),
             ("jwt", True),
             ("api_keys", True),
+            (
+                "webauthn",
+                config.webauthn is not None and config.webauthn.enabled,
+            ),
         ]
         logger.info(
             "araxys.shield_initialized",
@@ -537,3 +568,39 @@ class AraxysShield:
     def session_manager(self) -> object | None:
         """The session manager, for admin endpoints."""
         return self._session_manager
+
+    # ── WebAuthn Backend Factories ──────────────────────────────────────────
+
+    def _create_credential_store(
+        self, config: AraxysConfig
+    ) -> InMemoryCredentialStore | RedisCredentialStore:
+        """Create credential store based on config."""
+        if self._db_security is not None:
+            return RedisCredentialStore(self._db_security.pool.get_redis_client())
+        if config.redis_url:
+            from redis.asyncio import from_url
+
+            redis = from_url(config.redis_url, decode_responses=True)
+            return RedisCredentialStore(redis)
+        logger.info(
+            "araxys.using_inmemory_credential_store — "
+            "NOT suitable for multi-worker deployments."
+        )
+        return InMemoryCredentialStore()
+
+    def _create_challenge_store(
+        self, config: AraxysConfig
+    ) -> InMemoryChallengeStore | RedisChallengeStore:
+        """Create challenge store based on config."""
+        if self._db_security is not None:
+            return RedisChallengeStore(self._db_security.pool.get_redis_client())
+        if config.redis_url:
+            from redis.asyncio import from_url
+
+            redis = from_url(config.redis_url, decode_responses=True)
+            return RedisChallengeStore(redis)
+        logger.info(
+            "araxys.using_inmemory_challenge_store — "
+            "NOT suitable for multi-worker deployments."
+        )
+        return InMemoryChallengeStore()

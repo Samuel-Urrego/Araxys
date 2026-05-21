@@ -31,44 +31,6 @@ from araxys.core.types import SecurityEvent, SecurityEventType
 
 logger = logging.getLogger("araxys.webhooks.dlq")
 
-# ── Lua scripts ──────────────────────────────────────────────────────────────
-
-REPLAY_EVENT_SCRIPT: str = """
-local event_id = KEYS[1]
-local next_retry_at = tonumber(ARGV[1])
-redis.call('ZREM', 'dlq:dead', event_id)
-redis.call('HSET', 'dlq:event:' .. event_id,
-    'attempt_count', 0,
-    'status', 'pending',
-    'next_retry_at', next_retry_at)
-redis.call('ZADD', 'dlq:pending', next_retry_at, event_id)
-return 1
-"""
-
-RESCHEDULE_OR_MARK_DEAD_SCRIPT: str = """
-local event_id = KEYS[1]
-local max_retries = tonumber(ARGV[1])
-local next_retry = tonumber(ARGV[2])
-local now = tonumber(ARGV[3])
-local last_error = ARGV[4]
-local key = 'dlq:event:' .. event_id
-local current = tonumber(redis.call('HGET', key, 'attempt_count') or '0')
-local new_count = current + 1
-redis.call('HSET', key,
-    'attempt_count', new_count,
-    'last_error', last_error)
-if new_count >= max_retries then
-    redis.call('ZREM', 'dlq:pending', event_id)
-    redis.call('ZADD', 'dlq:dead', now, event_id)
-    redis.call('HSET', key, 'status', 'dead')
-    return 0
-else
-    redis.call('ZADD', 'dlq:pending', next_retry, event_id)
-    redis.call('HSET', key, 'next_retry_at', next_retry)
-    return 1
-end
-"""
-
 # ── Dataclasses ──────────────────────────────────────────────────────────────
 
 
@@ -287,6 +249,55 @@ class WebhookDLQBackend:
                 break
         return deleted
 
+    async def purge_expired(self, max_age_seconds: float) -> int:
+        """Remove all events older than ``max_age_seconds``.
+
+        Uses SCAN to find ``dlq:event:*`` keys, checks the
+        ``created_at`` HASH field, and removes expired events
+        along with their ZSET entries in both ``dlq:pending``
+        and ``dlq:dead``.
+
+        Returns the number of events purged.
+        """
+        cursor = 0
+        purged = 0
+        while True:
+            cursor, keys = await self._redis.scan(
+                cursor, match="dlq:event:*", count=100
+            )
+            for key in keys:
+                created_raw = await self._redis.hget(key, "created_at")  # type: ignore[misc]
+                if created_raw is None:
+                    continue
+                created_str = (
+                    created_raw.decode()
+                    if isinstance(created_raw, bytes)
+                    else str(created_raw)
+                )
+                try:
+                    created_dt = datetime.fromisoformat(created_str)
+                    age = (datetime.now(UTC) - created_dt).total_seconds()
+                except (ValueError, TypeError):
+                    continue
+
+                if age > max_age_seconds:
+                    event_id = key.split(":", 2)[2]
+                    async with self._redis.pipeline(transaction=True) as pipe:
+                        pipe.delete(key)
+                        pipe.zrem("dlq:pending", event_id)
+                        pipe.zrem("dlq:dead", event_id)
+                        await pipe.execute()
+                    purged += 1
+            if cursor == 0:
+                break
+        if purged:
+            logger.info(
+                "Purged %d expired DLQ events (max_age=%ss)",
+                purged,
+                max_age_seconds,
+            )
+        return purged
+
     async def _fetch_events(self, event_ids: list[str]) -> list[DLQEvent | None]:
         """Fetch full event data for multiple event IDs."""
         keys = [f"dlq:event:{eid}" for eid in event_ids]
@@ -415,7 +426,8 @@ class DLQConsumer:
     1. Polls ``dlq:pending`` for events with ``next_retry_at <= now()``
     2. Re-dispatches each event via ``WebhookDelivery._deliver_with_retry()``
     3. On success, removes the event from the DLQ
-    4. On failure, reschedules via Lua script or marks as dead
+    4. On failure, reschedules or marks as dead via pipeline
+    5. Purges events older than ``dlq_max_age_seconds``
     """
 
     def __init__(
@@ -460,10 +472,13 @@ class DLQConsumer:
         )
 
     async def _poll_loop(self) -> None:
-        """Infinite loop: poll, dispatch, sleep."""
+        """Infinite loop: poll, purge expired, dispatch, sleep."""
         while self._running:
             try:
                 await self._poll_once()
+                await self._backend.purge_expired(
+                    self._config.dlq_max_age_seconds
+                )
             except Exception:
                 logger.exception("DLQ consumer poll cycle failed")
 

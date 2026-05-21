@@ -865,6 +865,27 @@ class DatabaseSecurityConfig(BaseModel):
     )
 
 
+class WebAuthnConfig(BaseModel):
+    """Configuration for the WebAuthn / Passkeys module."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable WebAuthn passkey verification",
+    )
+    rp_id: str = Field(
+        default="localhost",
+        description="Relying Party ID (domain), e.g. 'example.com'",
+    )
+    rp_name: str = Field(
+        default="Araxys",
+        description="Human-readable Relying Party name",
+    )
+    origin: str = Field(
+        default="http://localhost:8000",
+        description="Expected origin from clientDataJSON",
+    )
+
+
 class AraxysConfig(BaseSettings):
     """Master configuration for the Araxys security shield.
 
@@ -915,3 +936,5 @@ class AraxysConfig(BaseSettings):
     mfa: MFAConfig | None = Field(default=None)
     # v0.5 — Database Security (optional, disabled by default)
     db_security: DatabaseSecurityConfig | None = Field(default=None)
+    # v0.6 — WebAuthn / Passkeys
+    webauthn: WebAuthnConfig | None = Field(default=None)

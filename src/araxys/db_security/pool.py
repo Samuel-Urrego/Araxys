@@ -35,7 +35,11 @@ from redis.asyncio import Redis
 from redis.asyncio.cluster import RedisCluster
 from redis.asyncio.sentinel import Sentinel
 
-from araxys.core.exceptions import ConnectionError, TLSConfigurationError
+from araxys.core.exceptions import (
+    ConfigurationError,
+    ConnectionError,
+    TLSConfigurationError,
+)
 
 logger = structlog.get_logger("araxys.db_security.pool")
 
@@ -477,7 +481,9 @@ class RedisClusterPool:
     ssl_context:
         Optional SSL context for TLS-wrapped cluster connections.
     cert_pin_sha256:
-        Optional SHA-256 fingerprint for server certificate pinning.
+        Raises :exc:`ConfigurationError` if provided — cert pinning is not
+        supported for cluster mode (RedisCluster has per-node connection
+        pools which makes single-connection pin checking impractical).
     query_validator:
         Optional query validator for SQL parameterization checks.
     """
@@ -510,7 +516,12 @@ class RedisClusterPool:
         self._query_validator = query_validator
         self._leak_warned: bool = False
         self._closed: bool = False
-        self._cert_pin_sha256: str | None = cert_pin_sha256
+        if cert_pin_sha256 is not None:
+            raise ConfigurationError(
+                "cert_pin_sha256 is not supported for cluster mode — "
+                "RedisCluster has per-node connection pools which makes "
+                "single-connection pin checking impractical",
+            )
         self._ssl_context: ssl.SSLContext | None = ssl_context
         self._client: RedisCluster = self._create_client()
         self._last_active: float = time.time()
@@ -558,9 +569,6 @@ class RedisClusterPool:
             raise ConnectionError("Pool exhausted")
         self._active_count += 1
         self._check_leak()
-        # NOTE: cert_pin verification is not supported for cluster —
-        # RedisCluster has per-node connection pools which makes
-        # single-connection pin checking impractical.
         self._last_active = time.time()
         return self._client  # type: ignore[return-value]
 

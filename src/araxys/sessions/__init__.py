@@ -9,6 +9,7 @@ from araxys.sessions.storage import (
     InMemorySessionBackend,
     RedisSessionBackend,
     SessionBackend,
+    SessionNotFound,
     SessionRecord,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "RedisSessionBackend",
     "SessionBackend",
     "SessionManager",
+    "SessionNotFound",
     "SessionRecord",
 ]

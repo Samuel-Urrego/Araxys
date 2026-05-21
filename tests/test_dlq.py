@@ -93,20 +93,6 @@ class TestDLQDataClasses:
         assert summary.age_seconds == 3600.0
         assert summary.status == "pending"
 
-    def test_lua_scripts_are_valid_strings(self) -> None:
-        """Lua scripts must be non-empty strings registered on the backend."""
-        from araxys.webhooks.dlq import (
-            REPLAY_EVENT_SCRIPT,
-            RESCHEDULE_OR_MARK_DEAD_SCRIPT,
-        )
-
-        assert isinstance(REPLAY_EVENT_SCRIPT, str)
-        assert len(REPLAY_EVENT_SCRIPT) > 50
-        assert "redis.call" in REPLAY_EVENT_SCRIPT
-        assert isinstance(RESCHEDULE_OR_MARK_DEAD_SCRIPT, str)
-        assert len(RESCHEDULE_OR_MARK_DEAD_SCRIPT) > 100
-        assert "redis.call" in RESCHEDULE_OR_MARK_DEAD_SCRIPT
-
 
 class TestDLQBackend:
     """WebhookDLQBackend CRUD and lifecycle using fakeredis."""
@@ -327,9 +313,11 @@ class TestDLQBackend:
 
         broken = AsyncMock(spec=["hset", "pipeline"])
         # pipeline() returns an async context manager
-        mock_pipe = AsyncMock()
-        mock_pipe.hset = AsyncMock()
-        mock_pipe.zadd = AsyncMock()
+        # Use MagicMock for pipe commands — redis.asyncio pipeline methods
+        # queue commands synchronously (not awaited individually).
+        mock_pipe = MagicMock()
+        mock_pipe.hset = MagicMock()
+        mock_pipe.zadd = MagicMock()
         mock_pipe.execute = AsyncMock(side_effect=ConnectionError("Redis is down"))
         # Make pipeline return an async context manager
         cm = MagicMock()
@@ -1148,6 +1136,87 @@ class TestDLQEdgeCases:
         )
         count = await backend.purge_by_url("https://other.example.com")
         assert count == 0
+
+    async def test_purge_expired_removes_old_events(
+        self,
+        fake_redis: FakeRedis,
+        sample_event: SecurityEvent,
+    ) -> None:
+        """purge_expired must remove events older than max_age_seconds."""
+        from datetime import UTC, datetime, timedelta
+
+        from araxys.webhooks.dlq import WebhookDLQBackend
+
+        backend = WebhookDLQBackend(fake_redis)
+        event_id = await backend.enqueue(
+            sample_event, "https://hooks.example.com/hook"
+        )
+
+        # Manually set created_at to 7 days ago
+        old_ts = (datetime.now(UTC) - timedelta(days=7)).isoformat()
+        await fake_redis.hset(f"dlq:event:{event_id}", "created_at", old_ts)
+
+        # Purge with max_age=86400 (1 day) — event is 7 days old, should be removed
+        purged = await backend.purge_expired(max_age_seconds=86400)
+        assert purged == 1
+
+        # Verify event is fully gone
+        remaining = await fake_redis.keys("dlq:*")
+        assert remaining == []
+
+    async def test_purge_expired_keeps_recent_events(
+        self,
+        fake_redis: FakeRedis,
+        sample_event: SecurityEvent,
+    ) -> None:
+        """purge_expired must NOT remove events newer than max_age_seconds."""
+        from araxys.webhooks.dlq import WebhookDLQBackend
+
+        backend = WebhookDLQBackend(fake_redis)
+        event_id = await backend.enqueue(
+            sample_event, "https://hooks.example.com/hook"
+        )
+
+        # created_at is set to now by enqueue() — should be well within 86400s
+        purged = await backend.purge_expired(max_age_seconds=86400)
+        assert purged == 0
+
+        # Verify event still exists
+        event = await backend.inspect(event_id)
+        assert event is not None
+
+    async def test_purge_expired_handles_mixed_ages(
+        self,
+        fake_redis: FakeRedis,
+        sample_event: SecurityEvent,
+    ) -> None:
+        """purge_expired must remove only expired events, keep fresh ones."""
+        from datetime import UTC, datetime, timedelta
+
+        from araxys.webhooks.dlq import WebhookDLQBackend
+
+        backend = WebhookDLQBackend(fake_redis)
+
+        # Old event
+        old_id = await backend.enqueue(
+            sample_event, "https://hooks.example.com/old"
+        )
+        old_ts = (datetime.now(UTC) - timedelta(days=7)).isoformat()
+        await fake_redis.hset(f"dlq:event:{old_id}", "created_at", old_ts)
+
+        # Recent event
+        recent_id = await backend.enqueue(
+            sample_event, "https://hooks.example.com/recent"
+        )
+        # created_at is now() by default
+
+        purged = await backend.purge_expired(max_age_seconds=86400)
+        assert purged == 1
+
+        # Old event should be gone
+        assert await backend.inspect(old_id) is None
+        # Recent event should remain
+        assert await backend.inspect(recent_id) is not None
 
     async def test_consumer_restart(
         self,

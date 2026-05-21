@@ -15,10 +15,11 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from araxys.core.types import SecurityEvent, SecurityEventType
+from araxys.sessions.storage import SessionNotFound
 
 if TYPE_CHECKING:
     from araxys.core.config import SessionConfig
-    from araxys.sessions.storage import SessionBackend
+    from araxys.sessions.storage import SessionBackend, SessionRecord
 
 logger = logging.getLogger("araxys.sessions")
 
@@ -146,6 +147,25 @@ class SessionManager:
     async def count(self, user_id: str) -> int:
         """Return the number of active sessions for a user."""
         return await self._backend.count_sessions(user_id)
+
+    async def get_session(self, session_id: str) -> SessionRecord | None:
+        """Retrieve a session by ID.
+
+        Delegates to the backend which enforces TTL and idle timeout.
+        Returns the session record or None if not found/expired/idle.
+        """
+        return await self._backend.get_session(session_id)
+
+    async def touch_session(self, session_id: str) -> bool:
+        """Update last_activity_at to now.
+
+        Returns True on success, False if session not found or idle.
+        """
+        try:
+            await self._backend.touch_session(session_id)
+            return True
+        except SessionNotFound:
+            return False
 
     async def refresh_session(self, session_id: str) -> bool:
         """Refresh a session's expiry window. Returns True if session found."""

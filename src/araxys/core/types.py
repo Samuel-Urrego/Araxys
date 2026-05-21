@@ -54,6 +54,7 @@ class SecurityEventType(StrEnum):
     TOKEN_ROTATED = "token_rotated"
     SANITIZE_BLOCKED = "sanitize_blocked"
     AUDIT_TAMPER_DETECTED = "audit_tamper_detected"
+    SESSION_IDLE_TIMEOUT = "session_idle_timeout"
 
 
 @dataclass(frozen=True, slots=True)

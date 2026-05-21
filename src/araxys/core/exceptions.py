@@ -161,3 +161,11 @@ class ValidationError(AraxysError):
 
     def __init__(self, message: str = "Validation error") -> None:
         super().__init__(message)
+
+
+# Re-export WebAuthnError for public API convenience.
+# Import is here (not at top) to avoid circular imports since
+# webauthn.exceptions itself imports AraxysError from this module.
+from araxys.webauthn.exceptions import (  # noqa: E402, F401
+    WebAuthnError,
+)

@@ -15,10 +15,55 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
+from araxys.core.types import SecurityEvent, SecurityEventType
+
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
     from araxys.db_security.pool import ConnectionPool
+
+
+class SessionNotFound(Exception):
+    """Raised when a session is not found or has expired/idle timed out."""
+
+
+def _is_session_idle(
+    record: SessionRecord,
+    idle_timeout_seconds: int | None,
+) -> bool:
+    """Check if a session has exceeded the idle timeout.
+
+    Uses ``last_activity_at`` if set, otherwise falls back to ``created_at``.
+    Returns False if ``idle_timeout_seconds`` is None or <= 0 (idle disabled).
+    """
+    if idle_timeout_seconds is None or idle_timeout_seconds <= 0:
+        return False
+    effective = record.last_activity_at or record.created_at
+    elapsed = (datetime.now(UTC) - effective).total_seconds()
+    return elapsed > idle_timeout_seconds
+
+
+async def _emit_idle_event(
+    event_bus: Any,
+    session_id: str,
+    record: SessionRecord,
+) -> None:
+    """Emit SESSION_IDLE_TIMEOUT event if event_bus is configured."""
+    if event_bus is None:
+        return
+    effective = record.last_activity_at or record.created_at
+    elapsed = int((datetime.now(UTC) - effective).total_seconds())
+    event = SecurityEvent(
+        event_type=SecurityEventType.SESSION_IDLE_TIMEOUT,
+        severity="warning",
+        message=f"Session {session_id} idle timeout",
+        metadata={
+            "token": session_id,
+            "user_id": record.user_id,
+            "idle_duration_seconds": elapsed,
+        },
+    )
+    await event_bus.emit(event)
 
 
 @dataclass
@@ -31,6 +76,7 @@ class SessionRecord:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)
     expires_at: float | None = None
+    last_activity_at: datetime | None = None
 
 
 @runtime_checkable
@@ -67,6 +113,10 @@ class SessionBackend(Protocol):
         """Refresh a session's expiry. Returns True if session was found."""
         ...
 
+    async def touch_session(self, session_id: str) -> None:
+        """Update last_activity_at to now. Raises SessionNotFound if not found."""
+        ...
+
     async def cleanup_expired(self) -> int:
         """Remove expired sessions. Returns the number removed."""
         ...
@@ -79,9 +129,16 @@ class InMemorySessionBackend:
     a per-user index for efficient listing and counting.
     """
 
-    def __init__(self, session_ttl_seconds: int = 3600) -> None:
+    def __init__(
+        self,
+        session_ttl_seconds: int = 3600,
+        idle_timeout_seconds: int | None = None,
+        event_bus: Any = None,
+    ) -> None:
         self._sessions: dict[str, SessionRecord] = {}
         self._session_ttl_seconds = session_ttl_seconds
+        self._idle_timeout_seconds = idle_timeout_seconds
+        self._event_bus = event_bus
 
     async def create_session(
         self, user_id: str, jti: str, metadata: dict[str, Any] | None = None
@@ -99,7 +156,18 @@ class InMemorySessionBackend:
         return session_id
 
     async def get_session(self, session_id: str) -> SessionRecord | None:
-        return self._sessions.get(session_id)
+        record = self._sessions.get(session_id)
+        if record is None:
+            return None
+        # Bug 2 fix: check TTL expiry
+        if record.expires_at is not None and record.expires_at <= time.time():
+            del self._sessions[session_id]
+            return None
+        # Idle timeout check
+        if _is_session_idle(record, self._idle_timeout_seconds):
+            await _emit_idle_event(self._event_bus, session_id, record)
+            return None
+        return record
 
     async def list_sessions(self, user_id: str) -> list[SessionRecord]:
         return [
@@ -133,16 +201,30 @@ class InMemorySessionBackend:
         )
         return True
 
+    async def touch_session(self, session_id: str) -> None:
+        record = self._sessions.get(session_id)
+        if record is None:
+            raise SessionNotFound(
+                f"Session {session_id} not found"
+            )
+        # Idle check — cannot touch an idle session
+        if _is_session_idle(record, self._idle_timeout_seconds):
+            raise SessionNotFound(
+                f"Session {session_id} is idle"
+            )
+        record.last_activity_at = datetime.now(UTC)
+
     async def cleanup_expired(self) -> int:
         now = time.time()
-        expired = [
-            sid
-            for sid, rec in self._sessions.items()
-            if rec.expires_at is not None and rec.expires_at < now
-        ]
-        for sid in expired:
+        to_remove: list[str] = []
+        for sid, rec in self._sessions.items():
+            if (
+                rec.expires_at is not None and rec.expires_at < now
+            ) or _is_session_idle(rec, self._idle_timeout_seconds):
+                to_remove.append(sid)
+        for sid in to_remove:
             del self._sessions[sid]
-        return len(expired)
+        return len(to_remove)
 
 
 class RedisSessionBackend:
@@ -160,9 +242,13 @@ class RedisSessionBackend:
         *,
         pool: ConnectionPool | None = None,
         session_ttl_seconds: int = 3600,
+        idle_timeout_seconds: int | None = None,
+        event_bus: Any = None,
     ) -> None:
         self._pool = pool
         self._session_ttl_seconds = session_ttl_seconds
+        self._idle_timeout_seconds = idle_timeout_seconds
+        self._event_bus = event_bus
         self._redis: Redis | None = None
         if pool is None and redis_url:
             try:
@@ -185,14 +271,15 @@ class RedisSessionBackend:
     ) -> str:
         session_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
+        ttl = self._session_ttl_seconds
         mapping = {
             "session_id": session_id,
             "user_id": user_id,
             "jti": jti,
             "created_at": now,
             "metadata": json.dumps(metadata or {}, default=str),
+            "expires_at": str(time.time() + ttl),
         }
-        ttl = self._session_ttl_seconds
         if self._pool:
             conn = await self._pool.acquire()
             try:
@@ -240,13 +327,28 @@ class RedisSessionBackend:
                 metadata = ast.literal_eval(raw_metadata)
         else:
             metadata = {}
-        return SessionRecord(
+        raw_expires = data.get("expires_at")
+        expires_at = float(raw_expires) if raw_expires else None
+        raw_last_activity = data.get("last_activity_at")
+        last_activity_at = (
+            datetime.fromisoformat(raw_last_activity)
+            if raw_last_activity
+            else None
+        )
+        record = SessionRecord(
             session_id=data["session_id"],
             user_id=data["user_id"],
             jti=data["jti"],
             created_at=datetime.fromisoformat(data["created_at"]),
             metadata=metadata,
+            expires_at=expires_at,
+            last_activity_at=last_activity_at,
         )
+        # Idle timeout check
+        if _is_session_idle(record, self._idle_timeout_seconds):
+            await _emit_idle_event(self._event_bus, session_id, record)
+            return None
+        return record
 
     async def list_sessions(self, user_id: str) -> list[SessionRecord]:
         ukey = self._user_key(user_id)
@@ -339,11 +441,35 @@ class RedisSessionBackend:
         await pipe.execute()
         return True
 
+    async def touch_session(self, session_id: str) -> None:
+        record = await self.get_session(session_id)
+        if record is None:
+            raise SessionNotFound(
+                f"Session {session_id} not found"
+            )
+        now = datetime.now(UTC)
+        skey = self._session_key(session_id)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                await conn.hset(  # type: ignore[misc]
+                    skey,
+                    mapping={"last_activity_at": now.isoformat()},
+                )
+                return
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
+        await self._redis.hset(  # type: ignore[misc]
+            skey,
+            mapping={"last_activity_at": now.isoformat()},
+        )
+
     async def cleanup_expired(self) -> int:
-        """Safety net: remove orphaned session IDs from user SETs.
+        """Remove expired and idle sessions.
 
         Primary TTL mechanism is Redis EXPIRE. This scans user SET keys
-        and removes members whose session HASH has already expired.
+        and removes members whose session HASH has expired or is idle.
         """
         removed = 0
         cursor = 0
@@ -378,21 +504,51 @@ class RedisSessionBackend:
                     if self._pool:
                         conn = await self._pool.acquire()
                         try:
-                            ttl = await conn.ttl(skey)
-                            if ttl < 0:
-                                await conn.srem(ukey, member)  # type: ignore[misc]
-                                removed += 1
+                            removed += await self._cleanup_one(
+                                conn, member, ukey, skey,
+                            )
                         finally:
                             await self._pool.release(conn)
                     else:
                         assert self._redis is not None
-                        ttl = await self._redis.ttl(skey)
-                        if ttl < 0:
-                            await self._redis.srem(ukey, member)  # type: ignore[misc]
-                            removed += 1
+                        removed += await self._cleanup_one(
+                            self._redis, member, ukey, skey,
+                        )
             if cursor == 0:
                 break
         return removed
+
+    async def _cleanup_one(
+        self, conn: Any, member: str, ukey: str, skey: str,
+    ) -> int:
+        """Check and remove a single session if expired or idle."""
+        ttl = await conn.ttl(skey)
+        if ttl < 0:
+            # Session HASH already gone (TTL expired)
+            await conn.srem(ukey, member)
+            return 1
+        # Check idle timeout
+        if self._idle_timeout_seconds is not None and self._idle_timeout_seconds > 0:
+            raw = await conn.hgetall(skey)
+            if raw:
+                data: dict[str, str] = cast("dict[str, str]", raw)
+                raw_last = data.get("last_activity_at")
+                raw_created = data.get("created_at")
+                if raw_created:
+                    try:
+                        last_activity = (
+                            datetime.fromisoformat(raw_last) if raw_last else None
+                        )
+                        created_at = datetime.fromisoformat(raw_created)
+                        effective = last_activity or created_at
+                        elapsed = (datetime.now(UTC) - effective).total_seconds()
+                        if elapsed > self._idle_timeout_seconds:
+                            await conn.delete(skey)
+                            await conn.srem(ukey, member)
+                            return 1
+                    except (ValueError, TypeError):
+                        pass
+        return 0
 
 
 

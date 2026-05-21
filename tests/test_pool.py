@@ -492,14 +492,17 @@ class TestRedisSentinelPool:
 
     async def test_reconnect_creates_new_sentinel(
         self,
-        mock_sentinel: AsyncMock,
+        mock_sentinel: MagicMock,
         pool: RedisSentinelPool,
     ) -> None:
         """_reconnect() creates a new Sentinel instance."""
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
 
         old_sentinel = pool._sentinel  # noqa: SLF001
-        new_mock = AsyncMock()
+        new_mock = MagicMock()
+        health_client = AsyncMock()
+        health_client.ping = AsyncMock(return_value=True)
+        new_mock.master_for.return_value = health_client
 
         with patch(
             "araxys.db_security.pool.Sentinel", return_value=new_mock,
@@ -575,7 +578,7 @@ class TestRedisSentinelPool:
     ) -> None:
         """Second reconnect attempt skips when lock is held."""
         import asyncio
-        from unittest.mock import AsyncMock, patch
+        from unittest.mock import AsyncMock, MagicMock, patch
 
         # Make aclose take time so the lock is held
         async def slow_aclose() -> None:
@@ -583,7 +586,10 @@ class TestRedisSentinelPool:
 
         pool._health_client.aclose = slow_aclose  # type: ignore[method-assign,assignment]  # noqa: SLF001
 
-        new_sentinel = AsyncMock()
+        new_sentinel = MagicMock()
+        health_client = AsyncMock()
+        health_client.ping = AsyncMock(return_value=True)
+        new_sentinel.master_for.return_value = health_client
         reconnect_calls: list[int] = []
 
         with patch(
