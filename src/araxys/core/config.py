@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings
+
+from araxys.core.exceptions import ConfigurationError
 
 
 class RateLimitConfig(BaseModel):
@@ -645,11 +647,39 @@ class TelemetryConfig(BaseModel):
 
 
 class RedisPoolConfig(BaseModel):
-    """Configuration for the shared Redis connection pool."""
+    """Configuration for the shared Redis connection pool.
 
+    The ``mode`` field acts as a discriminator:
+    * ``\"standalone\"`` (default): a single Redis instance via ``url``.
+    * ``\"sentinel\"``: Redis Sentinel — requires ``sentinels`` + ``master_name``.
+    * ``\"cluster\"``: Redis Cluster — requires ``startup_nodes`` or ``url``.
+    """
+
+    mode: Literal["standalone", "sentinel", "cluster"] = Field(
+        default="standalone",
+        description="Pool mode: standalone, sentinel, or cluster",
+    )
     url: str = Field(
         default="redis://localhost:6379",
         description="Redis connection URL",
+    )
+    # Sentinel mode
+    sentinels: list[tuple[str, int]] = Field(
+        default_factory=list,
+        description="List of (host, port) pairs for Sentinel nodes",
+    )
+    master_name: str = Field(
+        default="",
+        description="Sentinel master name (required in sentinel mode)",
+    )
+    # Cluster mode
+    startup_nodes: list[tuple[str, int]] = Field(
+        default_factory=list,
+        description="List of (host, port) pairs for Cluster startup nodes",
+    )
+    read_from_replicas: bool = Field(
+        default=False,
+        description="Allow reading from cluster replicas",
     )
     max_size: int = Field(
         default=10,
@@ -677,6 +707,20 @@ class RedisPoolConfig(BaseModel):
         ge=1,
         description="Consecutive PING failures before attempting reconnection",
     )
+
+    @model_validator(mode="after")
+    def _validate_mode(self) -> RedisPoolConfig:
+        """Validate conditional field requirements per mode."""
+        if self.mode == "sentinel":
+            if not self.sentinels or not self.master_name:
+                raise ConfigurationError(
+                    "sentinels and master_name are required for sentinel mode",
+                )
+        elif self.mode == "cluster" and not self.startup_nodes and not self.url:
+            raise ConfigurationError(
+                "startup_nodes or url is required for cluster mode",
+            )
+        return self
 
 
 class TLSConfig(BaseModel):

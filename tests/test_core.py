@@ -29,6 +29,7 @@ class TestSecurityEventType:
             "password_validation_failed",
             "session_created",
             "session_revoked",
+            "session_idle_timeout",
             "token_rotated",
             "sanitize_blocked",
             "audit_tamper_detected",
@@ -166,6 +167,29 @@ class TestDatabaseSecurityExceptions:
     def test_tls_configuration_error_custom_message(self) -> None:
         exc = TLSConfigurationError(message="Invalid min TLS version")
         assert "Invalid min TLS version" in str(exc)
+
+    def test_configuration_error_is_araxys_error(self) -> None:
+        from araxys.core.exceptions import ConfigurationError
+
+        exc = ConfigurationError()
+        assert isinstance(exc, AraxysError)
+
+    def test_configuration_error_default_message(self) -> None:
+        from araxys.core.exceptions import ConfigurationError
+
+        exc = ConfigurationError()
+        assert "Configuration error" in str(exc)
+
+    def test_configuration_error_custom_message(self) -> None:
+        from araxys.core.exceptions import ConfigurationError
+
+        exc = ConfigurationError(message="sentinels and master_name required")
+        assert "sentinels and master_name required" in str(exc)
+
+    def test_configuration_error_hierarchy(self) -> None:
+        from araxys.core.exceptions import ConfigurationError
+
+        assert issubclass(ConfigurationError, AraxysError)
 
     def test_exception_hierarchy(self) -> None:
         assert issubclass(ConnectionError, AraxysError)

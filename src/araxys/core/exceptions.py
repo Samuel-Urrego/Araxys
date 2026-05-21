@@ -135,6 +135,13 @@ class IPBlockedError(AraxysError):
         super().__init__(message or f"IP blocked: {ip_address}")
 
 
+class ConfigurationError(AraxysError):
+    """Raised when a configuration value is invalid or incomplete."""
+
+    def __init__(self, message: str = "Configuration error") -> None:
+        super().__init__(message)
+
+
 class ConnectionError(AraxysError):
     """Raised when a database connection cannot be established or pool is exhausted."""
 

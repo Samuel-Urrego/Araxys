@@ -603,6 +603,96 @@ class TestDatabaseSecurityConfig:
             QueryAuditConfig(slow_query_threshold_ms=0)
 
 
+class TestRedisPoolConfigValidation:
+    """Config validation for mode discriminator (v0.9 sentinel/cluster)."""
+
+    def test_mode_defaults_to_standalone(self) -> None:
+        """Mode absent → defaults to 'standalone' (backward compat)."""
+        c = RedisPoolConfig()
+        assert c.mode == "standalone"
+
+    def test_mode_standalone_explicit(self) -> None:
+        c = RedisPoolConfig(mode="standalone")
+        assert c.mode == "standalone"
+
+    def test_mode_sentinel_valid(self) -> None:
+        c = RedisPoolConfig(
+            mode="sentinel",
+            sentinels=[("localhost", 26379)],
+            master_name="mymaster",
+            url="redis://localhost:6379",
+        )
+        assert c.mode == "sentinel"
+        assert c.sentinels == [("localhost", 26379)]
+        assert c.master_name == "mymaster"
+
+    def test_mode_sentinel_missing_sentinels_raises(self) -> None:
+        """Sentinel mode without sentinels → ConfigurationError."""
+        from araxys.core.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="sentinels"):
+            RedisPoolConfig(mode="sentinel", master_name="mymaster")
+
+    def test_mode_sentinel_missing_master_name_raises(self) -> None:
+        """Sentinel mode without master_name → ConfigurationError."""
+        from araxys.core.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="master_name"):
+            RedisPoolConfig(
+                mode="sentinel",
+                sentinels=[("localhost", 26379)],
+            )
+
+    def test_mode_sentinel_empty_sentinels_raises(self) -> None:
+        """Sentinel mode with empty sentinels list → ConfigurationError."""
+        from araxys.core.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="sentinels"):
+            RedisPoolConfig(mode="sentinel", sentinels=[], master_name="mymaster")
+
+    def test_mode_cluster_with_startup_nodes_valid(self) -> None:
+        c = RedisPoolConfig(
+            mode="cluster",
+            startup_nodes=[("localhost", 7000)],
+        )
+        assert c.mode == "cluster"
+        assert c.startup_nodes == [("localhost", 7000)]
+        assert c.read_from_replicas is False
+
+    def test_mode_cluster_with_url_valid(self) -> None:
+        c = RedisPoolConfig(
+            mode="cluster",
+            url="redis://localhost:7000",
+        )
+        assert c.mode == "cluster"
+
+    def test_mode_cluster_with_read_from_replicas(self) -> None:
+        c = RedisPoolConfig(
+            mode="cluster",
+            startup_nodes=[("localhost", 7000)],
+            read_from_replicas=True,
+        )
+        assert c.read_from_replicas is True
+
+    def test_mode_cluster_missing_both_nodes_and_url_raises(self) -> None:
+        """Cluster mode without startup_nodes or url → ConfigurationError."""
+        from araxys.core.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="startup_nodes|url"):
+            RedisPoolConfig(mode="cluster", startup_nodes=[], url="")
+
+    def test_unknown_mode_raises_validation_error(self) -> None:
+        """Unknown mode value → pydantic ValidationError."""
+        with pytest.raises(Exception, match="Input should be"):
+            RedisPoolConfig(mode="unknown")  # type: ignore[arg-type]
+
+    def test_backward_compatible_no_mode(self) -> None:
+        """Existing config with only url works unchanged."""
+        c = RedisPoolConfig(url="redis://secure:6380")
+        assert c.mode == "standalone"
+        assert c.url == "redis://secure:6380"
+
+
 class TestDatabaseSecurityInAraxysConfig:
     """db_security must be optional in AraxysConfig."""
 
