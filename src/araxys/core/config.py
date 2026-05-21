@@ -607,6 +607,27 @@ class WebhookConfig(BaseModel):
         description="Maximum pending events in the async queue",
     )
 
+    # --- Dead-Letter Queue ---
+    dlq_enabled: bool = Field(
+        default=False,
+        description="Enable the dead-letter queue for failed webhook deliveries",
+    )
+    dlq_retry_interval_seconds: int = Field(
+        default=60,
+        ge=1,
+        description="Interval between DLQ consumer poll cycles and retry spacing",
+    )
+    dlq_max_age_seconds: int = Field(
+        default=86400,
+        ge=1,
+        description="Max age in seconds before a DLQ event is auto-purged",
+    )
+    dlq_max_retries: int = Field(
+        default=5,
+        ge=1,
+        description="Max retry attempts from the DLQ before marking dead",
+    )
+
 
 class MetricsConfig(BaseModel):
     """Configuration for Prometheus metrics export."""

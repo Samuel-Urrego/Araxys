@@ -78,11 +78,12 @@ python_version = "3.13"
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["boto3", "hvac", "sqlparse", "asyncpg"]
+module = ["boto3", "hvac", "sqlparse", "asyncpg", "redis"]
 ignore_missing_imports = true
 
 [dependency-groups]
 dev = [
     "asyncpg>=0.31.0",
+    "pytest-cov>=7.1.0",
     "types-aiofiles>=25.1.0.20260508",
 ]
