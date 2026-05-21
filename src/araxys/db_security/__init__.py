@@ -9,7 +9,13 @@ from __future__ import annotations
 from araxys.db_security.audit import QueryAuditor, QueryEvent
 from araxys.db_security.dependencies import get_db_pool, get_query_auditor
 from araxys.db_security.manager import DatabaseSecurityManager
-from araxys.db_security.pool import ConnectionPool, InMemoryPool, RedisPool
+from araxys.db_security.pool import (
+    ConnectionPool,
+    InMemoryPool,
+    RedisClusterPool,
+    RedisPool,
+    RedisSentinelPool,
+)
 from araxys.db_security.query_validator import QueryValidationResult, QueryValidator
 from araxys.db_security.secrets import (
     AWSSecretsResolver,
@@ -24,7 +30,9 @@ __all__: list[str] = [
     # Pool
     "ConnectionPool",
     "InMemoryPool",
+    "RedisClusterPool",
     "RedisPool",
+    "RedisSentinelPool",
     # Secrets
     "ConnectionStringResolver",
     "EnvVarResolver",

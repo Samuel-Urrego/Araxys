@@ -1775,3 +1775,87 @@ class TestShieldIntegrationExistingSuite:
         shield = AraxysShield(app, shield_config_enabled)
         assert shield.config == shield_config_enabled
         assert shield._db_security is not None
+
+
+# ── v0.9 — Manager Mode Routing (Tasks 2.2, 3.2) ────────────────────────────
+
+
+class TestDatabaseSecurityManagerModeRouting:
+    """Tests that DatabaseSecurityManager routes to the correct pool type.
+
+    The pool selection is driven by ``config.redis_pool.mode``.
+    """
+
+    def _make_config(self, **pool_overrides: object) -> DatabaseSecurityConfig:
+        """Helper: build a DatabaseSecurityConfig with pool overrides."""
+        pool_kwargs: dict[str, object] = {
+            "url": "redis://localhost:6379",
+            "health_check_interval_seconds": 0,
+        }
+        pool_kwargs.update(pool_overrides)
+        return DatabaseSecurityConfig(
+            redis_pool=RedisPoolConfig(**pool_kwargs),  # type: ignore[arg-type]
+        )
+
+    async def test_standalone_creates_redis_pool(self) -> None:
+        """mode='standalone' → pool is RedisPool."""
+        from araxys.db_security.pool import RedisPool
+
+        config = self._make_config(mode="standalone")
+        manager = DatabaseSecurityManager(config)
+        assert isinstance(manager.pool, RedisPool)
+
+    async def test_sentinel_creates_sentinel_pool(self) -> None:
+        """mode='sentinel' → pool is RedisSentinelPool."""
+        from unittest.mock import patch
+
+        config = self._make_config(
+            mode="sentinel",
+            sentinels=[("localhost", 26379)],
+            master_name="mymaster",
+        )
+        with patch("araxys.db_security.pool.Sentinel"):
+            manager = DatabaseSecurityManager(config)
+        from araxys.db_security.pool import RedisSentinelPool
+
+        assert isinstance(manager.pool, RedisSentinelPool)
+
+    async def test_sentinel_pool_gets_correct_params(self) -> None:
+        """Sentinel pool receives sentinels and master_name from config."""
+        from unittest.mock import patch
+
+        config = self._make_config(
+            mode="sentinel",
+            sentinels=[("localhost", 26379)],
+            master_name="mymaster",
+        )
+        with patch("araxys.db_security.pool.Sentinel"):
+            manager = DatabaseSecurityManager(config)
+
+        assert hasattr(manager.pool, "acquire")
+
+    async def test_cluster_creates_cluster_pool(self) -> None:
+        """mode='cluster' → pool is RedisClusterPool."""
+        from unittest.mock import patch
+
+        config = self._make_config(
+            mode="cluster",
+            startup_nodes=[("localhost", 7000)],
+            url="",
+        )
+        with patch("araxys.db_security.pool.RedisCluster"):
+            manager = DatabaseSecurityManager(config)
+        from araxys.db_security.pool import RedisClusterPool
+
+        assert isinstance(manager.pool, RedisClusterPool)
+
+    async def test_standalone_preserves_existing_pool_params(self) -> None:
+        """Existing RedisPool params (url, max_size, etc.) work unchanged."""
+        from araxys.db_security.pool import RedisPool
+
+        config = self._make_config(url="redis://secure:6380", max_size=20)
+        manager = DatabaseSecurityManager(config)
+        pool = manager.pool
+        assert isinstance(pool, RedisPool)
+        assert pool.url == "redis://secure:6380"
+        assert pool.max_size == 20

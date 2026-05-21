@@ -19,7 +19,14 @@ from unittest.mock import AsyncMock
 import pytest
 
 if TYPE_CHECKING:
-    from araxys.db_security.pool import InMemoryPool, RedisPool
+    from unittest.mock import MagicMock
+
+    from araxys.db_security.pool import (
+        InMemoryPool,
+        RedisClusterPool,
+        RedisPool,
+        RedisSentinelPool,
+    )
 
 
 class TestRedisPoolGetRedisClient:
@@ -371,3 +378,374 @@ class TestRedisPoolReconnect:
             reconnect_mock.assert_awaited()
         finally:
             await p.close()
+
+
+# ── v0.9 — RedisSentinelPool (Task 4.2) ─────────────────────────────────────
+
+
+class TestRedisSentinelPool:
+    """Tests for RedisSentinelPool (Sentinel-backed connection pool)."""
+
+    @pytest.fixture
+    def mock_sentinel(self) -> MagicMock:
+        """Return a mock redis.asyncio.sentinel.Sentinel.
+
+        Uses MagicMock (not AsyncMock) because ``master_for`` is a
+        synchronous method — AsyncMock would return a coroutine instead
+        of the mock Redis client.
+        """
+        from unittest.mock import MagicMock
+
+        sentinel = MagicMock()
+        health_client = AsyncMock()
+        sentinel.master_for.return_value = health_client
+        return sentinel
+
+    @pytest.fixture
+    def pool(self, mock_sentinel: MagicMock) -> RedisSentinelPool:
+        from unittest.mock import patch
+
+        from araxys.db_security.pool import RedisSentinelPool
+
+        with patch(
+            "araxys.db_security.pool.Sentinel", return_value=mock_sentinel,
+        ):
+            return RedisSentinelPool(
+                sentinels=[("localhost", 26379)],
+                master_name="mymaster",
+                health_check_interval_seconds=0,
+            )
+
+    async def test_constructor_requires_sentinels_and_master_name(
+        self,
+    ) -> None:
+        """Constructor validates sentinels and master_name."""
+        from araxys.db_security.pool import RedisSentinelPool
+
+        with pytest.raises(TypeError):
+            RedisSentinelPool()  # type: ignore[call-arg]
+
+    async def test_acquire_returns_redis_client(self, pool: RedisSentinelPool) -> None:
+        """acquire() calls master_for and returns a Redis client."""
+        conn = await pool.acquire()
+        assert conn is not None
+        # First call is __init__ (health client), second is acquire
+        assert pool._sentinel.master_for.call_count >= 2  # type: ignore[attr-defined]  # noqa: SLF001
+        pool._sentinel.master_for.assert_called_with(  # type: ignore[attr-defined]  # noqa: SLF001
+            "mymaster",
+        )
+
+    async def test_release_decrements_count(self, pool: RedisSentinelPool) -> None:
+        """release() decrements the active count."""
+        conn = await pool.acquire()
+        assert pool._active_count == 1  # noqa: SLF001
+        await pool.release(conn)
+        assert pool._active_count == 0  # noqa: SLF001
+
+    async def test_health_returns_true_when_healthy(
+        self,
+        pool: RedisSentinelPool,
+    ) -> None:
+        """health() returns True when health client responds."""
+        pool._health_client.ping = AsyncMock(return_value=True)  # type: ignore[method-assign]  # noqa: SLF001
+        healthy = await pool.health()
+        assert healthy is True
+
+    async def test_health_returns_false_when_unhealthy(
+        self,
+        pool: RedisSentinelPool,
+    ) -> None:
+        """health() returns False when health client is unreachable."""
+        pool._health_client.ping = AsyncMock(  # type: ignore[method-assign]  # noqa: SLF001
+            side_effect=OSError("Connection refused"),
+        )
+        healthy = await pool.health()
+        assert healthy is False
+
+    async def test_close_cancels_health_task(self, pool: RedisSentinelPool) -> None:
+        """close() cancels the health task and marks pool as closed."""
+        task = pool._health_task  # noqa: SLF001
+        await pool.close()
+        assert pool._closed is True  # noqa: SLF001
+        assert task is None or task.cancelled() or task.done()
+
+    async def test_acquire_exhausted_raises_connection_error(
+        self,
+        pool: RedisSentinelPool,
+    ) -> None:
+        """ConnectionError when max_size is exceeded."""
+        from araxys.core.exceptions import ConnectionError as AraxysConnectionError
+
+        pool.max_size = 1  # noqa: SLF001
+        conn = await pool.acquire()  # first one works
+        with pytest.raises(AraxysConnectionError, match="exhausted"):
+            await pool.acquire()  # second should fail
+        await pool.release(conn)
+
+    async def test_get_redis_client_returns_redis_client(
+        self,
+        pool: RedisSentinelPool,
+    ) -> None:
+        """get_redis_client() returns a Redis client (the health client)."""
+        client = pool.get_redis_client()
+        assert client is pool._health_client  # noqa: SLF001
+
+    async def test_reconnect_creates_new_sentinel(
+        self,
+        mock_sentinel: AsyncMock,
+        pool: RedisSentinelPool,
+    ) -> None:
+        """_reconnect() creates a new Sentinel instance."""
+        from unittest.mock import patch
+
+        old_sentinel = pool._sentinel  # noqa: SLF001
+        new_mock = AsyncMock()
+
+        with patch(
+            "araxys.db_security.pool.Sentinel", return_value=new_mock,
+        ):
+            await pool._reconnect()  # noqa: SLF001
+
+        assert pool._sentinel is new_mock  # noqa: SLF001
+        assert pool._sentinel is not old_sentinel  # noqa: SLF001
+
+    async def test_acquire_after_close_raises(
+        self,
+        pool: RedisSentinelPool,
+    ) -> None:
+        """Acquire after close raises ConnectionError."""
+        from araxys.core.exceptions import ConnectionError as AraxysConnectionError
+
+        await pool.close()
+        with pytest.raises(AraxysConnectionError, match="closed"):
+            await pool.acquire()
+
+    async def test_ssl_context_forwarded_to_sentinel(self) -> None:
+        """SSL context is passed to the Sentinel constructor."""
+        import ssl
+        from unittest.mock import patch
+
+        from araxys.db_security.pool import RedisSentinelPool
+
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        with patch("araxys.db_security.pool.Sentinel") as mock_cls:
+            RedisSentinelPool(
+                sentinels=[("localhost", 26379)],
+                master_name="mymaster",
+                ssl_context=ctx,
+                health_check_interval_seconds=0,
+            )
+        mock_cls.assert_called_once_with(
+            [("localhost", 26379)],
+            ssl_context=ctx,
+        )
+
+    async def test_cert_pin_mismatch_raises_tls_error(
+        self,
+        pool: RedisSentinelPool,
+    ) -> None:
+        """Acquire with cert_pin mismatch raises TLSConfigurationError."""
+        from unittest.mock import AsyncMock
+
+        from araxys.core.exceptions import TLSConfigurationError
+
+        pool._cert_pin_sha256 = "abcdef1234567890"  # noqa: SLF001
+        # Simulate a cert pin mismatch
+        pool._verify_cert_pin = AsyncMock(  # type: ignore[method-assign]  # noqa: SLF001
+            side_effect=TLSConfigurationError("Certificate pin mismatch"),
+        )
+        with pytest.raises(TLSConfigurationError, match="Certificate pin mismatch"):
+            await pool.acquire()
+
+    async def test_leak_detection_warning(
+        self,
+        pool: RedisSentinelPool,
+    ) -> None:
+        """Warning is logged when active count exceeds threshold."""
+
+        pool.leak_threshold = 2
+        pool._active_count = 5  # noqa: SLF001
+        # _check_leak should set _leak_warned to True
+        pool._check_leak()  # noqa: SLF001
+        assert pool._leak_warned is True  # noqa: SLF001
+
+    async def test_reconnect_lock_prevents_concurrent(
+        self,
+        pool: RedisSentinelPool,
+    ) -> None:
+        """Second reconnect attempt skips when lock is held."""
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        # Make aclose take time so the lock is held
+        async def slow_aclose() -> None:
+            await asyncio.sleep(0.1)
+
+        pool._health_client.aclose = slow_aclose  # type: ignore[method-assign,assignment]  # noqa: SLF001
+
+        new_sentinel = AsyncMock()
+        reconnect_calls: list[int] = []
+
+        with patch(
+            "araxys.db_security.pool.Sentinel", return_value=new_sentinel,
+        ):
+            async def call_reconnect(idx: int) -> None:
+                await pool._reconnect()  # noqa: SLF001
+                reconnect_calls.append(idx)
+
+            await asyncio.gather(call_reconnect(1), call_reconnect(2))
+
+        assert len(reconnect_calls) == 2
+        assert pool._sentinel is new_sentinel  # noqa: SLF001
+
+    async def test_validate_query_no_validator(self, pool: RedisSentinelPool) -> None:
+        """validate_query returns passed=True when no validator set."""
+        result = pool.validate_query("SELECT 1")
+        assert result.passed is True
+        assert result.reason is None
+
+
+# ── v0.9 — RedisClusterPool (Task 4.3) ──────────────────────────────────────
+
+
+class TestRedisClusterPool:
+    """Tests for RedisClusterPool (Cluster-backed connection pool)."""
+
+    @pytest.fixture
+    def mock_cluster(self) -> AsyncMock:
+        """Return a mock redis.asyncio.cluster.RedisCluster."""
+        cluster = AsyncMock()
+        cluster.ping.return_value = True
+        return cluster
+
+    @pytest.fixture
+    def pool_from_nodes(
+        self,
+        mock_cluster: AsyncMock,
+    ) -> RedisClusterPool:
+        from unittest.mock import patch
+
+        from araxys.db_security.pool import RedisClusterPool
+
+        with patch(
+            "araxys.db_security.pool.RedisCluster", return_value=mock_cluster,
+        ):
+            return RedisClusterPool(
+                startup_nodes=[("localhost", 7000)],
+                health_check_interval_seconds=0,
+            )
+
+    @pytest.fixture
+    def pool_from_url(
+        self,
+        mock_cluster: AsyncMock,
+    ) -> RedisClusterPool:
+        from unittest.mock import patch
+
+        from araxys.db_security.pool import RedisClusterPool
+
+        with patch(
+            "araxys.db_security.pool.RedisCluster.from_url",
+            return_value=mock_cluster,
+        ):
+            return RedisClusterPool(
+                url="redis://localhost:7000",
+                health_check_interval_seconds=0,
+            )
+
+    async def test_constructor_from_startup_nodes(self) -> None:
+        """Pool can be created from startup_nodes."""
+        from unittest.mock import patch
+
+        from araxys.db_security.pool import RedisClusterPool
+
+        with patch("araxys.db_security.pool.RedisCluster") as mock_cls:
+            RedisClusterPool(
+                startup_nodes=[("h1", 7000), ("h2", 7001)],
+                health_check_interval_seconds=0,
+            )
+        mock_cls.assert_called_once()
+        _, kwargs = mock_cls.call_args
+        assert "startup_nodes" in kwargs
+        assert len(kwargs["startup_nodes"]) == 2
+
+    async def test_acquire_returns_client(
+        self,
+        pool_from_nodes: RedisClusterPool,
+    ) -> None:
+        """acquire() returns the cluster client."""
+        conn = await pool_from_nodes.acquire()
+        assert conn is not None
+
+    async def test_release_decrements_count(
+        self,
+        pool_from_nodes: RedisClusterPool,
+    ) -> None:
+        """release() decrements the active count."""
+        conn = await pool_from_nodes.acquire()
+        assert pool_from_nodes._active_count == 1  # noqa: SLF001
+        await pool_from_nodes.release(conn)
+        assert pool_from_nodes._active_count == 0  # noqa: SLF001
+
+    async def test_health_all_up_returns_true(
+        self,
+        pool_from_nodes: RedisClusterPool,
+    ) -> None:
+        """health() returns True when all nodes respond."""
+        pool_from_nodes._client.ping = AsyncMock(return_value=True)  # type: ignore[method-assign]  # noqa: SLF001
+        healthy = await pool_from_nodes.health()
+        assert healthy is True
+
+    async def test_health_all_down_returns_false(
+        self,
+        pool_from_nodes: RedisClusterPool,
+    ) -> None:
+        """health() returns False when cluster is completely unreachable."""
+        pool_from_nodes._client.ping = AsyncMock(  # type: ignore[method-assign]  # noqa: SLF001
+            side_effect=OSError("All nodes unreachable"),
+        )
+        healthy = await pool_from_nodes.health()
+        assert healthy is False
+
+    async def test_close_cancels_task(
+        self,
+        pool_from_nodes: RedisClusterPool,
+    ) -> None:
+        """close() cancels health task and marks pool closed."""
+        task = pool_from_nodes._health_task  # noqa: SLF001
+        await pool_from_nodes.close()
+        assert pool_from_nodes._closed is True  # noqa: SLF001
+        assert task is None or task.cancelled() or task.done()
+
+    async def test_ssl_context_forwarded(self) -> None:
+        """SSL context is passed to the RedisCluster constructor."""
+        import ssl
+        from unittest.mock import patch
+
+        from araxys.db_security.pool import RedisClusterPool
+
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        with patch("araxys.db_security.pool.RedisCluster") as mock_cls:
+            RedisClusterPool(
+                startup_nodes=[("localhost", 7000)],
+                ssl_context=ctx,
+                health_check_interval_seconds=0,
+            )
+        mock_cls.assert_called_once()
+        _, kwargs = mock_cls.call_args
+        assert kwargs.get("ssl_context") is ctx
+
+    async def test_read_from_replicas_forwarded(self) -> None:
+        """read_from_replicas is passed to the RedisCluster constructor."""
+        from unittest.mock import patch
+
+        from araxys.db_security.pool import RedisClusterPool
+
+        with patch("araxys.db_security.pool.RedisCluster") as mock_cls:
+            RedisClusterPool(
+                startup_nodes=[("localhost", 7000)],
+                read_from_replicas=True,
+                health_check_interval_seconds=0,
+            )
+        _, kwargs = mock_cls.call_args
+        assert kwargs.get("read_from_replicas") is True

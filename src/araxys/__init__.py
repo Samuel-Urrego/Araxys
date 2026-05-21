@@ -67,8 +67,9 @@ from araxys.db_security import (
     ConnectionStringResolver,
     DatabaseSecurityManager,
     InMemoryPool,
-    QueryAuditor,
+    RedisClusterPool,
     RedisPool,
+    RedisSentinelPool,
     get_db_pool,
     get_query_auditor,
 )
@@ -165,8 +166,9 @@ __all__ = [
     "ConnectionStringResolver",
     "DatabaseSecurityManager",
     "InMemoryPool",
-    "QueryAuditor",
+    "RedisClusterPool",
     "RedisPool",
+    "RedisSentinelPool",
     "get_db_pool",
     "get_query_auditor",
 ]

@@ -86,19 +86,41 @@ class DatabaseSecurityManager:
 
             query_validator = QueryValidator(config.query_validation)
 
-        # Use config URL directly (init is synchronous; async resolver resolution
-        # happens lazily in the shield layer).
-        self._pool: RedisPool = RedisPool(
-            url=config.redis_pool.url,
+        # Select pool class based on mode discriminator.
+        pool_params: dict[str, object] = dict(
             max_size=config.redis_pool.max_size,
             idle_timeout_seconds=config.redis_pool.idle_timeout_seconds,
             acquire_timeout_seconds=config.redis_pool.acquire_timeout_seconds,
             health_check_interval_seconds=config.redis_pool.health_check_interval_seconds,
             leak_threshold=config.redis_pool.leak_threshold,
+            reconnect_retries=config.redis_pool.reconnect_retries,
             ssl_context=ssl_context,
             cert_pin_sha256=config.tls.cert_pin_sha256,
             query_validator=query_validator,
         )
+
+        if config.redis_pool.mode == "sentinel":
+            from araxys.db_security.pool import RedisSentinelPool
+
+            self._pool: ConnectionPool = RedisSentinelPool(
+                sentinels=config.redis_pool.sentinels,
+                master_name=config.redis_pool.master_name,
+                **pool_params,  # type: ignore[arg-type]
+            )
+        elif config.redis_pool.mode == "cluster":
+            from araxys.db_security.pool import RedisClusterPool
+
+            self._pool = RedisClusterPool(
+                startup_nodes=config.redis_pool.startup_nodes,
+                url=config.redis_pool.url,
+                read_from_replicas=config.redis_pool.read_from_replicas,
+                **pool_params,  # type: ignore[arg-type]
+            )
+        else:
+            self._pool = RedisPool(
+                url=config.redis_pool.url,
+                **pool_params,  # type: ignore[arg-type]
+            )
 
         # Create auditor if enabled and callback provided.
         self._auditor: QueryAuditor | None = None
