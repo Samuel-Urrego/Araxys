@@ -1117,3 +1117,177 @@ class TestDLQConfig:
         """dlq_max_retries must default to 5."""
         config = WebhookConfig()
         assert config.dlq_max_retries == 5
+
+
+class TestDLQEdgeCases:
+    """Edge case and acceptance tests."""
+
+    async def test_purge_all_empty_backend(
+        self,
+        fake_redis: FakeRedis,
+    ) -> None:
+        """Purge all when no events exist returns 0."""
+        from araxys.webhooks.dlq import WebhookDLQBackend
+
+        backend = WebhookDLQBackend(fake_redis)
+        count = await backend.purge_all()
+        assert count == 0
+
+    async def test_purge_by_url_no_match(
+        self,
+        fake_redis: FakeRedis,
+        sample_event: SecurityEvent,
+    ) -> None:
+        """Purge by URL with no matching events returns 0."""
+        from araxys.webhooks.dlq import WebhookDLQBackend
+
+        backend = WebhookDLQBackend(fake_redis)
+        await backend.enqueue(
+            sample_event,
+            "https://hook.example.com",
+        )
+        count = await backend.purge_by_url("https://other.example.com")
+        assert count == 0
+
+    async def test_consumer_restart(
+        self,
+        dlq_backend: WebhookDLQBackend,
+    ) -> None:
+        """Start → stop → start consumer works correctly."""
+        from unittest.mock import AsyncMock
+
+        from araxys.webhooks.dlq import DLQConsumer
+
+        config = WebhookConfig(dlq_enabled=True, dlq_retry_interval_seconds=3600)
+        deliver_fn = AsyncMock(return_value=True)
+        consumer = DLQConsumer(dlq_backend, deliver_fn, config)
+
+        consumer.start()
+        assert consumer._running is True
+        task1 = consumer._task
+
+        await consumer.stop()
+        assert consumer._running is False
+
+        # Restart
+        consumer.start()
+        assert consumer._running is True
+        assert consumer._task is not None
+        # Should be a new task
+        assert consumer._task != task1
+
+        await consumer.stop()
+
+    async def test_route_503_when_backend_unavailable(
+        self,
+    ) -> None:
+        """DLQ endpoints return 503 when shield has no dlq_backend."""
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+
+        from araxys.core.config import AraxysConfig, WebhookConfig
+        from araxys.shield import AraxysShield
+
+        app = FastAPI()
+        config = AraxysConfig(
+            secret_key="test-key-32-chars-long!!!!!!!!!!!!",
+            webhooks=WebhookConfig(enabled=True, dlq_enabled=False),
+        )
+        shield = AraxysShield(app, config)
+
+        from araxys.webhooks.dlq_routes import create_dlq_router
+
+        app.include_router(create_dlq_router(shield))
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/admin/webhooks/dlq")
+            assert resp.status_code == 503
+            assert "DLQ backend not available" in resp.text
+
+    async def test_end_to_end_dlq_flow(
+        self,
+        fake_redis: FakeRedis,
+        sample_event: SecurityEvent,
+    ) -> None:
+        """Full DLQ flow: enqueue → fail → dead → replay → success.
+
+        Uses ``_poll_once`` directly rather than the background poll
+        loop to keep the test deterministic.
+        """
+        from unittest.mock import AsyncMock
+
+        from araxys.webhooks.dlq import DLQConsumer, WebhookDLQBackend
+
+        backend = WebhookDLQBackend(fake_redis)
+        deliver_fn = AsyncMock(return_value=False)
+        # enqueue defaults to attempt_count=1, so with max_retries=4:
+        #   poll 1 → new=2 < 4 → reschedule (pending, attempt=2)
+        #   poll 2 → new=3 < 4 → reschedule (pending, attempt=3)
+        #   poll 3 → new=4 >= 4 → mark dead (attempt=4)
+        # Since config enforces dlq_retry_interval_seconds >= 1, we manually
+        # reset the ZSET score to 0 after each reschedule to make events
+        # immediately eligible for the next poll.
+        config = WebhookConfig(
+            dlq_enabled=True,
+            dlq_retry_interval_seconds=3600,  # anything >= 1
+            dlq_max_retries=4,
+        )
+        consumer = DLQConsumer(backend, deliver_fn, config)
+
+        async def _make_eligible() -> None:
+            """Force the rescheduled event's ZSET score to 0 for immediate polling."""  # noqa: E501
+            await fake_redis.zadd("dlq:pending", {event_id: 0})
+
+        # 1. Enqueue an event
+        event_id = await backend.enqueue(
+            sample_event,
+            "https://hook.example.com",
+        )
+        pending = await backend.list_pending()
+        assert len(pending) == 1
+        assert pending[0].status == "pending"
+
+        # 2. Poll once → delivery fails → rescheduled (1→2)
+        await consumer._poll_once()
+        event = await backend.inspect(event_id)
+        assert event is not None
+        assert event.attempt_count == 2, (
+            f"Expected attempt_count=2 after first fail, got {event.attempt_count}"
+        )
+        assert event.status == "pending"  # rescheduled, not dead yet
+
+        # 3. Make eligible + poll again → fails → rescheduled (2→3)
+        await _make_eligible()
+        await consumer._poll_once()
+        event = await backend.inspect(event_id)
+        assert event is not None
+        assert event.attempt_count == 3, (
+            f"Expected attempt_count=3 after second fail, got {event.attempt_count}"
+        )
+        assert event.status == "pending"
+
+        # 4. Make eligible + poll third time → fails → max retries hit → dead
+        await _make_eligible()
+        await consumer._poll_once()
+        event = await backend.inspect(event_id)
+        assert event is not None
+        assert event.attempt_count == 4
+        assert event.status == "dead"
+
+        dead = await backend.list_dead()
+        assert len(dead) == 1
+        assert dead[0].status == "dead"
+
+        # 5. Replay → back to pending with reset attempt count
+        replay_ok = await backend.replay(event_id)
+        assert replay_ok is True
+
+        pending = await backend.list_pending()
+        assert len(pending) == 1
+        assert pending[0].status == "pending"
+        assert pending[0].attempt_count == 0
+
+        # 6. Replay again is a no-op (already pending → not in dead set)
+        replay_ok = await backend.replay(event_id)
+        assert replay_ok is False

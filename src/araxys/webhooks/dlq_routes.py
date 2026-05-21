@@ -162,19 +162,9 @@ def create_dlq_router(
 
         # Move from dead to pending with reset attempt count
         try:
-            await backend._redis.zrem("dlq:dead", event_id)  # noqa: SLF001
+            await backend.replay(event_id)
         except ConnectionError:
             raise HTTPException(503, detail="Redis unavailable") from None
-
-        import time
-
-        now = time.time()
-        async with backend._redis.pipeline(transaction=True) as pipe:  # noqa: SLF001
-            pipe.hset(f"dlq:event:{event_id}", "attempt_count", "0")
-            pipe.hset(f"dlq:event:{event_id}", "status", "pending")
-            pipe.hset(f"dlq:event:{event_id}", "next_retry_at", str(now))
-            pipe.zadd("dlq:pending", {event_id: now})
-            await pipe.execute()
 
         return {"status": "replayed", "event_id": event_id}
 

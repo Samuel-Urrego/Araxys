@@ -181,6 +181,27 @@ class WebhookDLQBackend:
             pipe.hset(f"dlq:event:{event_id}", "status", "dead")
             await pipe.execute()
 
+    async def replay(self, event_id: str) -> bool:
+        """Re-enqueue a dead event back to pending with reset attempt count.
+
+        Returns ``True`` on success (event existed and was moved),
+        ``False`` if the event is not in ``dlq:dead``.
+        """
+        now = time.time()
+        moved = await self._redis.zrem("dlq:dead", event_id)
+        if not moved:
+            # Already pending or does not exist
+            return False
+
+        async with self._redis.pipeline(transaction=True) as pipe:
+            pipe.hset(f"dlq:event:{event_id}", "attempt_count", "0")
+            pipe.hset(f"dlq:event:{event_id}", "status", "pending")
+            pipe.hset(f"dlq:event:{event_id}", "next_retry_at", str(now))
+            pipe.zadd("dlq:pending", {event_id: now})
+            await pipe.execute()
+
+        return True
+
     async def remove(self, event_id: str) -> bool:
         """Remove an event entirely from Redis.
 
