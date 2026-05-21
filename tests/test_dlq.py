@@ -366,7 +366,7 @@ class TestDLQConsumer:
         deliver_fn = AsyncMock(return_value=True)
         consumer = DLQConsumer(dlq_backend, deliver_fn, config)
 
-        await consumer.start()
+        consumer.start()
         assert consumer._running is True
         assert consumer._task is not None
 
@@ -495,6 +495,604 @@ class TestDLQConsumer:
         # Second _poll_once should succeed (no events, but no crash)
         await consumer._poll_once()
         assert call_count == 2
+
+
+class TestDLQDeliveryIntegration:
+    """Integration between WebhookDelivery and DLQ backend."""
+
+    async def test_deliver_with_retry_returns_false_on_failure(
+        self,
+    ) -> None:
+        """_deliver_with_retry must return False when delivery fails."""
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
+
+        from araxys.webhooks.delivery import WebhookDelivery
+        from araxys.webhooks.emitter import SecurityEventBus
+
+        bus = SecurityEventBus()
+        config = WebhookConfig(
+            enabled=True,
+            urls={"ip_blocked": ["https://hooks.example.com/hook"]},
+            retry_max=0,  # no retries, fail immediately
+            timeout_seconds=5,
+            queue_size=100,
+        )
+        delivery = WebhookDelivery(
+            config, bus,
+            secret_key="test-secret-key-at-least-32-chars!!",
+            dlq_backend=None,
+        )
+
+        event = SecurityEvent(
+            event_type=SecurityEventType.IP_BLOCKED,
+            severity="info",
+            message="test",
+        )
+
+        with patch.object(delivery, "_get_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_response = AsyncMock(spec=httpx.Response)
+            mock_response.is_success = False
+            mock_response.status_code = 500
+            mock_client.post.return_value = mock_response
+            mock_get_client.return_value = mock_client
+
+            result = await delivery._deliver_with_retry(
+                "https://hooks.example.com/hook", event
+            )
+            assert result is False
+
+    async def test_deliver_with_retry_returns_true_on_success(
+        self,
+    ) -> None:
+        """_deliver_with_retry must return True when delivery succeeds."""
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
+
+        from araxys.webhooks.delivery import WebhookDelivery
+        from araxys.webhooks.emitter import SecurityEventBus
+
+        bus = SecurityEventBus()
+        config = WebhookConfig(
+            enabled=True,
+            urls={"ip_blocked": ["https://hooks.example.com/hook"]},
+            retry_max=0,
+            timeout_seconds=5,
+            queue_size=100,
+        )
+        delivery = WebhookDelivery(
+            config, bus,
+            secret_key="test-secret-key-at-least-32-chars!!",
+            dlq_backend=None,
+        )
+
+        event = SecurityEvent(
+            event_type=SecurityEventType.IP_BLOCKED,
+            severity="info",
+            message="test",
+        )
+
+        with patch.object(delivery, "_get_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_response = AsyncMock(spec=httpx.Response)
+            mock_response.is_success = True
+            mock_response.status_code = 200
+            mock_client.post.return_value = mock_response
+            mock_get_client.return_value = mock_client
+
+            result = await delivery._deliver_with_retry(
+                "https://hooks.example.com/hook", event
+            )
+            assert result is True
+
+    async def test_dlq_stores_event_on_retry_exhaustion(
+        self,
+        fake_redis: FakeRedis,
+    ) -> None:
+        """Event must be stored in DLQ when all retries are exhausted."""
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
+
+        from araxys.webhooks.delivery import WebhookDelivery
+        from araxys.webhooks.dlq import WebhookDLQBackend
+        from araxys.webhooks.emitter import SecurityEventBus
+
+        backend = WebhookDLQBackend(fake_redis)
+        bus = SecurityEventBus()
+        config = WebhookConfig(
+            enabled=True,
+            urls={"ip_blocked": ["https://hooks.example.com/hook"]},
+            retry_max=0,
+            timeout_seconds=5,
+            queue_size=100,
+        )
+        delivery = WebhookDelivery(
+            config, bus,
+            secret_key="test-secret-key-at-least-32-chars!!",
+            dlq_backend=backend,
+        )
+
+        event = SecurityEvent(
+            event_type=SecurityEventType.IP_BLOCKED,
+            severity="info",
+            message="test",
+        )
+
+        with patch.object(delivery, "_get_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_response = AsyncMock(spec=httpx.Response)
+            mock_response.is_success = False
+            mock_response.status_code = 500
+            mock_client.post.return_value = mock_response
+            mock_get_client.return_value = mock_client
+
+            result = await delivery._deliver_with_retry(
+                "https://hooks.example.com/hook", event
+            )
+            assert result is False
+
+            # Event should be in DLQ
+            pending = await backend.list_pending()
+            assert len(pending) == 1
+            assert pending[0].url == "https://hooks.example.com/hook"
+
+    async def test_no_dlq_stored_when_dlq_backend_is_none(
+        self,
+    ) -> None:
+        """Event must NOT be stored when dlq_backend is None (backward compat)."""
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
+
+        from araxys.webhooks.delivery import WebhookDelivery
+        from araxys.webhooks.emitter import SecurityEventBus
+
+        bus = SecurityEventBus()
+        config = WebhookConfig(
+            enabled=True,
+            urls={"ip_blocked": ["https://hooks.example.com/hook"]},
+            retry_max=0,
+            timeout_seconds=5,
+            queue_size=100,
+        )
+        delivery = WebhookDelivery(
+            config, bus,
+            secret_key="test-secret-key-at-least-32-chars!!",
+            dlq_backend=None,
+        )
+
+        event = SecurityEvent(
+            event_type=SecurityEventType.IP_BLOCKED,
+            severity="info",
+            message="test",
+        )
+
+        with patch.object(delivery, "_get_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_response = AsyncMock(spec=httpx.Response)
+            mock_response.is_success = False
+            mock_response.status_code = 500
+            mock_client.post.return_value = mock_response
+            mock_get_client.return_value = mock_client
+
+            result = await delivery._deliver_with_retry(
+                "https://hooks.example.com/hook", event
+            )
+            assert result is False
+            # No DLQ backend means no DLQ storage — nothing to assert on
+
+
+class TestDLQAPIRoutes:
+    """DLQ API endpoints via create_dlq_router."""
+
+    @pytest.fixture
+    def dlq_shield(self, fake_redis: FakeRedis) -> object:
+        """Create a minimal shield-like object with DLQ backend."""
+        from araxys.webhooks.dlq import WebhookDLQBackend
+
+        backend = WebhookDLQBackend(fake_redis)
+
+        class FakeShield:
+            dlq_backend = backend
+
+        return FakeShield()
+
+    async def test_list_pending_empty(
+        self, dlq_shield: object
+    ) -> None:
+        """GET /admin/webhooks/dlq should return empty list when no events."""
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+
+        from araxys.webhooks.dlq_routes import create_dlq_router
+
+        app = FastAPI()
+        router = create_dlq_router(dlq_shield)
+        app.include_router(router)
+        transport = ASGITransport(app=app)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/admin/webhooks/dlq")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "pending"
+            assert data["events"] == []
+
+    async def test_list_pending_with_events(
+        self, dlq_shield: object, sample_event: SecurityEvent
+    ) -> None:
+        """GET /admin/webhooks/dlq should return pending events."""
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+
+        from araxys.webhooks.dlq_routes import create_dlq_router
+
+        await dlq_shield.dlq_backend.enqueue(
+            sample_event,
+            "https://hooks.example.com/hook",
+            attempt_count=2,
+            last_error="Timeout",
+        )
+
+        app = FastAPI()
+        router = create_dlq_router(dlq_shield)
+        app.include_router(router)
+        transport = ASGITransport(app=app)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/admin/webhooks/dlq")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "pending"
+            assert len(data["events"]) == 1
+            assert data["events"][0]["url"] == "https://hooks.example.com/hook"
+            assert data["events"][0]["attempt_count"] == 2
+
+    async def test_list_dead_empty(
+        self, dlq_shield: object
+    ) -> None:
+        """GET /admin/webhooks/dlq/dead should return empty list."""
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+
+        from araxys.webhooks.dlq_routes import create_dlq_router
+
+        app = FastAPI()
+        router = create_dlq_router(dlq_shield)
+        app.include_router(router)
+        transport = ASGITransport(app=app)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/admin/webhooks/dlq/dead")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["events"] == []
+
+    async def test_inspect_missing_event(
+        self, dlq_shield: object
+    ) -> None:
+        """GET /admin/webhooks/dlq/{id} on missing event returns 404."""
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+
+        from araxys.webhooks.dlq_routes import create_dlq_router
+
+        app = FastAPI()
+        router = create_dlq_router(dlq_shield)
+        app.include_router(router)
+        transport = ASGITransport(app=app)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/admin/webhooks/dlq/nonexistent")
+            assert resp.status_code == 404
+
+    async def test_inspect_existing_event(
+        self, dlq_shield: object, sample_event: SecurityEvent
+    ) -> None:
+        """GET /admin/webhooks/dlq/{id} should return full event."""
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+
+        from araxys.webhooks.dlq_routes import create_dlq_router
+
+        event_id = await dlq_shield.dlq_backend.enqueue(
+            sample_event,
+            "https://hooks.example.com/hook",
+            attempt_count=1,
+            last_error="500",
+        )
+
+        app = FastAPI()
+        router = create_dlq_router(dlq_shield)
+        app.include_router(router)
+        transport = ASGITransport(app=app)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/admin/webhooks/dlq/{event_id}")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["event_id"] == event_id
+            assert data["event_type"] == "rate_limit_exceeded"
+            assert data["attempt_count"] == 1
+
+    async def test_replay_missing_event(
+        self, dlq_shield: object
+    ) -> None:
+        """POST /admin/webhooks/dlq/{id}/replay on missing returns 404."""
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+
+        from araxys.webhooks.dlq_routes import create_dlq_router
+
+        app = FastAPI()
+        router = create_dlq_router(dlq_shield)
+        app.include_router(router)
+        transport = ASGITransport(app=app)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/admin/webhooks/dlq/nonexistent/replay")
+            assert resp.status_code == 404
+
+    async def test_replay_dead_event(
+        self, dlq_shield: object, sample_event: SecurityEvent
+    ) -> None:
+        """POST replay should move dead event back to pending."""
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+
+        from araxys.webhooks.dlq_routes import create_dlq_router
+
+        event_id = await dlq_shield.dlq_backend.enqueue(
+            sample_event,
+            "https://hooks.example.com/hook",
+        )
+        await dlq_shield.dlq_backend.mark_dead(event_id)
+
+        app = FastAPI()
+        router = create_dlq_router(dlq_shield)
+        app.include_router(router)
+        transport = ASGITransport(app=app)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(f"/admin/webhooks/dlq/{event_id}/replay")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "replayed"
+
+            # Event should be in pending now
+            pending = await dlq_shield.dlq_backend.list_pending()
+            assert any(e.event_id == event_id for e in pending)
+
+    async def test_purge_all(
+        self, dlq_shield: object, sample_event: SecurityEvent
+    ) -> None:
+        """DELETE /admin/webhooks/dlq should purge all events."""
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+
+        from araxys.webhooks.dlq_routes import create_dlq_router
+
+        await dlq_shield.dlq_backend.enqueue(
+            sample_event, "https://hooks.example.com/a"
+        )
+        await dlq_shield.dlq_backend.enqueue(
+            sample_event, "https://hooks.example.com/b"
+        )
+
+        app = FastAPI()
+        router = create_dlq_router(dlq_shield)
+        app.include_router(router)
+        transport = ASGITransport(app=app)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.delete("/admin/webhooks/dlq")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["deleted"] >= 2
+
+    async def test_purge_by_url(
+        self, dlq_shield: object, sample_event: SecurityEvent
+    ) -> None:
+        """DELETE /admin/webhooks/dlq?url=... should filter by URL."""
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+
+        from araxys.webhooks.dlq_routes import create_dlq_router
+
+        await dlq_shield.dlq_backend.enqueue(
+            sample_event, "https://hooks.example.com/a"
+        )
+        await dlq_shield.dlq_backend.enqueue(
+            sample_event, "https://hooks.example.com/b"
+        )
+
+        app = FastAPI()
+        router = create_dlq_router(dlq_shield)
+        app.include_router(router)
+        transport = ASGITransport(app=app)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.delete(
+                "/admin/webhooks/dlq", params={"url": "https://hooks.example.com/a"}
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["deleted"] == 1
+
+    async def test_503_on_redis_failure(
+        self, sample_event: SecurityEvent
+    ) -> None:
+        """DLQ API should return 503 when Redis is unavailable."""
+        from unittest.mock import AsyncMock
+
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+
+        from araxys.webhooks.dlq import WebhookDLQBackend
+        from araxys.webhooks.dlq_routes import create_dlq_router
+
+        broken = AsyncMock()
+        # Any redis method call raises ConnectionError
+        broken.zrevrange = AsyncMock(
+            side_effect=ConnectionError("Redis is down")
+        )
+        broken.zcard = AsyncMock(
+            side_effect=ConnectionError("Redis is down")
+        )
+        broken.hgetall = AsyncMock(
+            side_effect=ConnectionError("Redis is down")
+        )
+
+        backend = WebhookDLQBackend(broken)
+
+        class FakeShield:
+            dlq_backend = backend
+
+        app = FastAPI()
+        router = create_dlq_router(FakeShield())
+        app.include_router(router)
+        transport = ASGITransport(app=app)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/admin/webhooks/dlq")
+            assert resp.status_code == 503
+
+
+class TestDLQShieldWiring:
+    """DLQ shield integration — consumer lifecycle and config gating."""
+
+    async def test_dlq_disabled_no_consumer(
+        self,
+    ) -> None:
+        """No consumer or backend when dlq_enabled=False."""
+        from fastapi import FastAPI
+
+        from araxys.core.config import AraxysConfig, WebhookConfig
+        from araxys.shield import AraxysShield
+
+        app = FastAPI()
+        config = AraxysConfig(
+            secret_key="test-key-32-chars-long!!!!!!!!!!!!",
+            webhooks=WebhookConfig(enabled=True, dlq_enabled=False),
+        )
+        shield = AraxysShield(app, config)
+
+        assert not hasattr(shield, "dlq_backend") or shield.dlq_backend is None
+
+    async def test_dlq_enabled_creates_backend(
+        self,
+    ) -> None:
+        """DLQ backend and consumer are created when dlq_enabled=True."""
+        from unittest.mock import patch
+
+        from fastapi import FastAPI
+
+        from araxys.core.config import AraxysConfig, WebhookConfig
+        from araxys.shield import AraxysShield
+        from araxys.webhooks.dlq import WebhookDLQBackend
+
+        fake_redis_instance = FakeRedis(decode_responses=True)
+        with patch(
+            "redis.asyncio.from_url",
+            return_value=fake_redis_instance,
+        ):
+            app = FastAPI()
+            config = AraxysConfig(
+                secret_key="test-key-32-chars-long!!!!!!!!!!!!",
+                redis_url="redis://localhost:6379",
+                webhooks=WebhookConfig(enabled=True, dlq_enabled=True),
+            )
+            shield = AraxysShield(app, config)
+
+        assert shield.dlq_backend is not None
+        assert isinstance(shield.dlq_backend, WebhookDLQBackend)
+
+    async def test_dlq_enabled_starts_consumer(
+        self,
+    ) -> None:
+        """DLQ consumer task is started when dlq_enabled=True."""
+        from unittest.mock import patch
+
+        from fastapi import FastAPI
+
+        from araxys.core.config import AraxysConfig, WebhookConfig
+        from araxys.shield import AraxysShield
+
+        fake_redis_instance = FakeRedis(decode_responses=True)
+        with patch(
+            "redis.asyncio.from_url",
+            return_value=fake_redis_instance,
+        ):
+            app = FastAPI()
+            config = AraxysConfig(
+                secret_key="test-key-32-chars-long!!!!!!!!!!!!",
+                redis_url="redis://localhost:6379",
+                webhooks=WebhookConfig(enabled=True, dlq_enabled=True,
+                                       dlq_retry_interval_seconds=3600),
+            )
+            shield = AraxysShield(app, config)
+
+        assert shield._dlq_consumer is not None
+        assert shield._dlq_consumer._running is True
+
+        await shield.shutdown()
+
+    async def test_dlq_enabled_no_redis_raises(
+        self,
+    ) -> None:
+        """ConfigurationError when dlq_enabled=True but no redis_url."""
+        from fastapi import FastAPI
+
+        from araxys.core.config import (
+            AraxysConfig,
+            ConfigurationError,
+            WebhookConfig,
+        )
+        from araxys.shield import AraxysShield
+
+        app = FastAPI()
+        config = AraxysConfig(
+            secret_key="test-key-32-chars-long!!!!!!!!!!!!",
+            redis_url=None,
+            webhooks=WebhookConfig(enabled=True, dlq_enabled=True),
+        )
+        with pytest.raises(ConfigurationError, match="redis_url"):
+            AraxysShield(app, config)
+
+    async def test_shutdown_stops_consumer(
+        self,
+    ) -> None:
+        """shutdown() stops the DLQ consumer."""
+        from unittest.mock import patch
+
+        from fastapi import FastAPI
+
+        from araxys.core.config import AraxysConfig, WebhookConfig
+        from araxys.shield import AraxysShield
+
+        fake_redis_instance = FakeRedis(decode_responses=True)
+        with patch(
+            "redis.asyncio.from_url",
+            return_value=fake_redis_instance,
+        ):
+            app = FastAPI()
+            config = AraxysConfig(
+                secret_key="test-key-32-chars-long!!!!!!!!!!!!",
+                redis_url="redis://localhost:6379",
+                webhooks=WebhookConfig(enabled=True, dlq_enabled=True,
+                                       dlq_retry_interval_seconds=3600),
+            )
+            shield = AraxysShield(app, config)
+
+        assert shield._dlq_consumer is not None
+        assert shield._dlq_consumer._running is True
+
+        await shield.shutdown()
+        assert shield._dlq_consumer._running is False
 
 
 class TestDLQConfig:

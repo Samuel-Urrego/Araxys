@@ -409,7 +409,7 @@ class DLQConsumer:
         self._task: asyncio.Task[None] | None = None
         self._running = False
 
-    async def start(self) -> None:
+    def start(self) -> None:
         """Start the background consumer poll loop."""
         if self._running:
             return

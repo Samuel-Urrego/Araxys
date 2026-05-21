@@ -88,6 +88,7 @@ from araxys.sessions.storage import (
 )
 from araxys.shield import AraxysShield
 from araxys.telemetry.tracer import AraxysTracer
+from araxys.webhooks.dlq import DLQConsumer, WebhookDLQBackend
 from araxys.webhooks.emitter import SecurityEventBus
 
 __all__ = [
@@ -141,6 +142,8 @@ __all__ = [
     "CSRFHandler",
     "SessionManager",
     "SecurityEventBus",
+    "DLQConsumer",
+    "WebhookDLQBackend",
     "MetricsRegistry",
     "AraxysTracer",
     # v0.3 modules — dependencies

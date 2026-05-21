@@ -29,6 +29,7 @@ from araxys.brute_force.limiter import (
     RedisBruteForceBackend,
 )
 from araxys.brute_force.password_policy import PasswordPolicy, PasswordPolicyConfig
+from araxys.core.exceptions import ConfigurationError
 
 # v0.3 module imports
 from araxys.cors.middleware import CORSMiddleware
@@ -54,6 +55,7 @@ from araxys.sessions.storage import InMemorySessionBackend, RedisSessionBackend
 from araxys.telemetry.middleware import TelemetryMiddleware
 from araxys.telemetry.tracer import AraxysTracer
 from araxys.webhooks.delivery import WebhookDelivery
+from araxys.webhooks.dlq import DLQConsumer, WebhookDLQBackend
 from araxys.webhooks.emitter import SecurityEventBus
 
 if TYPE_CHECKING:
@@ -154,9 +156,36 @@ class AraxysShield:
         self._webhook_delivery: WebhookDelivery | None = None
         if config.webhooks is not None and config.webhooks.enabled:
             assert self.event_bus is not None
-            self._webhook_delivery = WebhookDelivery(
-                config.webhooks, self.event_bus, config.secret_key
-            )
+
+            # DLQ backend (optional — must be created before delivery)
+            self.dlq_backend: WebhookDLQBackend | None = None
+            self._dlq_consumer: DLQConsumer | None = None
+            webhooks_cfg = config.webhooks
+            if webhooks_cfg.dlq_enabled:
+                if not config.redis_url:
+                    raise ConfigurationError(
+                        "redis_url is required when webhooks.dlq_enabled=True"
+                    )
+                from redis.asyncio import from_url
+
+                redis = from_url(config.redis_url, decode_responses=True)
+                self.dlq_backend = WebhookDLQBackend(redis)
+                self._webhook_delivery = WebhookDelivery(
+                    webhooks_cfg, self.event_bus, config.secret_key,
+                    dlq_backend=self.dlq_backend,
+                )
+
+                # Start DLQ consumer
+                self._dlq_consumer = DLQConsumer(
+                    backend=self.dlq_backend,
+                    deliver_fn=self._webhook_delivery._deliver_with_retry,
+                    config=webhooks_cfg,
+                )
+                self._dlq_consumer.start()
+            else:
+                self._webhook_delivery = WebhookDelivery(
+                    webhooks_cfg, self.event_bus, config.secret_key,
+                )
 
         # Metrics registry (subscribes to event bus, mounts /metrics)
         self._metrics_registry: MetricsRegistry | None = None
@@ -440,18 +469,30 @@ class AraxysShield:
         self, config: AraxysConfig
     ) -> InMemorySessionBackend | RedisSessionBackend:
         """Create the session backend based on config."""
+        assert config.session is not None  # only called when session enabled
         if self._db_security is not None:
             logger.info("araxys.using_pooled_redis_session_backend")
-            return RedisSessionBackend(pool=self._db_security.pool)
+            return RedisSessionBackend(
+                pool=self._db_security.pool,
+                session_ttl_seconds=config.session.session_ttl_seconds,
+                idle_timeout_seconds=config.session.idle_timeout_seconds,
+            )
         if config.session is None:
             return InMemorySessionBackend()
         if config.session.redis_url:
             logger.info(
                 "araxys.using_redis_session_backend", url=config.session.redis_url
             )
-            return RedisSessionBackend(config.session.redis_url)
+            return RedisSessionBackend(
+                config.session.redis_url,
+                session_ttl_seconds=config.session.session_ttl_seconds,
+                idle_timeout_seconds=config.session.idle_timeout_seconds,
+            )
         logger.info("araxys.using_inmemory_session_backend")
-        return InMemorySessionBackend()
+        return InMemorySessionBackend(
+            session_ttl_seconds=config.session.session_ttl_seconds,
+            idle_timeout_seconds=config.session.idle_timeout_seconds,
+        )
 
     # ── Shutdown ──────────────────────────────────────────────────────────
 
@@ -468,6 +509,10 @@ class AraxysShield:
         # Stop session cleanup loop
         if self._session_manager is not None:
             await self._session_manager.stop_cleanup()
+
+        # Stop DLQ consumer
+        if hasattr(self, "_dlq_consumer") and self._dlq_consumer is not None:
+            await self._dlq_consumer.stop()
 
         logger.info("araxys.shield_shutdown_complete")
 

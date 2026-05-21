@@ -21,6 +21,7 @@ import httpx
 if TYPE_CHECKING:
     from araxys.core.config import WebhookConfig
     from araxys.core.types import SecurityEvent
+    from araxys.webhooks.dlq import WebhookDLQBackend
     from araxys.webhooks.emitter import SecurityEventBus
 
 logger = logging.getLogger("araxys.webhooks.delivery")
@@ -56,10 +57,12 @@ class WebhookDelivery:
         config: WebhookConfig,
         event_bus: SecurityEventBus,
         secret_key: str,
+        dlq_backend: WebhookDLQBackend | None = None,
     ) -> None:
         self._config = config
         self._event_bus = event_bus
         self._secret_key = secret_key.encode("utf-8")
+        self._dlq_backend = dlq_backend
         self._http_client: httpx.AsyncClient | None = None
         event_bus.subscribe(self._on_event)
 
@@ -86,8 +89,13 @@ class WebhookDelivery:
 
     async def _deliver_with_retry(
         self, url: str, event: SecurityEvent
-    ) -> None:
-        """POST the event to *url* with exponential backoff retry."""
+    ) -> bool:
+        """POST the event to *url* with exponential backoff retry.
+
+        Returns ``True`` if delivery succeeded, ``False`` otherwise.
+        When all retries are exhausted and a DLQ backend is configured,
+        the event is enqueued for later retry.
+        """
         client = await self._get_client()
         payload = self._build_payload(event)
         body = json.dumps(payload, default=str).encode("utf-8")  # raw bytes for signing
@@ -97,6 +105,7 @@ class WebhookDelivery:
             self._secret_key, body, hashlib.sha256
         ).hexdigest()
 
+        last_error: str = ""
         headers = {
             "Content-Type": "application/json",
             "X-Signature-256": signature,
@@ -107,7 +116,8 @@ class WebhookDelivery:
             try:
                 response = await client.post(url, content=body, headers=headers)
                 if response.is_success:
-                    return
+                    return True
+                last_error = f"HTTP {response.status_code}"
                 logger.warning(
                     "Webhook delivery to %s returned %d (attempt %d/%d)",
                     url,
@@ -116,6 +126,7 @@ class WebhookDelivery:
                     self._config.retry_max + 1,
                 )
             except httpx.RequestError as exc:
+                last_error = str(exc)
                 logger.warning(
                     "Webhook delivery to %s failed: %s (attempt %d/%d)",
                     url,
@@ -127,6 +138,22 @@ class WebhookDelivery:
             if attempt < self._config.retry_max:
                 delay = _RETRY_DELAYS[attempt]
                 await asyncio.sleep(delay)
+
+        # All retries exhausted — enqueue to DLQ if configured
+        if self._dlq_backend is not None:
+            try:
+                await self._dlq_backend.enqueue(
+                    event,
+                    url,
+                    attempt_count=self._config.retry_max + 1,
+                    last_error=last_error,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to enqueue webhook event to DLQ for %s", url
+                )
+
+        return False
 
     @staticmethod
     def _build_payload(event: SecurityEvent) -> dict[str, object]:
