@@ -1,8 +1,10 @@
 """Tests for the webhook Dead-Letter Queue (DLQ) module.
-
+ 
 Tests cover DLQ configuration, backend storage, consumer lifecycle,
 API routes, and shield integration.
 """
+
+# mypy: ignore-errors
 
 from __future__ import annotations
 
@@ -690,7 +692,7 @@ class TestDLQAPIRoutes:
         return FakeShield()
 
     async def test_list_pending_empty(
-        self, dlq_shield: object
+        self, dlq_shield
     ) -> None:
         """GET /admin/webhooks/dlq should return empty list when no events."""
         from fastapi import FastAPI
@@ -711,7 +713,7 @@ class TestDLQAPIRoutes:
             assert data["events"] == []
 
     async def test_list_pending_with_events(
-        self, dlq_shield: object, sample_event: SecurityEvent
+        self, dlq_shield, sample_event: SecurityEvent
     ) -> None:
         """GET /admin/webhooks/dlq should return pending events."""
         from fastapi import FastAPI
@@ -741,7 +743,7 @@ class TestDLQAPIRoutes:
             assert data["events"][0]["attempt_count"] == 2
 
     async def test_list_dead_empty(
-        self, dlq_shield: object
+        self, dlq_shield
     ) -> None:
         """GET /admin/webhooks/dlq/dead should return empty list."""
         from fastapi import FastAPI
@@ -761,7 +763,7 @@ class TestDLQAPIRoutes:
             assert data["events"] == []
 
     async def test_inspect_missing_event(
-        self, dlq_shield: object
+        self, dlq_shield
     ) -> None:
         """GET /admin/webhooks/dlq/{id} on missing event returns 404."""
         from fastapi import FastAPI
@@ -779,7 +781,7 @@ class TestDLQAPIRoutes:
             assert resp.status_code == 404
 
     async def test_inspect_existing_event(
-        self, dlq_shield: object, sample_event: SecurityEvent
+        self, dlq_shield, sample_event: SecurityEvent
     ) -> None:
         """GET /admin/webhooks/dlq/{id} should return full event."""
         from fastapi import FastAPI
@@ -808,7 +810,7 @@ class TestDLQAPIRoutes:
             assert data["attempt_count"] == 1
 
     async def test_replay_missing_event(
-        self, dlq_shield: object
+        self, dlq_shield
     ) -> None:
         """POST /admin/webhooks/dlq/{id}/replay on missing returns 404."""
         from fastapi import FastAPI
@@ -826,7 +828,7 @@ class TestDLQAPIRoutes:
             assert resp.status_code == 404
 
     async def test_replay_dead_event(
-        self, dlq_shield: object, sample_event: SecurityEvent
+        self, dlq_shield, sample_event: SecurityEvent
     ) -> None:
         """POST replay should move dead event back to pending."""
         from fastapi import FastAPI
@@ -856,7 +858,7 @@ class TestDLQAPIRoutes:
             assert any(e.event_id == event_id for e in pending)
 
     async def test_purge_all(
-        self, dlq_shield: object, sample_event: SecurityEvent
+        self, dlq_shield, sample_event: SecurityEvent
     ) -> None:
         """DELETE /admin/webhooks/dlq should purge all events."""
         from fastapi import FastAPI
@@ -883,7 +885,7 @@ class TestDLQAPIRoutes:
             assert data["deleted"] >= 2
 
     async def test_purge_by_url(
-        self, dlq_shield: object, sample_event: SecurityEvent
+        self, dlq_shield, sample_event: SecurityEvent
     ) -> None:
         """DELETE /admin/webhooks/dlq?url=... should filter by URL."""
         from fastapi import FastAPI

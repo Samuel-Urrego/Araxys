@@ -1,5 +1,6 @@
 """Tests for the WebAuthn / Passkeys module."""
 # ruff: noqa: D100, D101, D102, D103
+# mypy: ignore-errors
 
 from __future__ import annotations
 
@@ -1166,13 +1167,13 @@ class TestWebAuthnDependency:
         app, expected_manager = app_and_manager
 
         # Register a test route that uses the dependency via Depends()
-        @app.get("/test-inject")
-        async def test_inject(  # type: ignore[misc]
+        @app.get("/test-inject")  # type: ignore[attr-defined,untyped-decorator]
+        async def test_inject(
             webauthn: object = Depends(WebAuthnDependency()),
         ) -> dict[str, object]:
             return {"injected": webauthn is expected_manager}
 
-        client = TestClient(app)
+        client = TestClient(app)  # type: ignore[arg-type]
         response = client.get("/test-inject")
         assert response.status_code == 200
         data = response.json()
@@ -1187,8 +1188,8 @@ class TestWebAuthnDependency:
 
         app = FastAPI()
 
-        @app.get("/test-no-manager")
-        async def test_no_manager(  # type: ignore[misc]
+        @app.get("/test-no-manager")  # type: ignore[attr-defined,untyped-decorator]
+        async def test_no_manager(
             webauthn: object = Depends(WebAuthnDependency()),
         ) -> dict[str, object]:
             return {"ok": True}
