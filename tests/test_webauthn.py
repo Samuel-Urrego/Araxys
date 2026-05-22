@@ -336,6 +336,35 @@ class TestCOSE:
         from araxys.webauthn.cose import cose_alg_to_hash
         assert isinstance(cose_alg_to_hash(-257)(), SHA256)
 
+    def test_malformed_ec2_key_missing_x(self) -> None:
+        """EC2 COSE key missing 'x' coordinate should raise KeyError/etc."""
+        import cbor2
+
+        from araxys.webauthn.cose import parse_cose_key
+
+        cose_key = cbor2.dumps({
+            1: 2,   # kty: EC2
+            3: -7,  # alg: ES256
+            -1: 1,  # crv: P-256
+            # missing -2 (x) and -3 (y)
+        })
+        with pytest.raises((KeyError, COSEAlgorithmError, WebAuthnError)):
+            parse_cose_key(cose_key)
+
+    def test_malformed_rsa_key_missing_n(self) -> None:
+        """RSA COSE key missing 'n' modulus should raise KeyError or WebAuthnError."""
+        import cbor2
+
+        from araxys.webauthn.cose import parse_cose_key
+
+        cose_key = cbor2.dumps({
+            1: 3,    # kty: RSA
+            3: -257, # alg: RS256
+            -2: b"\x01\x00\x01",  # e exponent present but no n
+        })
+        with pytest.raises((KeyError, COSEAlgorithmError, WebAuthnError)):
+            parse_cose_key(cose_key)
+
 
 class TestAttestation:
     """Tests for attestation verification."""
@@ -490,6 +519,41 @@ class TestAttestation:
                 client_data_hash=client_data_hash,
             )
 
+    def test_authenticator_data_too_short(self) -> None:
+        """Auth data shorter than 37 bytes should raise WebAuthnError."""
+        import cbor2
+
+        from araxys.webauthn.attestation import verify_none
+
+        att_obj = cbor2.dumps({
+            "fmt": "none",
+            "attStmt": {},
+            "authData": b"\x00" * 20,  # too short
+        })
+        with pytest.raises(WebAuthnError, match="(?i)authenticator data too short"):
+            verify_none(cbor2.loads(att_obj))
+
+    def test_auth_data_missing_at_flag(self) -> None:
+        """Auth data without AT flag should raise WebAuthnError."""
+        import hashlib
+
+        import cbor2
+
+        from araxys.webauthn.attestation import verify_none
+
+        # Build auth_data with flags=0x01 (UP only, no AT flag)
+        rp_id_hash = hashlib.sha256(b"example.com").digest()
+        flags = bytes([0x01])  # UP only, AT bit NOT set
+        sign_count = (1).to_bytes(4, "big")
+        auth_data = rp_id_hash + flags + sign_count
+        att_obj = cbor2.dumps({
+            "fmt": "none",
+            "attStmt": {},
+            "authData": auth_data,
+        })
+        with pytest.raises(WebAuthnError, match="(?i)at flag"):
+            verify_none(cbor2.loads(att_obj))
+
 
 class TestWebAuthnManager:
     """Tests for the WebAuthnManager ceremony orchestrator."""
@@ -508,19 +572,13 @@ class TestWebAuthnManager:
         return InMemoryCredentialStore()
 
     @pytest.fixture
-    def challenge_store(self) -> ChallengeStore:
-        from araxys.webauthn.challenges import InMemoryChallengeStore
-        return InMemoryChallengeStore()
-
-    @pytest.fixture
     def manager(
         self,
         rp_config: RelyingPartyConfig,
         cred_store: CredentialStore,
-        challenge_store: ChallengeStore,
     ) -> WebAuthnManager:
         from araxys.webauthn.manager import WebAuthnManager
-        return WebAuthnManager(rp_config, cred_store, challenge_store)
+        return WebAuthnManager(rp_config, cred_store)
 
     def test_create_registration_challenge_returns_dict(
         self, manager: WebAuthnManager
@@ -835,3 +893,307 @@ class TestWebAuthnManager:
         }
         with pytest.raises(WebAuthnError, match="(?i)challenge"):
             await manager.verify_registration(response, stored_challenge, "https://example.com")
+
+    async def test_tampered_assertion_signature_rejected(
+        self, manager: WebAuthnManager, cred_store: CredentialStore
+    ) -> None:
+        """Forged assertion signature should raise WebAuthnError (REQ-07)."""
+        import base64
+        import hashlib
+        import json
+
+        import cbor2
+
+        from araxys.webauthn.exceptions import WebAuthnError
+
+        # Register a credential
+        cred_private = ec.generate_private_key(ec.SECP256R1())
+        cred_public = cred_private.public_key()
+        nums = cred_public.public_numbers()
+        x_bytes = nums.x.to_bytes(32, "big")
+        y_bytes = nums.y.to_bytes(32, "big")
+        pubkey_cbor = cbor2.dumps({
+            1: 2, 3: -7, -1: 1, -2: x_bytes, -3: y_bytes,
+        })
+        credential_id = b"\xdd" * 16
+        record = CredentialRecord(
+            credential_id=credential_id, user_id="user-tamper",
+            public_key_cbor=pubkey_cbor, sign_count=0, alg=-7,
+            created_at=datetime.now(UTC),
+        )
+        await cred_store.save(record)
+
+        # Build a valid assertion
+        rp_id_hash = hashlib.sha256(b"example.com").digest()
+        auth_challenge = b"\xab" * 32
+        auth_flags = bytes([0x05])
+        auth_sign_count = (1).to_bytes(4, "big")
+        assertion_auth_data = rp_id_hash + auth_flags + auth_sign_count
+        auth_client_data = json.dumps({
+            "type": "webauthn.get",
+            "challenge": base64.urlsafe_b64encode(auth_challenge).rstrip(b"=").decode(),
+            "origin": "https://example.com",
+            "crossOrigin": False,
+        }).encode()
+        client_data_hash = hashlib.sha256(auth_client_data).digest()
+        sig_input = assertion_auth_data + client_data_hash
+        assertion_sig = cred_private.sign(sig_input, ec.ECDSA(SHA256()))
+
+        # Tamper with the signature
+        forged_sig = b"\xde" * len(assertion_sig)
+
+        def _b64(b: bytes) -> str:
+            return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+        assertion = {
+            "id": _b64(credential_id),
+            "response": {
+                "clientDataJSON": _b64(auth_client_data),
+                "authenticatorData": _b64(assertion_auth_data),
+                "signature": _b64(forged_sig),
+            },
+        }
+        with pytest.raises(WebAuthnError, match="(?i)(invalid|signature)"):
+            await manager.verify_authentication(
+                assertion, auth_challenge, "https://example.com"
+            )
+
+    async def test_tampered_authenticator_data_rejected(
+        self, manager: WebAuthnManager, cred_store: CredentialStore
+    ) -> None:
+        """Tampered authenticatorData should raise WebAuthnError (REQ-07)."""
+        import base64
+        import hashlib
+        import json
+
+        import cbor2
+
+        from araxys.webauthn.exceptions import WebAuthnError
+
+        # Register a credential
+        cred_private = ec.generate_private_key(ec.SECP256R1())
+        cred_public = cred_private.public_key()
+        nums = cred_public.public_numbers()
+        x_bytes = nums.x.to_bytes(32, "big")
+        y_bytes = nums.y.to_bytes(32, "big")
+        pubkey_cbor = cbor2.dumps({
+            1: 2, 3: -7, -1: 1, -2: x_bytes, -3: y_bytes,
+        })
+        credential_id = b"\xee" * 16
+        record = CredentialRecord(
+            credential_id=credential_id, user_id="user-tamper",
+            public_key_cbor=pubkey_cbor, sign_count=0, alg=-7,
+            created_at=datetime.now(UTC),
+        )
+        await cred_store.save(record)
+
+        # Build a valid assertion but tamper auth_data after signing
+        rp_id_hash = hashlib.sha256(b"example.com").digest()
+        auth_challenge = b"\xbc" * 32
+        auth_flags = bytes([0x05])
+        auth_sign_count = (1).to_bytes(4, "big")
+        good_auth_data = rp_id_hash + auth_flags + auth_sign_count
+        auth_client_data = json.dumps({
+            "type": "webauthn.get",
+            "challenge": base64.urlsafe_b64encode(auth_challenge).rstrip(b"=").decode(),
+            "origin": "https://example.com",
+            "crossOrigin": False,
+        }).encode()
+        client_data_hash = hashlib.sha256(auth_client_data).digest()
+        sig_input = good_auth_data + client_data_hash
+        assertion_sig = cred_private.sign(sig_input, ec.ECDSA(SHA256()))
+
+        # Tamper the auth data (change the RP ID hash portion)
+        tampered_auth_data = b"\x00" * 32 + auth_flags + auth_sign_count
+
+        def _b64(b: bytes) -> str:
+            return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+        assertion = {
+            "id": _b64(credential_id),
+            "response": {
+                "clientDataJSON": _b64(auth_client_data),
+                "authenticatorData": _b64(tampered_auth_data),
+                "signature": _b64(assertion_sig),
+            },
+        }
+        with pytest.raises(WebAuthnError, match="(?i)(rp.?id|invalid|signature)"):
+            await manager.verify_authentication(
+                assertion, auth_challenge, "https://example.com"
+            )
+
+    async def test_malformed_cbor_rejected(
+        self, manager: WebAuthnManager
+    ) -> None:
+        """Malformed CBOR in attestationObject should raise an error (REQ-17)."""
+        import base64
+        import json
+
+        import cbor2
+
+        from araxys.webauthn.exceptions import WebAuthnError
+
+        challenge = b"\xcf" * 32
+
+        client_data = json.dumps({
+            "type": "webauthn.create",
+            "challenge": base64.urlsafe_b64encode(challenge).rstrip(b"=").decode(),
+            "origin": "https://example.com",
+            "crossOrigin": False,
+        }).encode()
+        client_data_b64 = base64.urlsafe_b64encode(client_data).rstrip(b"=").decode()
+
+        # Pass invalid (non-CBOR) bytes as attestationObject
+        garbage = b"this is not cbor data!!!"
+        invalid_cbor_b64 = base64.urlsafe_b64encode(garbage).rstrip(b"=").decode()
+
+        response = {
+            "id": "dGVzdC1pZA",
+            "response": {
+                "clientDataJSON": client_data_b64,
+                "attestationObject": invalid_cbor_b64,
+            },
+        }
+        with pytest.raises((WebAuthnError, cbor2.CBORDecodeError)):
+            await manager.verify_registration(response, challenge, "https://example.com")
+
+    async def test_unsupported_attestation_format(
+        self, manager: WebAuthnManager
+    ) -> None:
+        """Unsupported attestation format should raise WebAuthnError."""
+        import base64
+        import hashlib
+        import json
+
+        import cbor2
+
+        from araxys.webauthn.exceptions import WebAuthnError
+
+        challenge = b"\xfa" * 32
+        rp_id_hash = hashlib.sha256(b"example.com").digest()
+        auth_data = rp_id_hash + bytes([0x45]) + (0).to_bytes(4, "big")
+        auth_data += b"\x00" * 16 + (4).to_bytes(2, "big") + b"\xaa" * 4 + b"\x00" * 10
+        client_data = json.dumps({
+            "type": "webauthn.create",
+            "challenge": base64.urlsafe_b64encode(challenge).rstrip(b"=").decode(),
+            "origin": "https://example.com",
+            "crossOrigin": False,
+        }).encode()
+        client_data_b64 = base64.urlsafe_b64encode(client_data).rstrip(b"=").decode()
+
+        att_obj = cbor2.dumps({
+            "fmt": "fido-u2f",
+            "attStmt": {"sig": b"\x00" * 64, "alg": -7},
+            "authData": auth_data,
+        })
+        att_obj_b64 = base64.urlsafe_b64encode(att_obj).rstrip(b"=").decode()
+
+        response = {
+            "id": "dGVzdC1pZA",
+            "response": {
+                "clientDataJSON": client_data_b64,
+                "attestationObject": att_obj_b64,
+            },
+        }
+        with pytest.raises(WebAuthnError, match="(?i)unsupported.*format"):
+            await manager.verify_registration(response, challenge, "https://example.com")
+
+    async def test_verify_authentication_credential_not_found(
+        self, manager: WebAuthnManager
+    ) -> None:
+        """Assertion for unknown credential should raise WebAuthnError."""
+        import base64
+        import hashlib
+        import json
+
+        from araxys.webauthn.exceptions import WebAuthnError
+
+        challenge = b"\xfb" * 32
+        rp_id_hash = hashlib.sha256(b"example.com").digest()
+        auth_data = rp_id_hash + bytes([0x05]) + (1).to_bytes(4, "big")
+        client_data = json.dumps({
+            "type": "webauthn.get",
+            "challenge": base64.urlsafe_b64encode(challenge).rstrip(b"=").decode(),
+            "origin": "https://example.com",
+            "crossOrigin": False,
+        }).encode()
+
+        def _b64(b: bytes) -> str:
+            return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+        assertion = {
+            "id": _b64(b"\x00" * 16),  # credential that was never stored
+            "response": {
+                "clientDataJSON": _b64(client_data),
+                "authenticatorData": _b64(auth_data),
+                "signature": _b64(b"\x00" * 64),
+            },
+        }
+        with pytest.raises(WebAuthnError, match="(?i)not found"):
+            await manager.verify_authentication(assertion, challenge, "https://example.com")
+
+
+class TestWebAuthnDependency:
+    """Tests for FastAPI dependency injection (REQ-20 / Task 6.7)."""
+
+    @pytest.fixture
+    def app_and_manager(self) -> tuple[object, object]:
+        """Create a FastAPI app with WebAuthnManager wired on app.state."""
+        from fastapi import FastAPI
+
+        from araxys.webauthn.manager import WebAuthnManager
+        from araxys.webauthn.models import RelyingPartyConfig
+        from araxys.webauthn.storage import InMemoryCredentialStore
+
+        app = FastAPI()
+        rp_config = RelyingPartyConfig(
+            rp_id="example.com",
+            rp_name="Test",
+            expected_origin="https://example.com",
+        )
+        cred_store = InMemoryCredentialStore()
+        manager = WebAuthnManager(rp_config, cred_store)
+        app.state.webauthn_manager = manager
+        return app, manager
+
+    def test_dependency_injects_manager(
+        self, app_and_manager: tuple[object, object]
+    ) -> None:
+        """WebAuthnDependency should return the configured WebAuthnManager."""
+        from fastapi import Depends
+        from fastapi.testclient import TestClient
+
+        from araxys.webauthn.dependencies import WebAuthnDependency
+
+        app, expected_manager = app_and_manager
+
+        # Register a test route that uses the dependency via Depends()
+        @app.get("/test-inject")
+        async def test_inject(  # type: ignore[misc]
+            webauthn: object = Depends(WebAuthnDependency()),
+        ) -> dict[str, object]:
+            return {"injected": webauthn is expected_manager}
+
+        client = TestClient(app)
+        response = client.get("/test-inject")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["injected"] is True
+
+    def test_dependency_no_manager_raises_error(self) -> None:
+        """WebAuthnDependency should raise Error when no manager configured."""
+        from fastapi import Depends, FastAPI
+        from fastapi.testclient import TestClient
+
+        from araxys.webauthn.dependencies import WebAuthnDependency
+
+        app = FastAPI()
+
+        @app.get("/test-no-manager")
+        async def test_no_manager(  # type: ignore[misc]
+            webauthn: object = Depends(WebAuthnDependency()),
+        ) -> dict[str, object]:
+            return {"ok": True}
+
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.get("/test-no-manager")
+        # FastAPI catches the WebAuthnError and returns generic 500
+        assert response.status_code == 500

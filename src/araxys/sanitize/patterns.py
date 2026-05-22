@@ -123,6 +123,54 @@ SQLI_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         ),
         "Sleep-based injection",
     ),
+    (
+        re.compile(
+            r"(\bINFORMATION_SCHEMA\b)",
+            re.IGNORECASE,
+        ),
+        "INFORMATION_SCHEMA table access",
+    ),
+    (
+        re.compile(
+            r"(\bLOAD_FILE\s*\()",
+            re.IGNORECASE,
+        ),
+        "LOAD_FILE function",
+    ),
+    (
+        re.compile(
+            r"(\bINTO\s+(OUTFILE|DUMPFILE)\b)",
+            re.IGNORECASE,
+        ),
+        "INTO OUTFILE/DUMPFILE clause",
+    ),
+    (
+        re.compile(
+            r"(\bCASE\s+WHEN\b)",
+            re.IGNORECASE,
+        ),
+        "CASE WHEN blind injection",
+    ),
+    (
+        re.compile(
+            r"(0x[0-9a-fA-F]{2,})",
+        ),
+        "Hex-encoded SQL literal",
+    ),
+    (
+        re.compile(
+            r"(\bCOPY\s+\w+\s+(FROM|TO)\b)",
+            re.IGNORECASE,
+        ),
+        "PostgreSQL COPY statement",
+    ),
+    (
+        re.compile(
+            r"(\bpg_sleep\s*\()",
+            re.IGNORECASE,
+        ),
+        "PostgreSQL pg_sleep blind injection",
+    ),
 ]
 
 

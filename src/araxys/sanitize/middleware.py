@@ -44,7 +44,7 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
         Sanitization configuration.
     """
 
-    METHODS_WITH_BODY = {"POST", "PUT", "PATCH"}
+    METHODS_WITH_BODY = {"POST", "PUT", "PATCH", "DELETE"}
 
     def __init__(self, app: Any, config: SanitizeConfig) -> None:
         super().__init__(app)
@@ -89,6 +89,10 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
+        # Skip all scanning for excluded paths
+        if request.url.path in self._config.exclude_paths:
+            return await call_next(request)
+
         # Phase 1 — Header scanning (all methods)
         if self._config.scan_headers:
             threat = scan_headers(request, self._config)
@@ -105,10 +109,6 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
         if request.method not in self.METHODS_WITH_BODY:
             return await call_next(request)
 
-        # Skip excluded paths
-        if request.url.path in self._config.exclude_paths:
-            return await call_next(request)
-
         # Body size limit — check Content-Length before reading body
         content_length_header = request.headers.get("content-length")
         if content_length_header is not None:
@@ -123,9 +123,10 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
 
         # Only process known content types
         content_type = request.headers.get("content-type", "")
-        is_json = "application/json" in content_type
-        is_form = "application/x-www-form-urlencoded" in content_type
-        is_multipart = "multipart/form-data" in content_type
+        content_type = content_type.split(";")[0].strip().lower()
+        is_json = content_type == "application/json"
+        is_form = content_type == "application/x-www-form-urlencoded"
+        is_multipart = content_type == "multipart/form-data"
 
         if not (is_json or is_form or is_multipart):
             return await call_next(request)
@@ -156,7 +157,10 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
         try:
             data = json.loads(body)
         except (json.JSONDecodeError, UnicodeDecodeError):
-            return await call_next(request)
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Malformed JSON body"},
+            )
 
         try:
             sanitized = sanitize_payload(
@@ -250,7 +254,10 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
         try:
             form = await request.form()
         except Exception:
-            return await call_next(request)
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Malformed multipart body"},
+            )
 
         if not (
             self._scanning_enabled

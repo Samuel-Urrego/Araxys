@@ -117,15 +117,18 @@ class JWTManager:
 
         For symmetric algorithms (HS256), returns the ``secret_key``.
         For asymmetric algorithms (RS256, ES256), returns the ``public_key``
-        from config, falling back to ``private_key`` if no separate public key
+        from config, deriving it from ``private_key`` if no separate public key
         is provided.
+
+        Raises ``ConfigurationError`` if asymmetric algorithm is configured
+        but no public/private key is available — falling back to the shared
+        ``secret_key`` would create an algorithm confusion vulnerability.
         """
         algorithm = self._config.algorithm
         if algorithm in ("RS256", "ES256"):
             if self._config.public_key:
                 return self._config.public_key
             if self._config.private_key:
-                # Derive public key from private key
                 from cryptography.hazmat.primitives.serialization import (
                     load_pem_private_key,
                 )
@@ -142,7 +145,13 @@ class JWTManager:
                 return public_key.public_bytes(
                     Encoding.PEM, PublicFormat.SubjectPublicKeyInfo
                 ).decode()
-            return self._secret_key
+            from araxys.core.exceptions import ConfigurationError
+
+            raise ConfigurationError(
+                f"Algorithm {algorithm} requires public_key or private_key. "
+                "Falling back to secret_key would create an algorithm confusion "
+                "vulnerability."
+            )
         return self._secret_key
 
     def _create_token(
@@ -314,10 +323,8 @@ class JWTManager:
         payload = self.decode_token(refresh_token, expected_type="refresh")
 
         # Check if the refresh token's family has been revoked
-        if (
-            payload.family
-            and hasattr(self._storage, "_family_blacklist")
-            and f"{payload.sub}:{payload.family}" in self._storage._family_blacklist
+        if payload.family and await self._storage.is_family_blacklisted(
+            payload.sub, payload.family
         ):
             logger.critical(
                 "jwt.family_revoked",
@@ -327,7 +334,10 @@ class JWTManager:
             raise TokenRevoked()
 
         # Check if this refresh token has already been used (replay attack)
-        if await self._storage.is_blacklisted(payload.jti):
+        remaining_ttl = max(int((payload.exp - datetime.now(UTC)).total_seconds()), 1)
+        blacklisted = await self._storage.try_blacklist_jti(payload.jti, remaining_ttl)
+        if not blacklisted:
+            # JTI was already blacklisted by another request — replay attack
             logger.critical(
                 "jwt.token_reuse_detected",
                 subject=payload.sub,
@@ -341,16 +351,11 @@ class JWTManager:
                         detail="Refresh token reuse detected — possible theft",
                     )
                 )
-            # Revoke the entire token FAMILY on detected theft
             if hasattr(self._storage, "blacklist_family") and payload.family:
                 await self._storage.blacklist_family(
                     payload.sub, payload.family
                 )
             raise TokenRevoked()
-
-        # Blacklist the old refresh token's JTI
-        remaining_ttl = int((payload.exp - datetime.now(UTC)).total_seconds())
-        await self._storage.blacklist_jti(payload.jti, max(remaining_ttl, 1))
 
         # Issue a new pair
         new_pair = await self.create_token_pair(

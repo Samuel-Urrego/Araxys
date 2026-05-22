@@ -37,6 +37,13 @@ def scan_value(value: str, config: SanitizeConfig) -> str | None:
     The threat description if a detector matched, or ``None``.
     """
     decoded = unquote_plus(value)
+    # Iteratively decode to defeat double-URL-encoded payloads.
+    # e.g. %253Cscript%253E → %3Cscript%3E → <script>
+    for _ in range(3):
+        next_decoded = unquote_plus(decoded)
+        if next_decoded == decoded:
+            break
+        decoded = next_decoded
 
     if config.check_nosql_injection:
         result = detect_nosql_injection(decoded)

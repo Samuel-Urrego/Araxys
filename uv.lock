@@ -57,6 +57,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "rich" },
+    { name = "sqlparse" },
     { name = "structlog" },
     { name = "typer" },
 ]
@@ -72,7 +73,6 @@ all = [
     { name = "opentelemetry-sdk" },
     { name = "prometheus-client" },
     { name = "redis" },
-    { name = "sqlparse" },
 ]
 audit = [
     { name = "aiofiles" },
@@ -100,9 +100,6 @@ prometheus = [
 redis = [
     { name = "redis" },
 ]
-sqlparser = [
-    { name = "sqlparse" },
-]
 vault = [
     { name = "hvac" },
 ]
@@ -123,7 +120,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiofiles", marker = "extra == 'audit'", specifier = ">=24.0" },
-    { name = "araxys", extras = ["redis", "opentelemetry", "prometheus", "webhooks", "audit", "vault", "aws-secrets", "sqlparser", "webauthn"], marker = "extra == 'all'" },
+    { name = "araxys", extras = ["redis", "opentelemetry", "prometheus", "webhooks", "audit", "vault", "aws-secrets", "webauthn"], marker = "extra == 'all'" },
     { name = "bleach", specifier = ">=6.0" },
     { name = "boto3", marker = "extra == 'aws-secrets'", specifier = ">=1.34" },
     { name = "cbor2", marker = "extra == 'webauthn'", specifier = ">=5.0" },
@@ -146,12 +143,12 @@ requires-dist = [
     { name = "redis", marker = "extra == 'redis'", specifier = ">=5.0" },
     { name = "rich", specifier = ">=13.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.11" },
-    { name = "sqlparse", marker = "extra == 'sqlparser'", specifier = ">=0.5.0" },
+    { name = "sqlparse", specifier = ">=0.5.0" },
     { name = "structlog", specifier = ">=24.0" },
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", marker = "extra == 'dev'", specifier = ">=0.30" },
 ]
-provides-extras = ["redis", "opentelemetry", "prometheus", "webhooks", "audit", "dev", "vault", "aws-secrets", "sqlparser", "webauthn", "all"]
+provides-extras = ["redis", "opentelemetry", "prometheus", "webhooks", "audit", "dev", "vault", "aws-secrets", "webauthn", "all"]
 
 [package.metadata.requires-dev]
 dev = [

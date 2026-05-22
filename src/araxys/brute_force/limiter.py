@@ -142,7 +142,7 @@ class RedisBruteForceBackend:
         key = f"{self._ATTEMPT_KEY_PREFIX}{identifier}"
         pipe = self._redis.pipeline()
         pipe.incr(key)
-        pipe.expire(key, self._attempt_ttl)
+        pipe.expire(key, self._attempt_ttl, nx=True)
         results = await pipe.execute()
         return int(results[0])
 

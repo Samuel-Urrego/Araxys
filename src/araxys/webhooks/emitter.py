@@ -40,9 +40,18 @@ class SecurityEventBus:
     async def emit(self, event: SecurityEvent) -> None:
         """Publish an event to the queue.
 
-        If the queue is full, this will block until space is available.
+        If the queue is full, the event is dropped and a warning is logged.
+        This prevents backpressure from blocking the middleware call chain
+        (IP Access, Brute Force) when the webhook consumer stalls.
         """
-        await self._queue.put(event)
+        try:
+            self._queue.put_nowait(event)
+        except asyncio.QueueFull:
+            logger.warning(
+                "Webhook event queue full (%d) — dropping event %s",
+                self._queue.maxsize,
+                event.event_type,
+            )
 
     def start(self) -> None:
         """Begin consuming the event queue in a background task."""

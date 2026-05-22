@@ -270,7 +270,7 @@ class AraxysShield:
             cred_store = self._create_credential_store(config)
             challenge_store = self._create_challenge_store(config)
             self.webauthn_manager = _WebAuthnManager(
-                rp_config, cred_store, challenge_store
+                rp_config, cred_store, challenge_store=challenge_store
             )
             # Expose on app.state for FastAPI Depends injection
             app.state.webauthn_manager = self.webauthn_manager

@@ -47,6 +47,11 @@ class RateLimitConfig(BaseModel):
         ge=1.0,
         description="Multiplier applied to ban duration on repeated violations",
     )
+    max_ban_duration_seconds: int = Field(
+        default=3600,
+        ge=1,
+        description="Maximum ban duration in seconds (caps exponential escalation)",
+    )
     exclude_paths: list[str] = Field(
         default_factory=lambda: ["/docs", "/redoc", "/openapi.json", "/healthz"],
         description="Paths excluded from rate limiting",
@@ -521,7 +526,7 @@ class MFAConfig(BaseModel):
         description="Number of one-time recovery codes to generate",
     )
     recovery_code_bytes: int = Field(
-        default=10,
+        default=16,
         ge=8,
         description="Entropy per recovery code (bytes)",
     )
@@ -771,6 +776,14 @@ class SecretsConfig(BaseModel):
     enabled: bool = Field(
         default=False,
         description="Enable secret resolution from external providers",
+    )
+    fail_closed: bool = Field(
+        default=False,
+        description=(
+            "If True, a resolver failure (network error, auth failure) raises "
+            "instead of silently falling back to the next resolver in the chain. "
+            "Set to True in production to prevent silent credential downgrades."
+        ),
     )
     vault_url: str | None = Field(
         default=None,

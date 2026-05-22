@@ -128,6 +128,7 @@ class SessionManager:
                         "Failed to blacklist JTI %s for session %s",
                         record.jti, session_id,
                     )
+                    return False
         return result
 
     async def list(self, user_id: str) -> list[dict[str, Any]]:

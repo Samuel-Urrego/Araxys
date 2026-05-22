@@ -177,12 +177,21 @@ class PasswordPolicy:
 # ── HIBP Check ──────────────────────────────────────────────────────────────
 
 
-async def check_hibp(password: str, *, fail_closed: bool = False) -> bool:
+async def check_hibp(password: str, *, fail_closed: bool = True) -> bool:
     """Check if a password appears in known breaches via the HIBP API.
 
     Uses the k-anonymity model: sends only the first 5 characters of
     the SHA-1 hash to the API, then checks whether the remaining
     hash suffix appears in the response.
+
+    .. note::
+
+        By default this function is **fail-closed**: if the HIBP API
+        is unreachable, it raises ``RuntimeError`` instead of silently
+        allowing a potentially breached password.  This prevents an
+        attacker from blocking HIBP to bypass password checks.
+        Set ``fail_closed=False`` only if HIBP is unreachable in your
+        environment and you accept the risk.
 
     Parameters
     ----------
@@ -195,7 +204,7 @@ async def check_hibp(password: str, *, fail_closed: bool = False) -> bool:
     Returns
     -------
     ``True`` if the password appears in a known breach, ``False``
-    if it was not found or the API call fails (when not fail_closed).
+    if it was not found.
 
     Raises
     ------

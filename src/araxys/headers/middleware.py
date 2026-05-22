@@ -8,7 +8,6 @@ OWASP recommendations.
 from __future__ import annotations
 
 import secrets
-from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -145,9 +144,10 @@ class SecureHeadersMiddleware(BaseHTTPMiddleware):
                 value = value.replace("'nonce-{csp_nonce}'", f"'nonce-{nonce}'")
             response.headers[header] = value
 
-        # Strip the Server header when configured
+        # Strip the Server header when configured (case-insensitive)
         if self._hide_server:
-            with suppress(KeyError):
-                del response.headers["server"]
+            for header_name in list(response.headers.keys()):
+                if header_name.lower() == "server":
+                    del response.headers[header_name]
 
         return response

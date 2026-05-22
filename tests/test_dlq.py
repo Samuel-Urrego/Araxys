@@ -1255,6 +1255,7 @@ class TestDLQEdgeCases:
         from httpx import ASGITransport, AsyncClient
 
         from araxys.core.config import AraxysConfig, WebhookConfig
+        from araxys.core.types import Scope
         from araxys.shield import AraxysShield
 
         app = FastAPI()
@@ -1263,6 +1264,9 @@ class TestDLQEdgeCases:
             webhooks=WebhookConfig(enabled=True, dlq_enabled=False),
         )
         shield = AraxysShield(app, config)
+        result = await shield.api_key_manager.create_key(
+            owner="test-admin", scopes=[Scope.ADMIN], label="test", key_type="secret"
+        )
 
         from araxys.webhooks.dlq_routes import create_dlq_router
 
@@ -1270,7 +1274,9 @@ class TestDLQEdgeCases:
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get("/admin/webhooks/dlq")
+            resp = await client.get(
+                "/admin/webhooks/dlq", headers={"X-API-Key": result.raw_key}
+            )
             assert resp.status_code == 503
             assert "DLQ backend not available" in resp.text
 

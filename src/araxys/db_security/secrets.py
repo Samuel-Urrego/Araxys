@@ -9,8 +9,11 @@ first-non-None-wins semantics.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from typing import Any, Protocol, runtime_checkable
+
+logger = logging.getLogger("araxys.secrets")
 
 
 @runtime_checkable
@@ -71,6 +74,12 @@ class VaultResolver:
             data: dict[str, Any] = secret.get("data", {}).get("data", {})
             return data.get(name)
         except Exception:  # noqa: BLE001 — intentional fail-soft
+            logger.warning(
+                "VaultResolver failed to resolve '%s' (mount=%s)",
+                name,
+                self._mount_path,
+                exc_info=True,
+            )
             return None
 
 
@@ -107,6 +116,13 @@ class AWSSecretsResolver:
             )
             return response.get("SecretString")  # type: ignore[no-any-return]
         except Exception:  # noqa: BLE001 — intentional fail-soft
+            logger.warning(
+                "AWSSecretsResolver failed to resolve '%s' (prefix=%s, region=%s)",
+                name,
+                self._secret_prefix,
+                self._client.meta.region_name,
+                exc_info=True,
+            )
             return None
 
 
@@ -121,8 +137,14 @@ class ChainedResolver:
         self._resolvers = resolvers
 
     async def resolve(self, name: str) -> str | None:
-        for resolver in self._resolvers:
+        for i, resolver in enumerate(self._resolvers):
             value = await resolver.resolve(name)
             if value is not None:
                 return value
+            logger.debug(
+                "ChainedResolver: resolver %d (%s) returned None for '%s'",
+                i,
+                type(resolver).__name__,
+                name,
+            )
         return None

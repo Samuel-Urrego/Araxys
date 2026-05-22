@@ -35,6 +35,8 @@ def extract_user_id(request: Request) -> str | None:
         return None
 
     token = auth_header.removeprefix("Bearer ")
+    if len(token) > 8192:
+        token = token[:8192]  # Reject excessively large tokens — prevent CPU exhaustion
     # Hash the raw token — the sub claim is untrusted here.
     return hashlib.sha256(token.encode()).hexdigest()[:16]
 

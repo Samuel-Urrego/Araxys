@@ -16,12 +16,96 @@ Usage::
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Security, status
+from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
+
+from araxys.core.types import Scope
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from araxys.api_keys.manager import APIKeyManager
+    from araxys.jwt_auth.tokens import JWTManager
     from araxys.shield import AraxysShield
+
+_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def _require_dlq_admin(
+    jwt_manager: JWTManager | None = None,
+    api_key_manager: APIKeyManager | None = None,
+) -> Callable[..., None]:
+    """Composite auth dependency: JWT admin scope OR API key admin scope."""
+
+    async def _dependency(
+        request: Request,
+        token: str | None = Security(_oauth2_scheme),
+        raw_key: str | None = Security(_api_key_header),
+    ) -> None:
+        if jwt_manager is None and api_key_manager is None:
+            warnings.warn(
+                "DLQ router registered without auth guard — "
+                "all DLQ endpoints are publicly accessible.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+            return
+
+        # Try JWT first
+        if token is not None and jwt_manager is not None:
+            from araxys.core.exceptions import TokenExpired, TokenInvalid
+
+            try:
+                payload = jwt_manager.decode_token(token, expected_type="access")
+            except TokenExpired:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Access token has expired",
+                    headers={"WWW-Authenticate": "Bearer"},
+                ) from None
+            except TokenInvalid as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=f"Invalid token: {exc.reason}",
+                    headers={"WWW-Authenticate": "Bearer"},
+                ) from exc
+
+            token_scopes = set(payload.scopes)
+            if Scope.ADMIN.value in token_scopes:
+                return
+
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient scopes. Missing: admin",
+            )
+
+        # Try API key
+        if raw_key is not None and api_key_manager is not None:
+            from araxys.core.exceptions import InvalidAPIKey
+
+            try:
+                await api_key_manager.verify_key(raw_key, [Scope.ADMIN])
+            except InvalidAPIKey as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=exc.reason,
+                ) from exc
+            return
+
+        # Neither credential provided
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=(
+                "Authentication required — "
+                "provide JWT bearer token or X-API-Key header"
+            ),
+        )
+
+    return _dependency  # type: ignore
 
 
 def create_dlq_router(
@@ -49,7 +133,10 @@ def create_dlq_router(
     ``POST /admin/webhooks/dlq/{event_id}/replay`` — Re-enqueue a dead event
     ``DELETE /admin/webhooks/dlq`` — Purge all or by ``?url=``
     """
-    router = APIRouter(prefix=prefix, tags=["dlq"])
+    jwt_manager = getattr(shield, "jwt_manager", None)
+    api_key_manager = getattr(shield, "api_key_manager", None)
+    _auth = _require_dlq_admin(jwt_manager, api_key_manager)
+    router = APIRouter(prefix=prefix, tags=["dlq"], dependencies=[Depends(_auth)])
 
     def _get_backend() -> Any:
         """Get the DLQ backend from the shield, or raise 503."""

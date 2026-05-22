@@ -424,10 +424,12 @@ class RedisSessionBackend:
         skey = self._session_key(session_id)
         ukey = self._user_key(record.user_id)
         ttl = self._session_ttl_seconds
+        new_expires = str(time.time() + ttl)
         if self._pool:
             conn = await self._pool.acquire()
             try:
                 pipe = conn.pipeline()
+                pipe.hset(skey, "expires_at", new_expires)
                 pipe.expire(skey, ttl)
                 pipe.expire(ukey, ttl)
                 await pipe.execute()
@@ -436,6 +438,7 @@ class RedisSessionBackend:
                 await self._pool.release(conn)
         assert self._redis is not None
         pipe = self._redis.pipeline()
+        pipe.hset(skey, "expires_at", new_expires)
         pipe.expire(skey, ttl)
         pipe.expire(ukey, ttl)
         await pipe.execute()

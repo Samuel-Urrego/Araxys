@@ -36,8 +36,24 @@ class TokenStorage(Protocol):
         """Check if a JTI has been revoked."""
         ...
 
+    async def try_blacklist_jti(self, jti: str, ttl_seconds: int) -> bool:
+        """Atomically check-and-set a JTI in the blacklist.
+
+        Returns ``True`` if the JTI was NOT previously blacklisted and
+        was successfully added. Returns ``False`` if the JTI was already
+        blacklisted (indicating a replay attempt).
+
+        This eliminates the TOCTOU race between ``is_blacklisted()``
+        and ``blacklist_jti()`` in token rotation.
+        """
+        ...
+
     async def blacklist_family(self, user_id: str, family_id: str) -> None:
         """Revoke all tokens in a refresh token family (theft detection)."""
+        ...
+
+    async def is_family_blacklisted(self, user_id: str, family_id: str) -> bool:
+        """Return True if this refresh token family has been revoked."""
         ...
 
 
@@ -61,6 +77,13 @@ class InMemoryTokenStorage:
             return False
         return True
 
+    async def try_blacklist_jti(self, jti: str, ttl_seconds: int) -> bool:
+        # Atomic check-and-set (no await points — safe in single-threaded asyncio)
+        if jti in self._blacklist and time.monotonic() < self._blacklist[jti]:
+            return False  # Already blacklisted, still valid
+        self._blacklist[jti] = time.monotonic() + ttl_seconds
+        return True
+
     def _cleanup(self) -> None:
         """Remove expired entries (call periodically for long-running processes)."""
         now = time.monotonic()
@@ -71,6 +94,9 @@ class InMemoryTokenStorage:
     async def blacklist_family(self, user_id: str, family_id: str) -> None:
         """Revoke all tokens in a refresh token family."""
         self._family_blacklist.add(f"{user_id}:{family_id}")
+
+    async def is_family_blacklisted(self, user_id: str, family_id: str) -> bool:
+        return f"{user_id}:{family_id}" in self._family_blacklist
 
 
 class RedisTokenStorage:
@@ -125,6 +151,20 @@ class RedisTokenStorage:
         result = await self._redis.exists(key)
         return bool(result)
 
+    async def try_blacklist_jti(self, jti: str, ttl_seconds: int) -> bool:
+        """Atomic check-and-set using SET NX — eliminates TOCTOU race."""
+        key = self._key(jti)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                result = await conn.set(key, "1", ex=ttl_seconds, nx=True)
+                return result is not None
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
+        result = await self._redis.set(key, "1", ex=ttl_seconds, nx=True)
+        return result is not None
+
     def _family_key(self, user_id: str, family_id: str) -> str:
         return f"araxys:family_blacklist:{user_id}:{family_id}"
 
@@ -141,6 +181,19 @@ class RedisTokenStorage:
                 await self._pool.release(conn)
         assert self._redis is not None
         await self._redis.setex(key, 604800, "1")
+
+    async def is_family_blacklisted(self, user_id: str, family_id: str) -> bool:
+        key = self._family_key(user_id, family_id)
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                result = await conn.exists(key)
+                return bool(result)
+            finally:
+                await self._pool.release(conn)
+        assert self._redis is not None
+        result = await self._redis.exists(key)
+        return bool(result)
 
 
 def _base64url_encode(data: bytes) -> str:

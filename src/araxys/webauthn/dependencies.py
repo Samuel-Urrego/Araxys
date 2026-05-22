@@ -5,14 +5,9 @@ FastAPI's ``Depends`` to inject the configured ``WebAuthnManager``
 into route handlers.
 """
 
-from __future__ import annotations
+from fastapi import Request
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from fastapi import Request
-
-    from araxys.webauthn.manager import WebAuthnManager
+from araxys.webauthn.manager import WebAuthnManager
 
 
 class WebAuthnDependency:
@@ -25,7 +20,7 @@ class WebAuthnDependency:
 
         @router.post("/register/begin")
         async def begin_registration(
-            webauthn: WebAuthnManager = Depends(WebAuthnDependency),
+            webauthn: WebAuthnManager = Depends(WebAuthnDependency()),
         ):
             ...
     """

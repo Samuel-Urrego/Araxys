@@ -1,6 +1,6 @@
 [project]
 name = "araxys"
-version = "0.9.3"
+version = "0.10.0"
 description = "Plug & play security for FastAPI — CORS (glob), CSRF, IP blocking (trusted proxies), rate limiting (fixed+sliding), honeypots (URL+passive), JWT (RS256/ES256, token binding, leeway), API keys (sk_/pk_), MFA (TOTP), OAuth2/OIDC (PKCE), RBAC (resource:action), brute force (TTL), sessions, OTEL, Prometheus, encrypted audit (hash-chain), CSP, sanitization (JSON+form+multipart), DB security (Redis+PG pool, TLS, secrets), SQL parser"
 readme = "README.md"
 authors = [
@@ -28,6 +28,7 @@ dependencies = [
     "structlog>=24.0",
     "typer>=0.12",
     "rich>=13.0",
+    "sqlparse>=0.5.0",
 ]
 
 [project.optional-dependencies]
@@ -48,9 +49,8 @@ dev = [
 ]
 vault = ["hvac>=2.0"]
 aws_secrets = ["boto3>=1.34"]
-sqlparser = ["sqlparse>=0.5.0"]
 webauthn = ["cbor2>=5.0"]
-all = ["araxys[redis,opentelemetry,prometheus,webhooks,audit,vault,aws_secrets,sqlparser,webauthn]"]
+all = ["araxys[redis,opentelemetry,prometheus,webhooks,audit,vault,aws_secrets,webauthn]"]
 
 [project.scripts]
 araxys = "araxys.cli:app"

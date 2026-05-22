@@ -9,7 +9,6 @@ when the ``redis`` extra is installed.
 from __future__ import annotations
 
 import time
-from collections import defaultdict
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -69,8 +68,8 @@ class InMemoryBackend:
         self._window_sizes: dict[str, int] = {}
         # ip -> ban_expires_at (unix timestamp)
         self._bans: dict[str, float] = {}
-        # ip -> violation_count
-        self._violations: defaultdict[str, int] = defaultdict(int)
+        # ip -> (violation_count, last_violation_timestamp)
+        self._violations: dict[str, tuple[int, float]] = {}
 
     async def increment(self, key: str, window_seconds: int) -> int:
         now = time.monotonic()
@@ -141,11 +140,30 @@ class InMemoryBackend:
         return int(remaining)
 
     async def get_violation_count(self, ip: str) -> int:
-        return self._violations[ip]
+        entry = self._violations.get(ip)
+        if entry is None:
+            return 0
+        return entry[0]
 
     async def increment_violations(self, ip: str) -> int:
-        self._violations[ip] += 1
-        return self._violations[ip]
+        now = time.monotonic()
+        entry = self._violations.get(ip)
+        if entry is not None:
+            count, _ts = entry
+        else:
+            count = 0
+        self._violations[ip] = (count + 1, now)
+        return count + 1
+
+    def _cleanup_violations(self, ttl_seconds: int) -> None:
+        now = time.monotonic()
+        expired = [
+            ip
+            for ip, (_count, ts) in self._violations.items()
+            if now - ts >= ttl_seconds
+        ]
+        for ip in expired:
+            del self._violations[ip]
 
 
 class RedisBackend:

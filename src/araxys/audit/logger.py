@@ -79,13 +79,23 @@ class AuditLogger:
         """Log an audit entry.
 
         The entry is:
-        1. Logged via structlog (always)
-        2. PII-masked if ``pii_fields`` is configured
+        1. PII-masked if ``pii_fields`` is configured
+        2. Logged via structlog (always, with masked data)
         3. Encrypted if configured
         4. Written to file if configured (with optional rotation / async I/O)
         5. Shipped to an external endpoint if configured
         """
-        # Always log via structlog for observability
+        # Serialise entry to a plain dict
+        data = asdict(entry)
+        for key, value in data.items():
+            if isinstance(value, datetime):
+                data[key] = value.isoformat()
+
+        # Apply PII masking BEFORE logging (never log plaintext PII)
+        if self._config.pii_fields:
+            data = mask_pii(data, self._config.pii_fields)
+
+        # Log via structlog for observability (masked data only)
         logger.info(
             "audit.event",
             event_type=entry.event_type.value,
@@ -94,18 +104,8 @@ class AuditLogger:
             api_key=entry.api_key_prefix,
             resource=entry.resource,
             action=entry.action,
-            detail=entry.detail,
+            detail=data.get("detail", entry.detail),
         )
-
-        # Serialise entry to a plain dict
-        data = asdict(entry)
-        for key, value in data.items():
-            if isinstance(value, datetime):
-                data[key] = value.isoformat()
-
-        # Apply PII masking BEFORE writing (never log plaintext PII)
-        if self._config.pii_fields:
-            data = mask_pii(data, self._config.pii_fields)
 
         # Integrity chain — link to previous entry
         if self._chain_enabled:

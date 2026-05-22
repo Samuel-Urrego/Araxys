@@ -42,14 +42,14 @@ class WebAuthnManager:
     credential_store:
         Persistent storage for credential records.
     challenge_store:
-        Ephemeral storage for ceremony challenges.
+        Ephemeral challenge storage for replay protection and TTL enforcement.
     """
 
     def __init__(
         self,
         rp: RelyingPartyConfig,
         credential_store: CredentialStore,
-        challenge_store: ChallengeStore,
+        challenge_store: ChallengeStore | None = None,
     ) -> None:
         self._rp = rp
         self._credential_store = credential_store
@@ -71,6 +71,16 @@ class WebAuthnManager:
         when serializing to JSON for the client.
         """
         challenge = secrets.token_bytes(32)
+        if self._challenge_store is not None:
+            import asyncio
+
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(
+                    self._challenge_store.set(user_id, challenge, _CHALLENGE_TTL)
+                )
+            except RuntimeError:
+                pass  # no running event loop — stale challenge will expire
 
         return {
             "rp": {
@@ -130,8 +140,20 @@ class WebAuthnManager:
         # Validate challenge
         actual_challenge_b64 = client_data["challenge"]
         actual_challenge = self._b64_decode(actual_challenge_b64)
-        if not hmac.compare_digest(actual_challenge, challenge):
-            raise WebAuthnError("Challenge mismatch")
+
+        stored_challenge: bytes | None = None
+        challenge_store = self._challenge_store
+        if challenge_store is not None:
+            stored_challenge = await challenge_store.get(user_id or "anon")
+
+        if stored_challenge is not None:
+            if not hmac.compare_digest(actual_challenge, stored_challenge):
+                raise WebAuthnError("Challenge mismatch")
+            assert challenge_store is not None
+            await challenge_store.delete(user_id or "anon")
+        else:
+            if not hmac.compare_digest(actual_challenge, challenge):
+                raise WebAuthnError("Challenge mismatch")
 
         # Validate type
         if client_data["type"] != "webauthn.create":
@@ -144,7 +166,12 @@ class WebAuthnManager:
         att_obj_raw = self._b64_decode(att_obj_b64)
         import cbor2
 
-        att_obj = cbor2.loads(att_obj_raw)
+        try:
+            att_obj = cbor2.loads(att_obj_raw)
+            if not isinstance(att_obj, dict):
+                raise WebAuthnError("Malformed attestation object")
+        except (cbor2.CBORDecodeError, ValueError) as exc:
+            raise WebAuthnError("Malformed attestation object") from exc
 
         fmt: str = att_obj["fmt"]
         auth_data: bytes = att_obj["authData"]
@@ -191,6 +218,16 @@ class WebAuthnManager:
         them as ``allowCredentials``.
         """
         challenge = secrets.token_bytes(32)
+        if self._challenge_store is not None:
+            import asyncio
+
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(
+                    self._challenge_store.set(user_id, challenge, _CHALLENGE_TTL)
+                )
+            except RuntimeError:
+                pass
         credentials = await self._credential_store.list_by_user(user_id)
 
         allow_creds = [
@@ -242,19 +279,30 @@ class WebAuthnManager:
         # Validate challenge
         actual_challenge_b64 = client_data["challenge"]
         actual_challenge = self._b64_decode(actual_challenge_b64)
-        if not hmac.compare_digest(actual_challenge, challenge):
-            raise WebAuthnError("Challenge mismatch")
+
+        # Load stored credential (also used for challenge lookup)
+        stored = await self._credential_store.get(credential_id)
+        if stored is None:
+            raise WebAuthnError("Credential not found")
+
+        stored_challenge = None
+        if self._challenge_store is not None:
+            stored_challenge = await self._challenge_store.get(stored.user_id)
+            if stored_challenge is not None:
+                await self._challenge_store.delete(stored.user_id)
+
+        if stored_challenge is not None:
+            if not hmac.compare_digest(actual_challenge, stored_challenge):
+                raise WebAuthnError("Challenge mismatch")
+        else:
+            if not hmac.compare_digest(actual_challenge, challenge):
+                raise WebAuthnError("Challenge mismatch")
 
         # Validate type
         if client_data["type"] != "webauthn.get":
             raise WebAuthnError(
                 f"Invalid clientData type: {client_data['type']}"
             )
-
-        # Load stored credential
-        stored = await self._credential_store.get(credential_id)
-        if stored is None:
-            raise WebAuthnError("Credential not found")
 
         # Parse assertion data
         auth_data_b64: str = response["response"]["authenticatorData"]
@@ -268,9 +316,14 @@ class WebAuthnManager:
         if not hmac.compare_digest(auth_data[:32], rp_id_hash):
             raise WebAuthnError("RP ID hash mismatch")
 
-        # Sign count check (monotonic enforcement)
+        # Sign count check (monotonic enforcement).
+        # When both counts are 0 the authenticator does not support
+        # sign count (platform authenticators: Windows Hello, Apple
+        # Touch ID, Android biometric). Accept the assertion.
         new_sign_count = struct_unpack_sign_count(auth_data)
-        if new_sign_count <= stored.sign_count:
+        if new_sign_count == 0 and stored.sign_count == 0:
+            pass
+        elif new_sign_count <= stored.sign_count:
             raise WebAuthnError(
                 f"Sign count not greater than stored count: "
                 f"{new_sign_count} <= {stored.sign_count}"

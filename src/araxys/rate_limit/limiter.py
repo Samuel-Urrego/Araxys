@@ -10,6 +10,7 @@ rate limiting — all configurable via :class:`~araxys.core.config.RateLimitConf
 
 from __future__ import annotations
 
+import fnmatch
 import time
 from typing import TYPE_CHECKING
 
@@ -155,11 +156,21 @@ class RateLimiter:
         if not (ip_ok and user_ok and key_ok):
             violations = await self._backend.increment_violations(ip)
 
-            # Escalating ban: base * multiplier^(violations - 1)
+            # Clean up stale violation entries on the in-memory backend
+            if hasattr(self._backend, "_cleanup_violations"):
+                max_ban = getattr(
+                    cfg, "max_ban_duration_seconds", 3600
+                )
+                ttl = max(cfg.ban_duration_seconds, max_ban)
+                self._backend._cleanup_violations(ttl)
+
+            # Escalating ban: base * multiplier^(violations - 1), capped
             ban_duration = int(
                 cfg.ban_duration_seconds
                 * (cfg.escalation_multiplier ** (violations - 1))
             )
+            if hasattr(cfg, "max_ban_duration_seconds"):
+                ban_duration = min(ban_duration, cfg.max_ban_duration_seconds)
 
             if violations >= cfg.ban_threshold:
                 await self._backend.ban(ip, ban_duration)
@@ -198,5 +209,11 @@ class RateLimiter:
         }
 
     async def is_path_excluded(self, path: str) -> bool:
-        """Check if a path is excluded from rate limiting."""
-        return path in self._config.exclude_paths
+        """Check if a path is excluded from rate limiting.
+
+        Uses fnmatch glob matching, consistent with path_limits resolution.
+        """
+        return any(
+            fnmatch.fnmatch(path, pattern)
+            for pattern in self._config.exclude_paths
+        )
