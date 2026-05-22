@@ -58,11 +58,13 @@ class VaultResolver:
         url: str,
         token: str,
         mount_path: str = "araxys",
+        fail_closed: bool = False,
     ) -> None:
         import hvac
 
         self._mount_path = mount_path
         self._client = hvac.Client(url=url, token=token)
+        self._fail_closed = fail_closed
 
     async def resolve(self, name: str) -> str | None:
         try:
@@ -73,7 +75,9 @@ class VaultResolver:
             )
             data: dict[str, Any] = secret.get("data", {}).get("data", {})
             return data.get(name)
-        except Exception:  # noqa: BLE001 — intentional fail-soft
+        except Exception:
+            if self._fail_closed:
+                raise
             logger.warning(
                 "VaultResolver failed to resolve '%s' (mount=%s)",
                 name,
@@ -102,11 +106,13 @@ class AWSSecretsResolver:
         self,
         secret_prefix: str = "araxys/",
         region_name: str | None = None,
+        fail_closed: bool = False,
     ) -> None:
         import boto3
 
         self._secret_prefix = secret_prefix
         self._client = boto3.client("secretsmanager", region_name=region_name)
+        self._fail_closed = fail_closed
 
     async def resolve(self, name: str) -> str | None:
         try:
@@ -115,7 +121,9 @@ class AWSSecretsResolver:
                 SecretId=f"{self._secret_prefix}{name}",
             )
             return response.get("SecretString")  # type: ignore[no-any-return]
-        except Exception:  # noqa: BLE001 — intentional fail-soft
+        except Exception:
+            if self._fail_closed:
+                raise
             logger.warning(
                 "AWSSecretsResolver failed to resolve '%s' (prefix=%s, region=%s)",
                 name,
@@ -133,14 +141,21 @@ class ChainedResolver:
     ``None``, returns ``None``.
     """
 
-    def __init__(self, resolvers: list[ConnectionStringResolver]) -> None:
+    def __init__(
+        self, resolvers: list[ConnectionStringResolver], fail_closed: bool = False
+    ) -> None:
         self._resolvers = resolvers
+        self._fail_closed = fail_closed
 
     async def resolve(self, name: str) -> str | None:
         for i, resolver in enumerate(self._resolvers):
-            value = await resolver.resolve(name)
-            if value is not None:
-                return value
+            try:
+                value = await resolver.resolve(name)
+                if value is not None:
+                    return value
+            except Exception:
+                if self._fail_closed:
+                    raise
             logger.debug(
                 "ChainedResolver: resolver %d (%s) returned None for '%s'",
                 i,

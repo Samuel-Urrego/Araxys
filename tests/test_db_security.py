@@ -791,7 +791,7 @@ class TestChainedResolver:
         r1.resolve = AsyncMock(side_effect=ValueError(
             "Unexpected error in resolver",
         ))
-        resolver = ChainedResolver(resolvers=[r1])
+        resolver = ChainedResolver(resolvers=[r1], fail_closed=True)
 
         with pytest.raises(ValueError, match="Unexpected error in resolver"):
             await resolver.resolve("REDIS_URL")

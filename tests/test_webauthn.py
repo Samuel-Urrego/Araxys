@@ -580,11 +580,11 @@ class TestWebAuthnManager:
         from araxys.webauthn.manager import WebAuthnManager
         return WebAuthnManager(rp_config, cred_store)
 
-    def test_create_registration_challenge_returns_dict(
+    async def test_create_registration_challenge_returns_dict(
         self, manager: WebAuthnManager
     ) -> None:
         """Challenge response must include rp, user, challenge, pubKeyCredParams."""
-        result = manager.create_registration_challenge("user-1", "Alice")
+        result = await manager.create_registration_challenge("user-1", "Alice")
         assert "rp" in result
         assert result["rp"]["id"] == "example.com"
         assert result["rp"]["name"] == "Example Corp"
@@ -637,7 +637,7 @@ class TestWebAuthnManager:
         import cbor2
 
         # 1. Create challenge
-        challenge_result = manager.create_registration_challenge("user-r1", "Bob")
+        challenge_result = await manager.create_registration_challenge("user-r1", "Bob")
         challenge = challenge_result["challenge"]
 
         # 2. Build a valid registration response

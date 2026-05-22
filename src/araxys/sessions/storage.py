@@ -155,6 +155,12 @@ class InMemorySessionBackend:
         self._sessions[session_id] = record
         return session_id
 
+    def _is_stale(self, record: SessionRecord) -> bool:
+        """Return True if the record is TTL-expired or idle."""
+        if record.expires_at is not None and record.expires_at <= time.time():
+            return True
+        return _is_session_idle(record, self._idle_timeout_seconds)
+
     async def get_session(self, session_id: str) -> SessionRecord | None:
         record = self._sessions.get(session_id)
         if record is None:
@@ -165,14 +171,24 @@ class InMemorySessionBackend:
             return None
         # Idle timeout check
         if _is_session_idle(record, self._idle_timeout_seconds):
+            del self._sessions[session_id]
             await _emit_idle_event(self._event_bus, session_id, record)
             return None
         return record
 
     async def list_sessions(self, user_id: str) -> list[SessionRecord]:
-        return [
-            s for s in self._sessions.values() if s.user_id == user_id
-        ]
+        result: list[SessionRecord] = []
+        to_delete: list[str] = []
+        for s in self._sessions.values():
+            if s.user_id != user_id:
+                continue
+            if self._is_stale(s):
+                to_delete.append(s.session_id)
+                continue
+            result.append(s)
+        for sid in to_delete:
+            del self._sessions[sid]
+        return result
 
     async def revoke_session(self, session_id: str) -> bool:
         if session_id not in self._sessions:
@@ -181,12 +197,31 @@ class InMemorySessionBackend:
         return True
 
     async def count_sessions(self, user_id: str) -> int:
-        return sum(1 for s in self._sessions.values() if s.user_id == user_id)
+        count = 0
+        to_delete: list[str] = []
+        for s in self._sessions.values():
+            if s.user_id != user_id:
+                continue
+            if self._is_stale(s):
+                to_delete.append(s.session_id)
+                continue
+            count += 1
+        for sid in to_delete:
+            del self._sessions[sid]
+        return count
 
     async def revoke_oldest(self, user_id: str) -> str | None:
-        user_sessions = [
-            s for s in self._sessions.values() if s.user_id == user_id
-        ]
+        user_sessions: list[SessionRecord] = []
+        to_delete: list[str] = []
+        for s in self._sessions.values():
+            if s.user_id != user_id:
+                continue
+            if self._is_stale(s):
+                to_delete.append(s.session_id)
+                continue
+            user_sessions.append(s)
+        for sid in to_delete:
+            del self._sessions[sid]
         if not user_sessions:
             return None
         oldest = min(user_sessions, key=lambda s: s.created_at)

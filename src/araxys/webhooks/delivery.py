@@ -64,30 +64,12 @@ _PRIVATE_NETWORKS = [
 ]
 
 
-def _is_private_host(host: str) -> bool:
-    """Return ``True`` if *host* resolves to a private/loopback/link-local IP.
-
-    Direct IP addresses are checked immediately. Hostnames that fail
-    DNS resolution are allowed (they cannot be used as an SSRF vector
-    since the attacker cannot control DNS for arbitrary domains).
-
-    .. warning::
-
-        This check is vulnerable to DNS rebinding TOCTOU: a domain can
-        resolve to a public IP at validation time and to 127.0.0.1 when
-        ``httpx`` connects.  This is a fundamental limitation of
-        hostname-based SSRF protection without a custom transport that
-        pins the resolved address.  Production deployments should use
-        network-level egress filtering (firewall rules, service mesh)
-        to block outbound connections to private IP ranges.
-    """
+def _is_ip_private(ip_str: str) -> bool:
+    """Check whether a string IP address belongs to a private network."""
     try:
-        addr = ipaddress.ip_address(host)
+        addr = ipaddress.ip_address(ip_str)
     except ValueError:
-        try:
-            addr = ipaddress.ip_address(socket.gethostbyname(host))
-        except (socket.gaierror, OSError):
-            return False  # DNS unresolvable — not a private IP attack
+        return False
     if addr.version == 6:
         if addr.ipv4_mapped:
             addr = addr.ipv4_mapped
@@ -110,7 +92,50 @@ def _is_private_host(host: str) -> bool:
     )
 
 
-def _is_valid_url(url: str) -> bool:
+async def _is_private_host(host: str) -> bool:
+    """Return ``True`` if *host* resolves to a private/loopback/link-local IP.
+
+    Direct IP addresses are checked immediately. Hostnames are resolved
+    asynchronously via ``getaddrinfo()``, and ALL resolved addresses are
+    checked — if ANY address is private, the host is blocked.
+
+    Hostnames that fail DNS resolution are allowed (they cannot be used
+    as an SSRF vector since the attacker cannot control DNS for arbitrary
+    domains).
+
+    .. warning::
+
+        This check is vulnerable to DNS rebinding TOCTOU: a domain can
+        resolve to a public IP at validation time and to 127.0.0.1 when
+        ``httpx`` connects.  This is a fundamental limitation of
+        hostname-based SSRF protection without a custom transport that
+        pins the resolved address.  Production deployments should use
+        network-level egress filtering (firewall rules, service mesh)
+        to block outbound connections to private IP ranges.
+    """
+    if _is_ip_private(host):
+        return True
+    try:
+        ipaddress.ip_address(host)
+        return False  # Valid non-private IP — safe
+    except ValueError:
+        pass
+    try:
+        addrinfo = await asyncio.to_thread(
+            socket.getaddrinfo, host, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+        )
+    except (socket.gaierror, OSError):
+        return False
+    if not addrinfo:
+        return False
+    for info in addrinfo:
+        ip_str = info[4][0]
+        if _is_ip_private(str(ip_str)):
+            return True
+    return False
+
+
+async def _is_valid_url(url: str) -> bool:
     """Return ``True`` if the URL uses HTTPS and does not point to a private address."""
     if not url.startswith("https://"):
         return False
@@ -119,7 +144,7 @@ def _is_valid_url(url: str) -> bool:
         host = parsed.hostname
         if host is None:
             return False
-        return not _is_private_host(host)
+        return not await _is_private_host(host)
     except Exception:
         return False
 
@@ -176,7 +201,7 @@ class WebhookDelivery:
         # Fire-and-forget: spawn tasks so we don't block the event bus
         # Semaphore limits concurrent outgoing deliveries to prevent memory exhaustion
         for url in urls:
-            if not _is_valid_url(url):
+            if not await _is_valid_url(url):
                 logger.warning("Webhook URL rejected (insecure scheme): %s", url)
                 continue
             asyncio.create_task(self._deliver_guarded(url, event))

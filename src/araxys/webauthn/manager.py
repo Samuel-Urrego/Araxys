@@ -7,6 +7,7 @@ assertions, and managing credential storage.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -57,7 +58,7 @@ class WebAuthnManager:
 
     # ── Registration ──────────────────────────────────────────────────────
 
-    def create_registration_challenge(
+    async def create_registration_challenge(
         self, user_id: str, user_name: str
     ) -> dict[str, Any]:
         """Generate a ``PublicKeyCredentialCreationOptions`` dict.
@@ -72,15 +73,19 @@ class WebAuthnManager:
         """
         challenge = secrets.token_bytes(32)
         if self._challenge_store is not None:
-            import asyncio
-
             try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(
-                    self._challenge_store.set(user_id, challenge, _CHALLENGE_TTL)
+                await asyncio.wait_for(
+                    self._challenge_store.set(
+                        user_id or "anon", challenge, _CHALLENGE_TTL
+                    ),
+                    timeout=2.0,
                 )
-            except RuntimeError:
-                pass  # no running event loop — stale challenge will expire
+            except TimeoutError:
+                raise WebAuthnError("Challenge store operation timed out") from None
+            except Exception as exc:
+                raise WebAuthnError(
+                    f"Failed to store challenge: {exc}"
+                ) from exc
 
         return {
             "rp": {
@@ -219,15 +224,17 @@ class WebAuthnManager:
         """
         challenge = secrets.token_bytes(32)
         if self._challenge_store is not None:
-            import asyncio
-
             try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(
-                    self._challenge_store.set(user_id, challenge, _CHALLENGE_TTL)
+                await asyncio.wait_for(
+                    self._challenge_store.set(user_id, challenge, _CHALLENGE_TTL),
+                    timeout=2.0,
                 )
-            except RuntimeError:
-                pass
+            except TimeoutError:
+                raise WebAuthnError("Challenge store operation timed out") from None
+            except Exception as exc:
+                raise WebAuthnError(
+                    f"Failed to store challenge: {exc}"
+                ) from exc
         credentials = await self._credential_store.list_by_user(user_id)
 
         allow_creds = [
@@ -246,7 +253,8 @@ class WebAuthnManager:
         }
 
     async def verify_authentication(
-        self, response: dict[str, Any], challenge: bytes, origin: str
+        self, response: dict[str, Any], challenge: bytes, origin: str,
+        user_id: str = "",
     ) -> CredentialRecord:
         """Verify an authentication (assertion) response.
 
@@ -254,6 +262,10 @@ class WebAuthnManager:
             response: The assertion response from the client.
             challenge: The raw 32-byte challenge from the auth challenge.
             origin: The expected origin for this RP.
+            user_id: The user identifier used when creating the challenge.
+                Must match the user_id passed to
+                ``create_authentication_challenge``. If not provided,
+                falls back to the credential's stored ``user_id``.
 
         Returns:
             The updated ``CredentialRecord`` with the new sign count.
@@ -287,9 +299,10 @@ class WebAuthnManager:
 
         stored_challenge = None
         if self._challenge_store is not None:
-            stored_challenge = await self._challenge_store.get(stored.user_id)
+            lookup_id = user_id if user_id else stored.user_id
+            stored_challenge = await self._challenge_store.get(lookup_id)
             if stored_challenge is not None:
-                await self._challenge_store.delete(stored.user_id)
+                await self._challenge_store.delete(lookup_id)
 
         if stored_challenge is not None:
             if not hmac.compare_digest(actual_challenge, stored_challenge):

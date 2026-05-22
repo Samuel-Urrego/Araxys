@@ -98,11 +98,33 @@ class SessionManager:
         """Revoke a session by ID. Returns True if found and revoked.
 
         If a ``jti_blacklist`` callback was provided, the session's JTI
-        is also blacklisted so the associated JWT access token is
-        invalidated.
+        is blacklisted BEFORE the session is deleted — if blacklisting
+        fails, the session remains alive and the caller sees ``False``.
         """
         # Fetch the record first to get the JTI for blacklisting
         record = await self._backend.get_session(session_id)
+        if record is None:
+            return False
+
+        # Blacklist the JTI BEFORE deleting the session.
+        # If this fails, the session stays alive (correct) and we
+        # return False so the caller knows revocation did not complete.
+        if self._jti_blacklist:
+            import time
+
+            if record.expires_at:
+                remaining = max(0, int(record.expires_at - time.time()))
+            else:
+                remaining = 3600
+            try:
+                await self._jti_blacklist(record.jti, remaining)
+            except Exception:
+                logger.exception(
+                    "Failed to blacklist JTI %s for session %s",
+                    record.jti, session_id,
+                )
+                return False
+
         result = await self._backend.revoke_session(session_id)
         if result:
             await self._emit_event(
@@ -111,24 +133,6 @@ class SessionManager:
                 message=f"Session revoked: {session_id}",
                 metadata={"session_id": session_id},
             )
-            # Blacklist the associated JWT access token
-            if record and self._jti_blacklist:
-                import time
-
-                if record.expires_at:
-                    remaining = max(
-                        0, int(record.expires_at - time.time())
-                    )
-                else:
-                    remaining = 3600
-                try:
-                    await self._jti_blacklist(record.jti, remaining)
-                except Exception:
-                    logger.exception(
-                        "Failed to blacklist JTI %s for session %s",
-                        record.jti, session_id,
-                    )
-                    return False
         return result
 
     async def list(self, user_id: str) -> list[dict[str, Any]]:

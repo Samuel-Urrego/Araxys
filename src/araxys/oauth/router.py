@@ -16,7 +16,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 
 if TYPE_CHECKING:
@@ -81,10 +81,7 @@ def create_oauth_router(
     @router.get("/login/{provider}")
     async def login(
         provider: str,
-        redirect_uri: str = Query(
-            default="/oauth/callback",
-            description="Post-login redirect URI",
-        ),
+        request: Request,
     ) -> RedirectResponse:
         """Redirect the user to the OAuth2 provider."""
         flow = flows.get(provider)
@@ -94,6 +91,9 @@ def create_oauth_router(
                 detail=f"Unknown provider: {provider}",
             )
 
+        base = str(request.base_url).rstrip("/")
+        redirect_uri = f"{base}{prefix}/callback/{provider}"
+
         url, state, verifier = flow.authorization_url(redirect_uri)
         state_store.put(state, verifier, redirect_uri)
 
@@ -102,6 +102,7 @@ def create_oauth_router(
     @router.get("/callback/{provider}")
     async def callback(
         provider: str,
+        request: Request,
         code: str = Query(...),
         state: str = Query(...),
     ) -> Any:
@@ -120,10 +121,9 @@ def create_oauth_router(
                 detail="Invalid or expired OAuth state",
             )
 
-        # Use the redirect_uri that was originally passed to login(),
-        # or derive it from the request's base URL as fallback.
+        # Construct absolute callback URL from request base URL
         redirect_uri = stored_redirect or (
-            str(router.prefix or "") + f"/callback/{provider}"
+            str(request.base_url).rstrip("/") + f"{prefix}/callback/{provider}"
         )
 
         try:

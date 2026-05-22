@@ -196,7 +196,10 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
         try:
             text = body.decode("utf-8")
         except UnicodeDecodeError:
-            return await call_next(request)
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Malformed form body"},
+            )
 
         parsed = parse_qs(text, keep_blank_values=True)
 
