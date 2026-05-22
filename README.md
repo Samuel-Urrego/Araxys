@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Plug & Play Security for FastAPI</strong><br>
-  <em>CORS · CSRF · IP Blocking · Rate Limiting · Honeypots · JWT · API Keys · Brute Force · Sessions · OTEL · Prometheus · Encrypted Audit</em>
+  <em>CORS · CSRF · Rate Limiting · JWT · API Keys · MFA · OAuth2 · RBAC · WebAuthn · Sessions · Webhooks + DLQ · Honeypots · Audit · DB Security · Redis Sentinel/Cluster</em>
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Pydantic-v2-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic">
   <img src="https://img.shields.io/badge/uv-package%20manager-DE5FE9?style=for-the-badge&logo=uv&logoColor=white" alt="uv">
   <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/version-0.7.0-blue?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.10.0-blue?style=for-the-badge" alt="Version">
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
   <img src="https://img.shields.io/badge/OpenTelemetry-optional-8B5CF6?style=flat-square&logo=opentelemetry&logoColor=white" alt="OTEL">
   <img src="https://img.shields.io/badge/Prometheus-optional-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/structlog-logging-4B8BBE?style=flat-square" alt="structlog">
-  <img src="https://img.shields.io/badge/tests-762%20passed-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-1018%20passed-brightgreen?style=flat-square" alt="Tests">
 </p>
 
 ---
@@ -32,7 +32,7 @@
 
 **Araxys** is a comprehensive security library for [FastAPI](https://fastapi.tiangolo.com/) that provides enterprise-grade protection with a plug & play architecture. Add security to your API with **three lines of code** — no rewrites, no boilerplate.
 
-> **v0.7.0** adds session lifecycle management (TTL expiry, Redis EXPIRE, refresh, cleanup loop), body size limit enforcement, RedisPool auto-reconnection, and QueryValidator with sqlparse-based interpolation detection. **v0.6.0** added database security hardening (async secret resolvers, RedisPool health/idle/acquire timeout enforcement), JSON body full scan for NoSQL/command/path-traversal injection, and a `sqlparse`-based SQL injection analyzer replacing 16 fragile regex patterns. **v0.5.0** introduced `db_security` module (connection pooling, TLS/cert pinning, query auditing). **v0.4.0** added RS256/ES256 JWT, JWKS, per-user/per-key rate limiting, async audit with PII masking, CSP/COOP/COEP/CORP headers. [762 tests](https://github.com/Samuel-Urrego/Araxys/actions).
+> **v0.10.0** adds session idle timeout (last_activity_at + touch_session), Redis Sentinel/Cluster high availability, webhook dead-letter queue with admin API, WebAuthn/Passkeys (FIDO2 registration + authentication ceremonies), and a comprehensive security audit with 47 fixes across all modules. **v0.9.0** added MFA (TOTP), RBAC (resource:action), OAuth2/OIDC with PKCE, and PostgreSQL connection pooling. **v0.8.0** was a hardening sprint with 28 fixes across 7 sprints. **v0.7.0** added session lifecycle management (TTL expiry, Redis EXPIRE, refresh, cleanup loop) and QueryValidator with sqlparse-based SQLi detection. [1018 tests](https://github.com/Samuel-Urrego/Araxys/actions).
 
 ```python
 from fastapi import FastAPI
@@ -53,18 +53,23 @@ shield = AraxysShield(app, AraxysConfig(secret_key="your-32-char-secret-key-here
 | 🛑 **IP Access Control** | Allow/block/hybrid modes with CIDR support | ✅ v0.3 |
 | 🍪 **CSRF Protection** | Double-submit cookie with constant-time validation | ✅ v0.3 |
 | 🔒 **Brute Force** | Account lockout + password policy + HIBP check | ✅ v0.3 |
-| 👥 **Session Management** | Max concurrent enforcement + revocation | ✅ v0.3 |
-| 📡 **OpenTelemetry** | Graceful span tracing (opt-in, no-op fallback) | ✅ v0.3 |
-| 📨 **Webhooks** | Security event delivery with retry | ✅ v0.3 |
-| 📊 **Prometheus Metrics** | 9 counters + histogram + /metrics endpoint | ✅ v0.3 |
-| 🚦 **Rate Limiting** | Dynamic sliding window with escalating bans | ✅ Ready |
-| 🍯 **Honeypots** | Fake endpoints that auto-ban bots | ✅ Ready |
+| 👥 **Session Management** | Max concurrent, idle timeout, TTL expiry, touch_session() | ✅ v0.10 |
+| 🗄️ **DB Security** | Redis Sentinel/Cluster pools, PG pool, TLS/cert pinning, secret resolver chain | ✅ v0.10 |
+| 🎟️ **JWT Auth** | RS256/ES256 + HS256, JWKS, token rotation, family revocation | ✅ Ready |
 | 🔑 **API Keys** | Scoped keys with SHA-256 hashing & expiration | ✅ Ready |
-| 🎟️ **JWT Auth** | RS256/ES256 + HS256, JWKS endpoint, token introspection (RFC 7662), rotation & revocation | ✅ Ready |
-| 🚦 **Rate Limiting** | Sliding window, per-user, per-API-key, per-endpoint path-based limits | ✅ Ready |
-| 🛡️ **Secure Headers** | CSP builder, COOP/COEP/CORP, HSTS, X-Frame-Options (OWASP) | ✅ Ready |
-| 🧹 **Sanitization** | NoSQL injection, command injection, path traversal, XSS stripping | ✅ Ready |
-| 📋 **Audit Logging** | AES-256-GCM encrypted, async I/O, rotation, PII masking, webhook shipping | ✅ Ready |
+| 🔐 **MFA / TOTP** | Time-based OTP (RFC 6238), recovery codes | ✅ v0.9 |
+| 🔓 **OAuth2 / OIDC** | PKCE flow, state store, multi-provider support | ✅ v0.9 |
+| 🏷️ **RBAC** | Resource:action permission model | ✅ v0.9 |
+| 🔏 **WebAuthn / Passkeys** | FIDO2 registration + authentication, COSE key parsing, attestation | ✅ v0.10 |
+| 📨 **Webhooks** | Event bus + retry (1s/2s/4s) + dead-letter queue with admin API | ✅ v0.10 |
+| 🚦 **Rate Limiting** | Sliding window, per-user/IP/key, escalating bans with cap | ✅ Ready |
+| 🍯 **Honeypots** | Fake endpoints that auto-ban bots | ✅ Ready |
+| 🛡️ **Secure Headers** | CSP, COOP/COEP/CORP, HSTS, X-Frame-Options (OWASP) | ✅ Ready |
+| 🧹 **Sanitization** | SQLi (sqlparse), NoSQL, command injection, XSS, path traversal, multipart | ✅ Ready |
+| 📋 **Audit Logging** | AES-256-GCM encrypted, async I/O, hash-chain integrity, PII masking | ✅ Ready |
+| 📡 **OpenTelemetry** | Graceful span tracing (opt-in, no-op fallback) | ✅ v0.3 |
+| 📊 **Prometheus Metrics** | 9 counters + histogram + /metrics endpoint | ✅ v0.3 |
+| 💻 **Admin API** | Session/IP ban/API key management, DLQ inspection + replay | ✅ v0.9 |
 
 ---
 
@@ -290,13 +295,37 @@ src/araxys/
 │   └── password_policy.py  # Complexity rules + HIBP
 ├── sessions/           # 👥 Session management
 │   ├── storage.py      # Protocol + InMemory + Redis
-│   └── manager.py      # Max concurrent, revocation, cleanup
+│   └── manager.py      # Max concurrent, idle timeout, touch, revocation, cleanup
 ├── telemetry/          # 📡 OpenTelemetry integration
 │   ├── tracer.py       # Graceful no-op fallback, span CM
 │   └── middleware.py   # Auto-spanning HTTP middleware
 ├── webhooks/           # 📨 Security event webhooks
 │   ├── emitter.py      # SecurityEventBus (async pub/sub)
-│   └── delivery.py     # httpx POST + retry (1s/2s/4s)
+│   ├── delivery.py     # httpx POST + retry (1s/2s/4s) + SSRF guard
+│   ├── dlq.py          # Dead-letter queue backend + consumer
+│   └── dlq_routes.py   # DLQ admin API (list/inspect/replay/purge)
+├── webauthn/           # 🔏 WebAuthn / Passkeys (v0.10)
+│   ├── manager.py      # Registration + authentication ceremonies
+│   ├── cose.py         # COSE key parsing (EC2, RSA)
+│   ├── attestation.py  # Attestation verification (none, packed)
+│   ├── storage.py      # CredentialStore protocol + Redis/InMemory
+│   ├── challenges.py   # ChallengeStore with TTL
+│   ├── dependencies.py # FastAPI Depends injection
+│   ├── models.py       # RelyingPartyConfig, CredentialRecord
+│   └── exceptions.py   # WebAuthnError, COSEAlgorithmError
+├── mfa/                # 🔐 MFA / TOTP (v0.9)
+│   ├── manager.py      # TOTP gen + verify (RFC 6238)
+│   ├── models.py       # MFA config
+│   └── dependencies.py # FastAPI Depends
+├── rbac/               # 🏷️ RBAC (v0.9)
+│   ├── models.py       # Permission, Role models
+│   └── manager.py      # Role assignment + permission check
+├── oauth/              # 🔓 OAuth2 / OIDC (v0.9)
+│   ├── flow.py         # PKCE authorization + token exchange
+│   ├── router.py       # Login + callback routes
+│   └── providers/      # Google, GitHub, etc.
+├── admin/              # 💻 Admin API (v0.9)
+│   └── router.py       # Sessions, IP bans, API keys, DLQ management
 ├── metrics/            # 📊 Prometheus metrics
 │   ├── collector.py    # 9 counters + histogram registry
 │   └── endpoint.py     # /metrics scrape endpoint
@@ -340,7 +369,7 @@ src/araxys/
 ### Middleware Chain (outer → inner)
 
 ```
-CORS → SecureHeaders → Telemetry → RateLimit → BruteForce → IP Access → Honeypot → Sanitize
+CORS → SecureHeaders → Telemetry → RateLimit → BruteForce → IP Access → Honeypot → Sanitize → Auth (JWT / APIKey / WebAuthn)
 ```
 
 ---
@@ -518,7 +547,7 @@ uv run pytest tests/ -v
 uv run pytest tests/ --cov=araxys --cov-report=term-missing
 ```
 
-**637 tests** covering all 16 modules — CORS, IP access, CSRF, brute force, sessions, telemetry, webhooks, metrics, rate limiting, honeypots, API keys, JWT, headers, sanitization, audit logging, and database security.
+**1018 tests** covering all 21 modules — CORS, IP access, CSRF, brute force, sessions, telemetry, webhooks, DLQ, WebAuthn, MFA, RBAC, OAuth2/OIDC, admin, metrics, rate limiting, honeypots, API keys, JWT, headers, sanitization, audit logging, and database security.
 
 ---
 
