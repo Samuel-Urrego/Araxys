@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class AraxysError(Exception):
     """Base exception for all Araxys errors."""

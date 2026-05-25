@@ -76,6 +76,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B008"]
 "src/araxys/sanitize/sqlparser.py" = ["I001"]
+"tests/test_malware_*" = ["E501"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

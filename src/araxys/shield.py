@@ -45,6 +45,7 @@ from araxys.ip_access.backends import InMemoryIPAccessBackend, RedisIPAccessBack
 from araxys.ip_access.middleware import IPAccessMiddleware
 from araxys.jwt_auth.storage import InMemoryTokenStorage
 from araxys.jwt_auth.tokens import JWTManager
+from araxys.malware.middleware import MalwareMiddleware
 from araxys.metrics.collector import MetricsRegistry
 from araxys.metrics.endpoint import mount_metrics
 from araxys.prompt_injection.middleware import PromptInjectionMiddleware
@@ -290,6 +291,7 @@ class AraxysShield:
 
         self._register_sanitize(app, config)
         self._register_prompt_injection(app, config)
+        self._register_malware(app, config)
         self._register_honeypot(app, config)
         self._register_ip_access(app, config)
         self._register_brute_force(app, config)
@@ -310,6 +312,10 @@ class AraxysShield:
             (
                 "prompt_injection",
                 config.prompt_injection is not None,
+            ),
+            (
+                "malware",
+                config.malware is not None,
             ),
             ("audit", config.audit.enabled),
             ("sessions", config.session is not None and config.session.enabled),
@@ -426,6 +432,20 @@ class AraxysShield:
         app.add_middleware(
             PromptInjectionMiddleware,
             config=config.prompt_injection,
+        )
+
+    def _register_malware(self, app: FastAPI, config: AraxysConfig) -> None:
+        """Register Malware middleware (between PromptInjection and Honeypot).
+
+        The middleware is read-only — it scans multipart file uploads
+        using heuristic detectors and returns 400 on detection.
+        Only registered when ``config.malware`` is not ``None``.
+        """
+        if config.malware is None:
+            return
+        app.add_middleware(
+            MalwareMiddleware,
+            config=config.malware,
         )
 
     # ── New v0.3 registration methods ────────────────────────────────────
