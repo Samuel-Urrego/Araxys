@@ -163,6 +163,24 @@ class ValidationError(AraxysError):
         super().__init__(message)
 
 
+class PromptInjectionError(AraxysError):
+    """Raised when a prompt injection attack is detected by a detector."""
+
+    def __init__(
+        self,
+        detector_name: str,
+        matched_pattern: str | None = None,
+        threat_score: float = 0.0,
+    ) -> None:
+        self.detector_name = detector_name
+        self.matched_pattern = matched_pattern
+        self.threat_score = threat_score
+        super().__init__(
+            f"Prompt injection detected by {detector_name}"
+            + (f": {matched_pattern}" if matched_pattern else "")
+        )
+
+
 # Re-export WebAuthnError for public API convenience.
 # Import is here (not at top) to avoid circular imports since
 # webauthn.exceptions itself imports AraxysError from this module.
