@@ -27,6 +27,8 @@ from araxys.core.config import (
     HoneypotConfig,
     IPControlConfig,
     JWTConfig,
+    # v0.8 configs
+    MalwareConfig,
     MetricsConfig,
     # v0.7 configs
     PromptInjectionConfig,
@@ -48,6 +50,8 @@ from araxys.core.exceptions import (  # type: ignore[attr-defined]
     HoneypotTriggered,
     InvalidAPIKey,
     IPBlockedError,
+    # v0.8 exceptions
+    MalwareDetectionError,
     PasswordValidationError,
     # v0.7 exceptions
     PromptInjectionError,
@@ -87,6 +91,12 @@ from araxys.ip_access.middleware import IPAccessMiddleware
 from araxys.jwt_auth.dependencies import create_jwks_router
 from araxys.jwt_auth.storage import InMemoryJWKSStore, JWKSStore
 from araxys.jwt_auth.tokens import JWTManager, TokenPair, TokenPayload
+from araxys.malware.dependencies import (
+    MalwareGuard,
+    get_malware_guard,
+    get_malware_scanner,
+)
+from araxys.malware.scanner import MalwareScanner
 from araxys.metrics.collector import MetricsRegistry
 from araxys.prompt_injection.dependencies import PromptInjectionGuard
 from araxys.sessions.manager import SessionManager
@@ -126,6 +136,8 @@ __all__ = [
     "WebAuthnConfig",
     # v0.7 configs
     "PromptInjectionConfig",
+    # v0.8 configs
+    "MalwareConfig",
     # Types
     "AuditEntry",
     "AuditEventType",
@@ -154,6 +166,8 @@ __all__ = [
     "IPBlockedError",
     # v0.7 exceptions
     "PromptInjectionError",
+    # v0.8 exceptions
+    "MalwareDetectionError",
     # v0.3 modules — middleware
     "CORSMiddleware",
     "IPAccessMiddleware",
@@ -201,4 +215,11 @@ __all__ = [
     "get_query_auditor",
     # v0.7 Prompt Injection
     "PromptInjectionGuard",
+    # v0.8 Malware Detection
+    "MalwareConfig",
+    "MalwareDetectionError",
+    "MalwareScanner",
+    "MalwareGuard",
+    "get_malware_guard",
+    "get_malware_scanner",
 ]
