@@ -878,6 +878,88 @@ class DatabaseSecurityConfig(BaseModel):
     )
 
 
+class FileScanConfig(BaseModel):
+    """Configuration for file-based prompt injection scanning.
+
+    Controls which file formats are scanned and how metadata/hidden
+    text detection behaves. File scanning implementation is deferred
+    to a future release — this config is reserved for that feature.
+    """
+
+    enabled_formats: list[str] = Field(
+        default_factory=lambda: [
+            "jpeg", "png", "tiff", "webp",
+            "pdf", "docx", "pptx", "xlsx",
+        ],
+        description="File formats to scan for metadata and hidden text injection",
+    )
+    max_file_size: int = Field(
+        default=10_485_760,
+        ge=1,
+        description="Maximum file size in bytes (default 10 MB)",
+    )
+    scan_metadata: bool = Field(
+        default=True,
+        description="Scan file metadata (EXIF, PDF Info, Office properties)",
+    )
+    scan_hidden_text: bool = Field(
+        default=True,
+        description="Detect hidden/invisible text in files",
+    )
+
+
+class PromptInjectionConfig(BaseModel):
+    """Configuration for prompt injection detection.
+
+    When ``None`` on :class:`AraxysConfig`, the entire prompt injection
+    feature is disabled.
+    """
+
+    detect_direct_injection: bool = Field(
+        default=True,
+        description="Detect direct instruction injection attempts",
+    )
+    detect_jailbreak: bool = Field(
+        default=True,
+        description="Detect jailbreak attempts (DAN, bypass restrictions, etc.)",
+    )
+    detect_delimiter_escape: bool = Field(
+        default=True,
+        description=(
+            "Detect delimiter escape — closing ``` and "
+            "injecting new instructions"
+        ),
+    )
+    detect_zero_width: bool = Field(
+        default=True,
+        description="Detect zero-width character injection (\\u200B, \\u200C, etc.)",
+    )
+    detect_homoglyph: bool = Field(
+        default=True,
+        description="Detect homoglyph attacks (Cyrillic letters replacing Latin)",
+    )
+    threshold: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Minimum threat score to flag as threat (0.0 = any match blocks)",
+    )
+    exclude_paths: list[str] = Field(
+        default_factory=lambda: [
+            "/docs", "/redoc", "/openapi.json", "/healthz",
+        ],
+        description="Paths excluded from prompt injection scanning",
+    )
+    exclude_content_types: list[str] = Field(
+        default_factory=list,
+        description="Content types excluded from scanning",
+    )
+    file_scanning: FileScanConfig = Field(
+        default_factory=FileScanConfig,
+        description="Configuration for file-based scanning (reserved for future use)",
+    )
+
+
 class WebAuthnConfig(BaseModel):
     """Configuration for the WebAuthn / Passkeys module."""
 
@@ -951,3 +1033,8 @@ class AraxysConfig(BaseSettings):
     db_security: DatabaseSecurityConfig | None = Field(default=None)
     # v0.6 — WebAuthn / Passkeys
     webauthn: WebAuthnConfig | None = Field(default=None)
+    # v0.7 — Prompt Injection Detection
+    prompt_injection: PromptInjectionConfig | None = Field(
+        default=None,
+        description="Prompt injection detection config (None = feature disabled)",
+    )

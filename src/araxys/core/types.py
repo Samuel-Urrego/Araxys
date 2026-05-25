@@ -97,3 +97,17 @@ class SecurityContext:
     scopes: tuple[Scope, ...] = ()
     api_key_prefix: str | None = None
     auth_method: str | None = None  # "jwt" | "api_key" | None
+
+
+@dataclass(frozen=True, slots=True)
+class ScanResult:
+    """Result of a prompt injection scan on text or file input.
+
+    Returned by all prompt injection scanners and detectors.
+    """
+
+    threat_score: float = 0.0
+    is_threat: bool = False
+    detectors_triggered: list[str] = field(default_factory=list)
+    matched_pattern: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
