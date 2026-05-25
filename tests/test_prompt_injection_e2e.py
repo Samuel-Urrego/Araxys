@@ -8,7 +8,7 @@ and per-endpoint detector override.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from fastapi import Depends, FastAPI
@@ -52,7 +52,7 @@ def app_enabled() -> FastAPI:
         return {"reply": f"You said: {msg}"}
 
     @app.post("/chat")
-    async def chat_post(body: dict) -> dict[str, str]:
+    async def chat_post(body: dict[str, Any]) -> dict[str, str]:
         return {"reply": f"You said: {body.get('msg', '')}"}
 
     @app.post("/feedback")
@@ -103,9 +103,9 @@ def app_with_guard() -> FastAPI:
 
     @app.post("/guarded")
     async def guarded_endpoint(
-        body: dict,
+        body: dict[str, Any],
         scan: ScanResult = Depends(PromptInjectionGuard()),
-    ) -> dict:
+    ) -> Any:
         if scan.is_threat:
             return JSONResponse(
                 status_code=400,
@@ -115,13 +115,13 @@ def app_with_guard() -> FastAPI:
 
     @app.post("/custom-detectors")
     async def custom_detectors_endpoint(
-        body: dict,
+        body: dict[str, Any],
         scan: ScanResult = Depends(
             PromptInjectionGuard(
                 enabled_detectors=["zero_width_chars"],
             )
         ),
-    ) -> dict:
+    ) -> Any:
         if scan.is_threat:
             return JSONResponse(
                 status_code=400,
@@ -319,15 +319,20 @@ class TestPromptInjectionGuard:
 
 
 class TestShieldInitialization:
-    """Verify shield reports prompt_injection in modules list."""
+    """Verify shield registers prompt injection middleware correctly."""
 
     def test_shield_logs_module(self, app_enabled: FastAPI) -> None:
-        """Shield initializes without error (tested via fixture)."""
-        # The fixture already creates the shield — if it raised, test fails
-        assert True
+        """Shield registers PromptInjectionMiddleware when config is set."""
+        middleware_names: list[str] = []
+        for m in app_enabled.user_middleware:
+            middleware_names.append(m.cls.__name__)  # type: ignore[attr-defined]
+        assert "PromptInjectionMiddleware" in middleware_names
 
     def test_shield_without_prompt_injection(
         self, app_disabled: FastAPI
     ) -> None:
-        """Shield initializes without prompt injection."""
-        assert True
+        """Shield does NOT register middleware when prompt_injection is None."""
+        middleware_names: list[str] = []
+        for m in app_disabled.user_middleware:
+            middleware_names.append(m.cls.__name__)  # type: ignore[attr-defined]
+        assert "PromptInjectionMiddleware" not in middleware_names
