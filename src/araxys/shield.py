@@ -47,6 +47,7 @@ from araxys.jwt_auth.storage import InMemoryTokenStorage
 from araxys.jwt_auth.tokens import JWTManager
 from araxys.metrics.collector import MetricsRegistry
 from araxys.metrics.endpoint import mount_metrics
+from araxys.prompt_injection.middleware import PromptInjectionMiddleware
 from araxys.rate_limit.backends import InMemoryBackend, RateLimitBackend
 from araxys.rate_limit.middleware import RateLimitMiddleware
 from araxys.sanitize.middleware import SanitizeMiddleware
@@ -288,6 +289,7 @@ class AraxysShield:
         #   RateLimit → Telemetry → SecureHeaders → CORS (outermost)
 
         self._register_sanitize(app, config)
+        self._register_prompt_injection(app, config)
         self._register_honeypot(app, config)
         self._register_ip_access(app, config)
         self._register_brute_force(app, config)
@@ -305,6 +307,10 @@ class AraxysShield:
             ("ip_access", config.ip_control is not None and config.ip_control.enabled),  # noqa: E501
             ("honeypot", config.honeypot.enabled),
             ("sanitize", config.sanitize.enabled),
+            (
+                "prompt_injection",
+                config.prompt_injection is not None,
+            ),
             ("audit", config.audit.enabled),
             ("sessions", config.session is not None and config.session.enabled),
             ("webhooks", config.webhooks is not None and config.webhooks.enabled),
@@ -407,6 +413,20 @@ class AraxysShield:
         if not config.sanitize.enabled:
             return
         app.add_middleware(SanitizeMiddleware, config=config.sanitize)
+
+    def _register_prompt_injection(self, app: FastAPI, config: AraxysConfig) -> None:
+        """Register Prompt Injection middleware (between Sanitize and IP Access).
+
+        The middleware is read-only — it scans query params, JSON body,
+        form fields, and multipart uploads without mutating the request.
+        Only registered when ``config.prompt_injection`` is not ``None``.
+        """
+        if config.prompt_injection is None:
+            return
+        app.add_middleware(
+            PromptInjectionMiddleware,
+            config=config.prompt_injection,
+        )
 
     # ── New v0.3 registration methods ────────────────────────────────────
 
