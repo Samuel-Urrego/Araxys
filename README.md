@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Plug & Play Security for FastAPI</strong><br>
-  <em>CORS · CSRF · Rate Limiting · JWT · API Keys · MFA · OAuth2 · RBAC · WebAuthn · Sessions · Prompt Injection · Webhooks + DLQ · Honeypots · Audit · DB Security · Redis Sentinel/Cluster</em>
+  <em>CORS · CSRF · Rate Limiting · JWT · API Keys · MFA · OAuth2 · RBAC · WebAuthn · Sessions · Prompt Injection · Malware Scan · Webhooks + DLQ · Honeypots · Audit · DB Security · Redis Sentinel/Cluster</em>
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Pydantic-v2-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic">
   <img src="https://img.shields.io/badge/uv-package%20manager-DE5FE9?style=for-the-badge&logo=uv&logoColor=white" alt="uv">
   <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/version-0.11.0-blue?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.12.0-blue?style=for-the-badge" alt="Version">
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
   <img src="https://img.shields.io/badge/OpenTelemetry-optional-8B5CF6?style=flat-square&logo=opentelemetry&logoColor=white" alt="OTEL">
   <img src="https://img.shields.io/badge/Prometheus-optional-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/structlog-logging-4B8BBE?style=flat-square" alt="structlog">
-  <img src="https://img.shields.io/badge/tests-1190%20passed-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-1326%20passed-brightgreen?style=flat-square" alt="Tests">
 </p>
 
 ---
@@ -32,7 +32,7 @@
 
 **Araxys** is a comprehensive security library for [FastAPI](https://fastapi.tiangolo.com/) that provides enterprise-grade protection with a plug & play architecture. Add security to your API with **three lines of code** — no rewrites, no boilerplate.
 
-> **v0.11.0** adds prompt injection detection — heuristic scanners for direct injection, jailbreak, delimiter escape, zero-width chars, homoglyphs, plus file metadata and hidden content scanning for images, PDFs, and Office documents. **v0.10.0** added session idle timeout, Redis Sentinel/Cluster, webhook DLQ, WebAuthn/Passkeys, and 47 security fixes. [1190 tests](https://github.com/Samuel-Urrego/Araxys/actions).
+> **v0.12.0** adds heuristic malware scanning — 9 detectors (magic bytes, MIME, archive bombs, macros, polyglots, double extension, path traversal, size mismatch) for file upload protection, zero external dependencies. **v0.11.0** added prompt injection detection. [1326 tests](https://github.com/Samuel-Urrego/Araxys/actions).
 
 ```python
 from fastapi import FastAPI
@@ -67,6 +67,7 @@ shield = AraxysShield(app, AraxysConfig(secret_key="your-32-char-secret-key-here
 | 🛡️ **Secure Headers** | CSP, COOP/COEP/CORP, HSTS, X-Frame-Options (OWASP) | ✅ Ready |
 | 🧹 **Sanitization** | SQLi (sqlparse), NoSQL, command injection, XSS, path traversal, multipart | ✅ Ready |
 | 🤖 **Prompt Injection** | Heuristic detection (injection, jailbreak, zero-width, homoglyphs), file metadata + hidden content scanning | ✅ v0.11 |
+| 🦠 **Malware Scan** | Heuristic file-upload scanning (magic bytes, MIME, archive bombs, macros, polyglots, double ext, path traversal) | ✅ v0.12 |
 | 📋 **Audit Logging** | AES-256-GCM encrypted, async I/O, hash-chain integrity, PII masking | ✅ Ready |
 | 📡 **OpenTelemetry** | Graceful span tracing (opt-in, no-op fallback) | ✅ v0.3 |
 | 📊 **Prometheus Metrics** | 9 counters + histogram + /metrics endpoint | ✅ v0.3 |
