@@ -15,6 +15,7 @@ from araxys.core.config import (
     IPControlConfig,
     JWTConfig,
     LogShippingConfig,
+    MalwareConfig,
     MetricsConfig,
     QueryAuditConfig,
     QueryValidationConfig,
@@ -732,3 +733,70 @@ class TestDatabaseSecurityInAraxysConfig:
         assert c.db_security.redis_pool.max_size == 20
         assert c.db_security.tls.enabled is True
         assert c.db_security.query_audit.slow_query_threshold_ms == 500
+
+
+class TestMalwareConfig:
+    """Tests for malware detection configuration."""
+
+    def test_defaults(self) -> None:
+        c = MalwareConfig()
+        assert c.enabled is True
+        assert c.max_file_size == 10 * 1024 * 1024
+        assert c.detect_magic_bytes is True
+        assert c.detect_mime_mismatch is True
+        assert c.detect_archive_bomb_zip is True
+        assert c.detect_archive_bomb_tar is True
+        assert c.detect_office_macros is True
+        assert c.detect_polyglot is False  # OFF by default
+        assert c.detect_double_extension is True
+        assert c.detect_path_traversal is True
+        assert c.detect_size_mismatch is True
+        assert c.archive_max_ratio == 100.0
+        assert c.archive_max_depth == 5
+        assert c.archive_max_files == 1000
+        assert c.archive_max_size == 100 * 1024 * 1024
+        assert c.archive_max_members == 1000
+        assert "exe" in c.dangerous_extensions
+        assert isinstance(c.excluded_paths, list)
+        assert isinstance(c.excluded_content_types, list)
+
+    def test_custom_values(self) -> None:
+        c = MalwareConfig(
+            max_file_size=5_000_000,
+            detect_polyglot=True,
+            archive_max_ratio=50.0,
+            archive_max_depth=3,
+            dangerous_extensions=["evil", "malware"],
+        )
+        assert c.max_file_size == 5_000_000
+        assert c.detect_polyglot is True
+        assert c.archive_max_ratio == 50.0
+        assert c.archive_max_depth == 3
+        assert c.dangerous_extensions == ["evil", "malware"]
+
+    def test_disabled_via_none_on_araxys_config(self) -> None:
+        c = AraxysConfig(secret_key="test-secret-key-must-be-32-chars!!")
+        assert c.malware is None
+
+    def test_enabled_via_defaults(self) -> None:
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            malware={},  # type: ignore[arg-type]
+        )
+        assert c.malware is not None
+        assert c.malware.enabled is True
+        assert c.malware.max_file_size == 10 * 1024 * 1024
+
+    def test_custom_malware_config(self) -> None:
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            malware={  # type: ignore[arg-type]
+                "max_file_size": 5_000_000,
+                "detect_polyglot": True,
+                "excluded_paths": ["/healthz"],
+            },
+        )
+        assert c.malware is not None
+        assert c.malware.max_file_size == 5_000_000
+        assert c.malware.detect_polyglot is True
+        assert c.malware.excluded_paths == ["/healthz"]

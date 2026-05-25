@@ -8,6 +8,7 @@ from araxys.core.exceptions import (
     ConnectionError,
     CSRFValidationError,
     IPBlockedError,
+    MalwareDetectionError,
     PasswordValidationError,
     TLSConfigurationError,
 )
@@ -222,3 +223,55 @@ class TestAuditEventType:
             "query_executed",
         }
         assert values == expected
+
+
+class TestMalwareDetectionError:
+    """MalwareDetectionError exception — added in v0.8."""
+
+    def test_all_fields(self) -> None:
+        exc = MalwareDetectionError(
+            detector_name="magic_bytes",
+            filename="evil.jpg",
+            threat_description="Magic bytes mismatch",
+        )
+        assert exc.detector_name == "magic_bytes"
+        assert exc.filename == "evil.jpg"
+        assert exc.threat_description == "Magic bytes mismatch"
+        assert isinstance(exc.details, dict)
+
+    def test_filename_none(self) -> None:
+        exc = MalwareDetectionError(
+            detector_name="zip_bomb",
+            filename=None,
+            threat_description="Archive bomb detected",
+        )
+        assert exc.filename is None
+
+    def test_default_message(self) -> None:
+        exc = MalwareDetectionError(
+            detector_name="double_ext",
+            filename="file.pdf.exe",
+            threat_description="Double extension detected",
+        )
+        assert "Malware detected" in str(exc)
+        assert "double_ext" in str(exc)
+
+    def test_is_araxys_error(self) -> None:
+        exc = MalwareDetectionError(
+            detector_name="test",
+            filename=None,
+            threat_description="test threat",
+        )
+        assert isinstance(exc, AraxysError)
+
+    def test_details_dict(self) -> None:
+        exc = MalwareDetectionError(
+            detector_name="test",
+            filename="doc.exe",
+            threat_description="test",
+            details={"extra": "info"},
+        )
+        assert exc.details == {"extra": "info"}
+
+    def test_exception_hierarchy(self) -> None:
+        assert issubclass(MalwareDetectionError, AraxysError)
