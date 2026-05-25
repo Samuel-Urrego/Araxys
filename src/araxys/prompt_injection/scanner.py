@@ -92,14 +92,21 @@ class PromptInjectionScanner:
     async def scan_file(
         self,
         file: UploadFile,
-        config: FileScanConfig,  # noqa: ARG002
+        config: FileScanConfig,
     ) -> ScanResult:
-        """Scan a file upload for prompt injection (stub for PR 3).
+        """Scan a file upload for prompt injection.
 
-        .. note::
+        Performs up to three phases:
 
-            File scanning (metadata extraction, hidden text detection) is
-            implemented in PR 3.  This stub returns a non-threat result.
+        1. **Format & size guard** — checks the file extension against
+           enabled formats and the file size against the configured max.
+        2. **Metadata scan** — extracts text from file metadata (EXIF,
+           PDF Info, Office properties) and runs text detectors.
+        3. **Hidden text scan** — detects invisible text in PDF (mode 3,
+           white-on-white) and Office (hidden paragraphs, white font).
+
+        Results from each phase are aggregated in a single
+        :class:`~araxys.core.types.ScanResult`.
 
         Parameters
         ----------
@@ -110,11 +117,92 @@ class PromptInjectionScanner:
 
         Returns
         -------
-        An empty (non-threat) ScanResult.
+        ScanResult with aggregated threat information.
         """
-        # Stub: real implementation added in PR 3
-        _ = file  # consume parameter to satisfy linters
-        return ScanResult()
+        # Skip if no filename
+        if not file.filename:
+            return ScanResult()
+
+        # Phase 1 — format guard
+        ext = _get_extension(file.filename)
+        format_name = _extension_to_format(ext)
+
+        if format_name is None:
+            return ScanResult()
+
+        if config.enabled_formats and ext not in config.enabled_formats:
+            return ScanResult()
+
+        # Check file size (read first bytes)
+        try:
+            data = await file.read()
+            # Reset so downstream handlers can read
+            if hasattr(file, "file") and file.file and hasattr(file.file, "seek"):
+                file.file.seek(0)
+        except Exception:
+            return ScanResult()
+
+        if len(data) > config.max_file_size:
+            return ScanResult()
+
+        triggered: list[str] = []
+        matched_pattern: str | None = None
+
+        # Phase 2 — metadata scan
+        if config.scan_metadata:
+            try:
+                from araxys.prompt_injection.files.metadata import (
+                    scan_file_metadata as _scan_meta,
+                )
+
+                meta_result = _scan_meta(data, config, format=format_name)
+                if meta_result.is_threat:
+                    triggered.extend(meta_result.detectors_triggered)
+                    if matched_pattern is None:
+                        matched_pattern = meta_result.matched_pattern
+            except Exception:
+                pass
+
+        # Phase 3 — hidden text scan
+        if config.scan_hidden_text:
+            try:
+                from araxys.prompt_injection.files.hidden_text import (  # noqa: I001
+                    detect_office_hidden_text,
+                    detect_pdf_hidden_text,
+                )
+
+                if format_name == "pdf":
+                    hidden = detect_pdf_hidden_text(data)
+                elif format_name in ("docx", "xlsx", "pptx"):
+                    hidden = detect_office_hidden_text(data)
+                else:
+                    hidden = []
+
+                for text in hidden:
+                    result = self.scan_text(text)
+                    if result.is_threat:
+                        triggered.extend(result.detectors_triggered)
+                        if matched_pattern is None:
+                            matched_pattern = result.matched_pattern
+            except Exception:
+                pass
+
+        # Deduplicate triggered detectors
+        triggered = list(dict.fromkeys(triggered))
+
+        if not triggered:
+            return ScanResult()
+
+        highest_score = min(len(triggered) * _DETECTOR_BASE_SCORE, 1.0)
+        is_threat = highest_score > self._config.threshold
+
+        return ScanResult(
+            threat_score=highest_score,
+            is_threat=is_threat,
+            detectors_triggered=triggered,
+            matched_pattern=matched_pattern,
+            metadata={"scanned_format": format_name, "file_size": len(data)},
+        )
 
     # ── Internals ──────────────────────────────────────────────────────────
 
@@ -150,3 +238,36 @@ class PromptInjectionScanner:
             for name, fn in DETECTOR_REGISTRY
             if config_map.get(name, True)
         ]
+
+
+# ── File format helpers ──────────────────────────────────────────────────────
+
+
+def _get_extension(filename: str) -> str:
+    """Extract the lowercase file extension (without dot) from a filename."""
+    if "." not in filename:
+        return ""
+    return filename.rsplit(".", 1)[-1].lower()
+
+
+def _extension_to_format(ext: str) -> str | None:
+    """Map a file extension to a format key used by the file scanner.
+
+    Returns ``None`` for unsupported extensions.
+    """
+    mapping: dict[str, str] = {
+        "jpg": "image",
+        "jpeg": "image",
+        "png": "image",
+        "tiff": "image",
+        "tif": "image",
+        "webp": "image",
+        "pdf": "pdf",
+        "docx": "docx",
+        "docm": "docx",
+        "xlsx": "xlsx",
+        "xlsm": "xlsx",
+        "pptx": "pptx",
+        "ppsm": "pptx",
+    }
+    return mapping.get(ext)
