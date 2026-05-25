@@ -981,6 +981,109 @@ class WebAuthnConfig(BaseModel):
     )
 
 
+class MalwareConfig(BaseModel):
+    """Configuration for heuristic file-upload malware detection.
+
+    When ``None`` on :class:`AraxysConfig`, the entire malware detection
+    feature is disabled. Detectors use only stdlib — no external dependencies.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable malware detection (master switch)",
+    )
+    max_file_size: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1,
+        description="Maximum file size in bytes to scan (10 MB default)",
+    )
+
+    # ── Per-detector toggles ──────────────────────────────────────────────
+    detect_magic_bytes: bool = Field(
+        default=True,
+        description="Detect magic bytes / extension mismatch",
+    )
+    detect_mime_mismatch: bool = Field(
+        default=True,
+        description="Detect Content-Type / content signature mismatch",
+    )
+    detect_archive_bomb_zip: bool = Field(
+        default=True,
+        description="Detect ZIP bombs (high ratio, deep nest, many files)",
+    )
+    detect_archive_bomb_tar: bool = Field(
+        default=True,
+        description="Detect TAR bombs (high ratio, many members)",
+    )
+    detect_office_macros: bool = Field(
+        default=True,
+        description="Detect OOXML files with embedded VBA macros",
+    )
+    detect_polyglot: bool = Field(
+        default=False,
+        description=(
+            "Detect polyglot files (multiple formats). OFF by default "
+            "due to high false-positive risk."
+        ),
+    )
+    detect_double_extension: bool = Field(
+        default=True,
+        description="Detect dangerous double extensions (e.g. invoice.pdf.exe)",
+    )
+    detect_path_traversal: bool = Field(
+        default=True,
+        description="Detect path traversal in filenames",
+    )
+    detect_size_mismatch: bool = Field(
+        default=True,
+        description="Detect file size / declared header mismatch",
+    )
+
+    # ── Archive bomb limits ────────────────────────────────────────────────
+    archive_max_ratio: float = Field(
+        default=100.0,
+        ge=1.0,
+        description="Maximum compression ratio before flagging (100:1)",
+    )
+    archive_max_depth: int = Field(
+        default=5,
+        ge=1,
+        description="Maximum nested archive depth",
+    )
+    archive_max_files: int = Field(
+        default=1000,
+        ge=1,
+        description="Maximum file count inside an archive",
+    )
+    archive_max_size: int = Field(
+        default=100 * 1024 * 1024,
+        ge=1,
+        description="Maximum uncompressed size in bytes for archives",
+    )
+    archive_max_members: int = Field(
+        default=1000,
+        ge=1,
+        description="Maximum member count inside a TAR archive",
+    )
+
+    # ── Extension and exclusion lists ─────────────────────────────────────
+    dangerous_extensions: list[str] = Field(
+        default_factory=lambda: [
+            "exe", "dll", "scr", "vbs", "js", "jse",
+            "ps1", "bat", "cmd", "com", "msi",
+        ],
+        description="Extensions considered dangerous in double-extension check",
+    )
+    excluded_paths: list[str] = Field(
+        default_factory=list,
+        description="Paths excluded from malware scanning",
+    )
+    excluded_content_types: list[str] = Field(
+        default_factory=list,
+        description="Content types excluded from malware scanning",
+    )
+
+
 class AraxysConfig(BaseSettings):
     """Master configuration for the Araxys security shield.
 
@@ -1037,4 +1140,9 @@ class AraxysConfig(BaseSettings):
     prompt_injection: PromptInjectionConfig | None = Field(
         default=None,
         description="Prompt injection detection config (None = feature disabled)",
+    )
+    # v0.8 — Malware Detection
+    malware: MalwareConfig | None = Field(
+        default=None,
+        description="Malware detection config (None = feature disabled)",
     )

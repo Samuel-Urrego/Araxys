@@ -181,6 +181,39 @@ class PromptInjectionError(AraxysError):
         )
 
 
+class MalwareDetectionError(AraxysError):
+    """Raised when a heuristic malware detector flags a file.
+
+    Attributes
+    ----------
+    detector_name:
+        Name of the detector that flagged the file.
+    filename:
+        The uploaded filename, if available.
+    threat_description:
+        Human-readable description of the threat.
+    details:
+        Optional structured details about the detection.
+    """
+
+    def __init__(
+        self,
+        detector_name: str,
+        filename: str | None,
+        threat_description: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        self.detector_name = detector_name
+        self.filename = filename
+        self.threat_description = threat_description
+        self.details = details or {}
+        super().__init__(
+            f"Malware detected by {detector_name}"
+            + (f" on {filename}" if filename else "")
+            + f": {threat_description}"
+        )
+
+
 # Re-export WebAuthnError for public API convenience.
 # Import is here (not at top) to avoid circular imports since
 # webauthn.exceptions itself imports AraxysError from this module.
