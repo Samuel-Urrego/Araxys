@@ -93,5 +93,6 @@ ignore_missing_imports = true
 dev = [
     "asyncpg>=0.31.0",
     "pytest-cov>=7.1.0",
+    "python-multipart>=0.0.29",
     "types-aiofiles>=25.1.0.20260508",
 ]

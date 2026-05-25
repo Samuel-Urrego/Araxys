@@ -28,6 +28,8 @@ from araxys.core.config import (
     IPControlConfig,
     JWTConfig,
     MetricsConfig,
+    # v0.7 configs
+    PromptInjectionConfig,
     RateLimitConfig,
     SanitizeConfig,
     SecureHeadersConfig,
@@ -47,6 +49,8 @@ from araxys.core.exceptions import (  # type: ignore[attr-defined]
     InvalidAPIKey,
     IPBlockedError,
     PasswordValidationError,
+    # v0.7 exceptions
+    PromptInjectionError,
     RateLimitExceeded,
     SanitizationError,
     TokenExpired,
@@ -57,6 +61,8 @@ from araxys.core.exceptions import (  # type: ignore[attr-defined]
 from araxys.core.types import (
     AuditEntry,
     AuditEventType,
+    # v0.7 types
+    ScanResult,
     Scope,
     SecurityContext,
     SecurityEvent,
@@ -82,6 +88,7 @@ from araxys.jwt_auth.dependencies import create_jwks_router
 from araxys.jwt_auth.storage import InMemoryJWKSStore, JWKSStore
 from araxys.jwt_auth.tokens import JWTManager, TokenPair, TokenPayload
 from araxys.metrics.collector import MetricsRegistry
+from araxys.prompt_injection.dependencies import PromptInjectionGuard
 from araxys.sessions.manager import SessionManager
 from araxys.sessions.storage import (
     InMemorySessionBackend,
@@ -115,6 +122,10 @@ __all__ = [
     "WebhookConfig",
     "MetricsConfig",
     "TelemetryConfig",
+    # v0.6 configs
+    "WebAuthnConfig",
+    # v0.7 configs
+    "PromptInjectionConfig",
     # Types
     "AuditEntry",
     "AuditEventType",
@@ -123,6 +134,8 @@ __all__ = [
     # v0.3 types
     "SecurityEventType",
     "SecurityEvent",
+    # v0.7 types
+    "ScanResult",
     # Exceptions
     "AraxysError",
     "EncryptionError",
@@ -139,6 +152,8 @@ __all__ = [
     "WebAuthnError",
     "PasswordValidationError",
     "IPBlockedError",
+    # v0.7 exceptions
+    "PromptInjectionError",
     # v0.3 modules — middleware
     "CORSMiddleware",
     "IPAccessMiddleware",
@@ -184,4 +199,6 @@ __all__ = [
     "RedisSentinelPool",
     "get_db_pool",
     "get_query_auditor",
+    # v0.7 Prompt Injection
+    "PromptInjectionGuard",
 ]
