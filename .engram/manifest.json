@@ -16,6 +16,14 @@
       "sessions": 3,
       "memories": 21,
       "prompts": 13
+    },
+    {
+      "id": "7034ff25",
+      "created_by": "samuel.urrego",
+      "created_at": "2026-05-26T16:39:02Z",
+      "sessions": 13,
+      "memories": 137,
+      "prompts": 187
     }
   ]
 }
