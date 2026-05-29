@@ -6,16 +6,17 @@ This document provides high-density technical context for AI agents (LLMs) worki
 
 Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized middlewares to a FastAPI application.
 
-**Middleware Order (from outer to inner):**
-1. `CORSMiddleware` (v0.3 — outermost, fail-closed)
-2. `SecureHeadersMiddleware`
-3. `TelemetryMiddleware` (v0.3 — opt-in, wraps everything below)
-4. `RateLimitMiddleware`
-5. `BruteForceMiddleware` (v0.3 — lockout before processing)
-6. `IPAccessMiddleware` (v0.3 — before Honeypot)
-7. `HoneypotMiddleware`
-8. `SanitizeMiddleware` (innermost)
-9. `JWTAuthMiddleware` / `APIKeyMiddleware` (typically route-level)
+**Middleware Order (from innermost to outermost — FastAPI registration order):**
+1. `SanitizeMiddleware` (innermost — closest to app logic)
+2. `PromptInjectionMiddleware` (v0.11 — read-only, scans text + files before sanitization blocks)
+3. `MalwareMiddleware` (v0.12 — read-only, scans multipart uploads heuristically)
+4. `HoneypotMiddleware` (IP-ban check + trap routes)
+5. `IPAccessMiddleware` (v0.3 — allow/block/hybrid before lockout)
+6. `BruteForceMiddleware` (v0.3 — lockout before rate limiting)
+7. `RateLimitMiddleware` (sliding window, per-IP/user/key)
+8. `TelemetryMiddleware` (v0.3 — opt-in, wraps everything below)
+9. `SecureHeadersMiddleware` (HSTS, CSP, COOP/CORP, X-Frame-Options)
+10. `CORSMiddleware` (v0.3 — outermost, fail-closed)
 
 ## 🔑 Key Abstractions
 
@@ -27,22 +28,35 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 | `CSRFHandler` | `araxys.csrf.tokens` | Double-submit cookie CSRF with constant-time validation. |
 | `BruteForceMiddleware` | `araxys.brute_force.limiter` | Account lockout after N failures. |
 | `PasswordPolicy` | `araxys.brute_force.password_policy` | Password complexity + HIBP check. |
-| `SessionManager` | `araxys.sessions.manager` | Session tracking, max concurrent, cleanup. |
+| `SessionManager` | `araxys.sessions.manager` | Session tracking, max concurrent, idle timeout, cleanup. |
 | `SecurityEventBus` | `araxys.webhooks.emitter` | Unified async pub/sub event bus (12 event types). |
 | `WebhookDelivery` | `araxys.webhooks.delivery` | httpx POST + retry (1s/2s/4s) per event type. |
+| `DLQConsumer` | `araxys.webhooks.dlq` | Dead-letter queue: list, inspect, replay, purge. Admin API. |
 | `MetricsRegistry` | `araxys.metrics.collector` | 9 Prometheus counters + histogram, /metrics endpoint. |
 | `AraxysTracer` | `araxys.telemetry.tracer` | OTEL span context manager with no-op fallback. |
-| `APIKeyManager`| `araxys.api_keys.manager` | Key generation, SHA-256 hashing, and verification. |
-| `JWTManager` | `araxys.jwt_auth.tokens` | Token creation (HS256/RS256/ES256), decoding, JWKS (RFC 7517), introspection (RFC 7662), blacklist checks. |
-| `DatabaseSecurityManager` | `araxys.db_security.manager` | v0.5 — shared Redis pool lifecycle, secret resolver chain, TLS cert pinning, query auditing, v0.7 — QueryValidator wiring. |
-| `ConnectionPool` | `araxys.db_security.pool` | Protocol for Redis connection pools — InMemoryPool (no-op) + RedisPool (health, leak, idle timeout, v0.7 — auto-reconnection, validate_query). |
-| `QueryValidator` | `araxys.db_security.query_validator` | v0.7 — sqlparse-based detection of inline SQL literals vs parameterized queries. |
-| `SessionManager` | `araxys.sessions.manager` | v0.7 — session TTL, refresh, cleanup loop for expired sessions. |
+| `APIKeyManager`| `araxys.api_keys.manager` | Key generation (256-bit entropy), SHA-256 hashing, scope-based verification. |
+| `JWTManager` | `araxys.jwt_auth.tokens` | Token creation (HS256/RS256/ES256), decoding, JWKS (RFC 7517), token binding, family revocation, JTI blacklisting. |
+| `MFAManager` | `araxys.mfa.manager` | TOTP (RFC 6238), QR URI, one-time recovery codes. Zero external deps. |
+| `OAuth2Manager` | `araxys.oauth.manager` | Authorization Code + PKCE, state store, multi-provider (Google, GitHub, Microsoft). |
+| `RBACManager` | `araxys.rbac.manager` | Hierarchical RBAC with `resource:action` permission strings and wildcards. |
+| `WebAuthnManager` | `araxys.webauthn.manager` | FIDO2 registration + authentication, COSE key parsing (EC2, RSA), attestation. |
+| `AdminAPI` | `araxys.admin.router` | Session management, IP bans, API keys, rate limit stats, DLQ inspection, health checks. |
+| `PromptInjectionGuard` | `araxys.prompt_injection.dependencies` | FastAPI `Depends` factory — scans text payloads against 5 detectors + file metadata. |
+| `PromptInjectionMiddleware` | `araxys.prompt_injection.middleware` | Read-only ASGI middleware for text + file scanning (query params, JSON, multipart). |
+| `MalwareScanner` | `araxys.malware.scanner` | Config-driven heuristic scanner: 9 detectors, async via `run_in_executor`. |
+| `MalwareGuard` | `araxys.malware.dependencies` | FastAPI `Depends` factory — scans uploaded files against malware detectors. |
+| `MalwareMiddleware` | `araxys.malware.middleware` | Read-only ASGI middleware for multipart file upload scanning. |
+| `DatabaseSecurityManager` | `araxys.db_security.manager` | Shared Redis/PG pool lifecycle, secret resolver chain, TLS cert pinning, query auditing. |
+| `ConnectionPool` | `araxys.db_security.pool` | Protocol for Redis connection pools — InMemoryPool + RedisPool + RedisClusterPool + RedisSentinelPool. |
+| `QueryValidator` | `araxys.db_security.query_validator` | sqlparse-based detection of inline SQL literals vs parameterized queries. |
 | `QueryAuditor` | `araxys.db_security.audit` | Emits `AuditEntry(QUERY_EXECUTED)` with slow query detection (>100ms threshold). |
-| `SqlInjectionAnalyzer` | `araxys.sanitize.sqlparser` | v0.6 — sqlparse-based SQLi detection (stacked queries, UNION SELECT, tautologies, time-based, comments). Falls back to regex patterns when sqlparse not installed. |
-| `Storage` | `araxys.*.storage` | Protocols for Redis or InMemory persistence. |
-| `Scope` | `araxys.core.types` | Enum for permission-based access control. |
+| `SqlInjectionAnalyzer` | `araxys.sanitize.sqlparser` | sqlparse-based SQLi detection (stacked queries, UNION SELECT, tautologies, time-based, comments). Falls back to regex patterns when sqlparse not installed. |
+| `SanitizeScanner` | `araxys.sanitize.scanner` | Recursive scanning of dicts/lists/strings for SQLi, XSS, NoSQL, command injection, path traversal. |
+| `HoneypotTrap` | `araxys.honeypot.traps` | Fake endpoints (`/wp-admin`, `/.env`) that auto-ban bots with fake 200 responses. |
+| `AuditLogger` | `araxys.audit.logger` | AES-256-GCM encrypted logging, hash-chain integrity, PII masking, async I/O. |
+| `Scope` | `araxys.core.types` | Permission scopes: `read`, `write`, `admin`. |
 | `SecurityEventType` | `araxys.core.types` | Enum for all 12 security event types. |
+| `ScanResult` | `araxys.core.types` | Dataclass returned by prompt injection scanners — `threat_score`, `is_threat`, `detectors_triggered`. |
 
 ## ⚠️ Critical Implementation Gotchas
 
@@ -77,13 +91,36 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 - **Body Size Limit (v0.7)**: `SanitizeConfig.max_body_bytes` defaults to 10 MB. Exceeded requests get 413 `{"detail": "Request body too large"}`. Header-less requests fall back to reading the body and checking length.
 - **RedisPool Reconnection (v0.7)**: `_health_loop()` tracks consecutive PING failures; after `reconnect_retries` (default 3), calls `_reconnect()`. Guarded by `asyncio.Lock()`. `RedisPoolConfig.reconnect_retries` threads to `RedisPool`.
 - **QueryValidator (v0.7)**: `QueryValidator.validate()` uses sqlparse to detect inline SQL literals. `QueryValidationConfig.mode` is `"warn"` (default — returns `passed=True` with reason) or `"block"` (raises `ValidationError`). `ConnectionPool` Protocol now requires `validate_query()`. Test fakes must implement it.
+- **Prompt Injection File Scanning (v0.11)**: `files/` subpackage uses lazy imports (`PIL`, `pypdf`, `docx`, `openpyxl`) with graceful fallback — missing optional deps return empty metadata. `FileScanConfig.enabled_formats` controls which parsers are attempted. Detectors are pure functions `(value: str) -> ScanResult`. Zero-width chars and homoglyphs use Unicode normalization (NFKC).
+- **Malware Detection (v0.12)**: All 9 detectors are pure functions `(bytes) -> bool | str | None`. `MalwareScanner.scan()` uses `asyncio.get_event_loop().run_in_executor()` to avoid blocking the event loop. `Archives/` subpackage handles ZIP, TAR, GZ, BZ2, and 7z detection for archive bombs. Magic bytes DB covers 70+ file signatures. Polyglot detection checks for multiple valid file headers in a single file.
+- **PromptInjectionMiddleware / MalwareMiddleware**: Both are read-only — they read the request body via `request.body()` (cached by Starlette, no mutation). They check for `PromptInjectionError` / `MalwareDetectionError` and return 400 with JSON detail. Never consume the upload stream — use `UploadFile` API.
+- **Middleware Order Matters**: Prompt injection runs AFTER sanitization but BEFORE malware (innermost chain: Sanitize → PromptInjection → Malware). Changing this order without understanding the read-only contract will break request body consumption.
+- **`ScanResult` Type**: `threat_score: float` is a design seam for future LLM-based secondary validation. Current detectors set `is_threat=True` for definitive matches. `detectors_triggered` is a list of detector names for audit trails.
+- **Python Version (v0.12)**: Minimum Python 3.11. Uses `datetime.timezone.utc` (not `datetime.UTC`) and `(str, Enum)` (not `StrEnum`) for compatibility. `from __future__ import annotations` is required in all module files.
 
 ## 🛠️ Common Usage Patterns
 
 ### 1. Initializing Shield
 ```python
 from araxys import AraxysShield, AraxysConfig
-shield = AraxysShield(app, AraxysConfig(secret_key="...", redis_url="..."))
+
+# Quick start — in-memory backends (dev/testing)
+shield = AraxysShield(app, AraxysConfig(secret_key="super-secret-key-at-least-32-chars!"))
+
+# Production — shared Redis pool via db_security (recommended)
+from araxys.db_security.config import DatabaseSecurityConfig
+shield = AraxysShield(
+    app,
+    AraxysConfig(
+        secret_key="...",
+        db_security=DatabaseSecurityConfig(
+            enabled=True,
+            redis_url="redis://localhost:6379",
+        ),
+    ),
+)
+# When db_security is enabled, all modules share the same Redis pool.
+# The top-level redis_url fallback still works for simple setups.
 ```
 
 ### 2. CORS Configuration
@@ -151,7 +188,38 @@ config = AraxysConfig(
 # Events delivered with 1s/2s/4s exponential retry, non-blocking.
 ```
 
-### 8. Graceful Shutdown
+### 8. Prompt Injection Protection
+```python
+config = AraxysConfig(
+    secret_key="...",
+    prompt_injection=PromptInjectionConfig(
+        enabled=True,
+        file_scanning=FileScanConfig(
+            enabled_formats=["pdf", "docx", "jpeg", "png"],
+        ),
+    ),
+)
+# Text scanning: 5 detectors (direct injection, jailbreak, delimiters, zero-width, homoglyphs)
+# File scanning: metadata + hidden text in PDFs, Office docs, and images
+# Per-route: Depends(get_prompt_injection_guard(config.prompt_injection))
+```
+
+### 9. Malware File Upload Scanning
+```python
+config = AraxysConfig(
+    secret_key="...",
+    malware=MalwareConfig(
+        enabled=True,
+        max_file_size=50 * 1024 * 1024,  # 50 MB
+        detectors=["magic_bytes", "archive_bomb", "polyglot", "macros", "mime_mismatch"],
+    ),
+)
+# 9 heuristic detectors — zero external dependencies
+# Middleware is read-only (doesn't consume the upload stream)
+# Per-route: Depends(get_malware_guard(config.malware))
+```
+
+### 10. Graceful Shutdown
 ```python
 # On app shutdown
 await shield.shutdown()
@@ -173,9 +241,10 @@ The `araxys` CLI is the preferred way for agents to perform environment manageme
 - **OTEL mocks**: Use `unittest.mock` to mock `opentelemetry` imports — never require the real SDK in tests.
 - **HIBP tests**: Mock `httpx.AsyncClient` responses for `check_hibp()` — never hit the real API in tests.
 
-## 📊 Test Coverage (v0.7)
-- **762 tests** across 20 test files
-- Unit: ~400 tests (backends, stateless logic, pure functions, detectors, sqlparser, pool, query_validator)
-- Integration: ~200 tests (middleware via `httpx.AsyncClient` + `TestClient`)
-- Key pure functions: `build_csp_header()`, `mask_pii()`, `detect_nosql_injection()`, `detect_command_injection()`, `detect_path_traversal()`, `extract_user_id()`, `extract_api_key()`, `match_path()`, `SqlInjectionAnalyzer.analyze()`, `QueryValidator.validate()`
-- Ruff + mypy strict enforced in CI (104 source files, 0 errors)
+## 📊 Test Coverage (v0.12)
+- **1,326 tests** across 46 test files covering all 24 modules
+- Unit: ~600 tests (backends, stateless logic, pure functions, detectors, scanners, sqlparser, pool, query_validator)
+- Integration: ~400 tests (middleware via `httpx.AsyncClient` + `TestClient`)
+- E2E: ~150 tests (full middleware chain, file upload scanning, prompt injection file detection)
+- Key pure functions: `build_csp_header()`, `mask_pii()`, `detect_nosql_injection()`, `detect_command_injection()`, `detect_path_traversal()`, `extract_user_id()`, `extract_api_key()`, `match_path()`, `SqlInjectionAnalyzer.analyze()`, `QueryValidator.validate()`, `detect_magic_bytes_mismatch()`, `detect_archive_bomb()`, `detect_polyglot()`, `detect_direct_injection()`, `detect_jailbreak()`, `detect_hidden_text()`
+- Ruff + mypy strict enforced in CI (124 source files, 0 errors)

@@ -36,7 +36,7 @@ class QueryEvent:
     connection_id:
         Optional identifier of the connection that executed the query.
     timestamp:
-        When the event was created (default: UTC now).
+        When the event was created (default: timezone.utc now).
     duration_ms:
         Optional execution duration in milliseconds.
     validation:

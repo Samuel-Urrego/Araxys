@@ -47,7 +47,7 @@ class CredentialRecord:
     attestation_type: str = field(default="none")
 
     def __post_init__(self) -> None:
-        """Normalize created_at to UTC."""
+        """Normalize created_at to timezone.utc."""
         if self.created_at.tzinfo is None:
             object.__setattr__(
                 self, "created_at", self.created_at.replace(tzinfo=UTC)

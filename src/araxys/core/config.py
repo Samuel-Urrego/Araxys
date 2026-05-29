@@ -882,8 +882,8 @@ class FileScanConfig(BaseModel):
     """Configuration for file-based prompt injection scanning.
 
     Controls which file formats are scanned and how metadata/hidden
-    text detection behaves. File scanning implementation is deferred
-    to a future release — this config is reserved for that feature.
+    text detection behaves. Supports PDF, Office documents (DOCX,
+    PPTX, XLSX), and images (JPEG, PNG, TIFF, WebP).
     """
 
     enabled_formats: list[str] = Field(
@@ -956,7 +956,7 @@ class PromptInjectionConfig(BaseModel):
     )
     file_scanning: FileScanConfig = Field(
         default_factory=FileScanConfig,
-        description="Configuration for file-based scanning (reserved for future use)",
+        description="Configuration for file-based scanning (PDF, Office, images)",
     )
 
 

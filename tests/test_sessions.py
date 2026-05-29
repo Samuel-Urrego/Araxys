@@ -347,7 +347,7 @@ class TestInMemorySessionBackendTouch:
         self, backend: SessionBackend
     ) -> None:
         """touch_session should update last_activity_at to now."""
-        from datetime import UTC, datetime
+        from datetime import datetime
 
         from araxys.sessions.storage import InMemorySessionBackend
 
@@ -373,7 +373,7 @@ class TestInMemorySessionBackendTouch:
         self, backend: SessionBackend
     ) -> None:
         """touch_session on idle session should raise SessionNotFound."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import InMemorySessionBackend, SessionNotFound
 
@@ -848,7 +848,7 @@ class TestInMemorySessionBackendIdleTimeout:
         self, backend: SessionBackend
     ) -> None:
         """get_session should return session when within idle timeout."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import InMemorySessionBackend
 
@@ -866,7 +866,7 @@ class TestInMemorySessionBackendIdleTimeout:
         self, backend: SessionBackend
     ) -> None:
         """get_session should return None when idle timeout exceeded."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import InMemorySessionBackend
 
@@ -883,7 +883,7 @@ class TestInMemorySessionBackendIdleTimeout:
         self, backend: SessionBackend
     ) -> None:
         """get_session should emit SESSION_IDLE_TIMEOUT when session is idle."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.core.types import SecurityEventType
         from araxys.sessions.storage import InMemorySessionBackend
@@ -907,7 +907,7 @@ class TestInMemorySessionBackendIdleTimeout:
         self, backend: SessionBackend
     ) -> None:
         """idle_timeout_seconds=0 should disable idle checking."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import InMemorySessionBackend
 
@@ -925,7 +925,7 @@ class TestInMemorySessionBackendIdleTimeout:
         self, backend: SessionBackend
     ) -> None:
         """idle_timeout_seconds=None should disable idle checking."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import InMemorySessionBackend
 
@@ -943,7 +943,7 @@ class TestInMemorySessionBackendIdleTimeout:
         self, backend: SessionBackend
     ) -> None:
         """last_activity_at=None should fall back to created_at for idle calc."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import InMemorySessionBackend
 
@@ -999,7 +999,7 @@ class TestInMemorySessionBackendCleanup:
         self, backend: SessionBackend
     ) -> None:
         """cleanup_expired should remove sessions past idle_timeout_seconds."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import InMemorySessionBackend
 
@@ -1213,7 +1213,7 @@ class TestRedisSessionBackendTouch:
         self, backend: SessionBackend
     ) -> None:
         """touch_session should update last_activity_at to now."""
-        from datetime import UTC, datetime
+        from datetime import datetime
 
         from araxys.sessions.storage import RedisSessionBackend
 
@@ -1239,7 +1239,7 @@ class TestRedisSessionBackendTouch:
         self, backend: SessionBackend
     ) -> None:
         """touch_session on idle Redis session should raise SessionNotFound."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import RedisSessionBackend, SessionNotFound
 
@@ -1301,7 +1301,7 @@ class TestRedisSessionBackendIdleTimeout:
         self, backend: SessionBackend
     ) -> None:
         """get_session should return None when idle timeout exceeded."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import RedisSessionBackend
 
@@ -1326,7 +1326,7 @@ class TestRedisSessionBackendIdleTimeout:
         self, backend: SessionBackend
     ) -> None:
         """get_session should emit SESSION_IDLE_TIMEOUT when idle."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import RedisSessionBackend
 
@@ -1351,7 +1351,7 @@ class TestRedisSessionBackendIdleTimeout:
         self, backend: SessionBackend
     ) -> None:
         """cleanup_expired should remove idle sessions from Redis."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import RedisSessionBackend
 
@@ -1667,7 +1667,7 @@ class TestIntegrationInMemoryFullLifecycle:
         event_bus: MagicMock,
     ) -> None:
         """Full lifecycle: create → idle → get None → SESSION_IDLE_TIMEOUT."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.core.types import SecurityEventType
         from araxys.sessions.storage import InMemorySessionBackend
@@ -1702,7 +1702,7 @@ class TestIntegrationInMemoryFullLifecycle:
         backend: SessionBackend,
     ) -> None:
         """touch_session on an idle session returns False (not raises)."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import InMemorySessionBackend
 
@@ -1851,7 +1851,7 @@ class TestIntegrationRedisFullLifecycle:
         event_bus: MagicMock,
     ) -> None:
         """create → idle → get None → SESSION_IDLE_TIMEOUT via Redis."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.core.types import SecurityEventType
         from araxys.sessions.storage import RedisSessionBackend
@@ -1893,7 +1893,7 @@ class TestIntegrationRedisFullLifecycle:
         backend: SessionBackend,
     ) -> None:
         """touch_session on idle Redis session returns False."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import RedisSessionBackend
 
@@ -2033,7 +2033,7 @@ class TestIntegrationCleanupExpired:
         backend: SessionBackend,
     ) -> None:
         """cleanup_expired removes idle sessions through manager."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import InMemorySessionBackend
 
@@ -2125,7 +2125,7 @@ class TestIntegrationRedisCleanupExpired:
         backend: SessionBackend,
     ) -> None:
         """cleanup_expired removes idle sessions from Redis."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.sessions.storage import RedisSessionBackend
 

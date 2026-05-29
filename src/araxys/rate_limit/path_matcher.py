@@ -7,10 +7,12 @@ Uses :func:`fnmatch.fnmatch` for glob-style wildcard matching
 from __future__ import annotations
 
 import fnmatch
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+T = TypeVar("T")
 
 
 def match_path(path: str, pattern: str) -> bool:
@@ -18,7 +20,7 @@ def match_path(path: str, pattern: str) -> bool:
     return fnmatch.fnmatch(path, pattern)
 
 
-def find_best_match[T](
+def find_best_match(
     path: str,
     patterns: Mapping[str, T],
 ) -> tuple[str | None, T | None]:

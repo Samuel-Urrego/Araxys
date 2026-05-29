@@ -9,6 +9,7 @@ API routes, and shield integration.
 from __future__ import annotations
 
 import json
+from datetime import UTC
 from typing import TYPE_CHECKING
 
 import pytest
@@ -1145,7 +1146,7 @@ class TestDLQEdgeCases:
         sample_event: SecurityEvent,
     ) -> None:
         """purge_expired must remove events older than max_age_seconds."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.webhooks.dlq import WebhookDLQBackend
 
@@ -1193,7 +1194,7 @@ class TestDLQEdgeCases:
         sample_event: SecurityEvent,
     ) -> None:
         """purge_expired must remove only expired events, keep fresh ones."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta
 
         from araxys.webhooks.dlq import WebhookDLQBackend
 

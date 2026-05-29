@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/python-3.13+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
   <img src="https://img.shields.io/badge/Pydantic-v2-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic">
   <img src="https://img.shields.io/badge/uv-package%20manager-DE5FE9?style=for-the-badge&logo=uv&logoColor=white" alt="uv">
@@ -103,7 +103,7 @@ pip install araxys[all]
 pip install araxys[dev]
 ```
 
-> **Requires Python 3.13+**
+> **Requires Python 3.11+**
 
 ---
 
@@ -212,8 +212,8 @@ Araxys includes a professional CLI for managing API keys and security assets dir
 **Setup:**
 
 ```bash
-# Install with CLI dependencies
-pip install "araxys[cli]"
+# Install (CLI included in core)
+pip install araxys
 
 # Configure your storage
 export ARAXYS_REDIS_URL="redis://localhost:6379"
@@ -552,7 +552,7 @@ uv run pytest tests/ -v
 uv run pytest tests/ --cov=araxys --cov-report=term-missing
 ```
 
-**1018 tests** covering all 21 modules — CORS, IP access, CSRF, brute force, sessions, telemetry, webhooks, DLQ, WebAuthn, MFA, RBAC, OAuth2/OIDC, admin, metrics, rate limiting, honeypots, API keys, JWT, headers, sanitization, audit logging, and database security.
+**1326 tests** covering all 24 modules — CORS, IP access, CSRF, brute force, sessions, telemetry, webhooks, DLQ, WebAuthn, MFA, OAuth2/OIDC, RBAC, admin, metrics, rate limiting, honeypots, API keys, JWT, headers, sanitization, prompt injection, malware scanning, audit logging, and database security.
 
 ---
 
