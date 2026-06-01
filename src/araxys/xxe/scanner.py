@@ -112,7 +112,7 @@ class XXEScanner:
 
         # ── Step 2: Try defusedxml parser (when available) ──────────────
         try:
-            from defusedxml.ElementTree import fromstring as _safe_fromstring
+            from defusedxml.ElementTree import fromstring as _safe_fromstring  # type: ignore[import-untyped]
         except ImportError:
             _safe_fromstring = None
 

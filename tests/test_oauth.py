@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from araxys.oauth.flow import OAuth2Flow, OAuth2Provider
@@ -233,7 +234,7 @@ class TestOAuth2ProviderFromIssuer:
     """OAuth2Provider.from_issuer() — auto-populate from OIDC discovery."""
 
     @staticmethod
-    def _mock_metadata() -> tuple:
+    def _mock_metadata() -> tuple[Any, Any]:
         """Build mock OIDCProviderMetadata + patch for discover()."""
         from unittest.mock import AsyncMock, patch
 

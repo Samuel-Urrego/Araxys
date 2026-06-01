@@ -70,7 +70,7 @@ class TestShieldRegistration:
         app = FastAPI()
         AraxysShield(app, enabled_config)
 
-        middleware_names = [m.cls.__name__ for m in app.user_middleware]
+        middleware_names = [m.cls.__name__ for m in app.user_middleware]  # type: ignore[attr-defined]
         assert "AccountProtectionMiddleware" in middleware_names
 
     async def test_skipped_when_disabled(self, disabled_config: AraxysConfig) -> None:
@@ -80,7 +80,7 @@ class TestShieldRegistration:
         app = FastAPI()
         AraxysShield(app, disabled_config)
 
-        middleware_names = [m.cls.__name__ for m in app.user_middleware]
+        middleware_names = [m.cls.__name__ for m in app.user_middleware]  # type: ignore[attr-defined]
         assert "AccountProtectionMiddleware" not in middleware_names
 
     async def test_skipped_when_none(self, minimal_config: AraxysConfig) -> None:
@@ -91,7 +91,7 @@ class TestShieldRegistration:
         app = FastAPI()
         AraxysShield(app, minimal_config)
 
-        middleware_names = [m.cls.__name__ for m in app.user_middleware]
+        middleware_names = [m.cls.__name__ for m in app.user_middleware]  # type: ignore[attr-defined]
         assert "AccountProtectionMiddleware" not in middleware_names
 
     async def test_middleware_order_between_honeypot_and_ip_access(
@@ -110,7 +110,7 @@ class TestShieldRegistration:
         app = FastAPI()
         AraxysShield(app, enabled_config)
 
-        names = [m.cls.__name__ for m in app.user_middleware]
+        names = [m.cls.__name__ for m in app.user_middleware]  # type: ignore[attr-defined]
         # Registration order (last = outermost):
         # sanitize, prompt_injection, malware, honeypot,
         #   account_protection,  # NEW

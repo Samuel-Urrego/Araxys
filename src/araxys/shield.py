@@ -523,7 +523,7 @@ class AraxysShield:
         app.add_middleware(
             _CSRFMiddleware,
             config=config.csrf,
-            handler=self.csrf_handler,
+            handler=self.csrf_handler,  # type: ignore[arg-type]
         )
 
     def _register_account_protection(
@@ -541,7 +541,7 @@ class AraxysShield:
         app.add_middleware(
             AccountProtectionMiddleware,
             config=config.account_protection,
-            on_audit=self._emit_audit,
+            on_audit=self._emit_audit,  # type: ignore[arg-type]
         )
 
     def _register_ip_access(self, app: FastAPI, config: AraxysConfig) -> None:

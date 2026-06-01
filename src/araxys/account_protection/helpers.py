@@ -72,7 +72,7 @@ def constant_time_compare(a: str | bytes, b: str | bytes) -> bool:
         b = b.encode()
     elif isinstance(a, str) and isinstance(b, bytes):
         a = a.encode()
-    return hmac.compare_digest(a, b)
+    return hmac.compare_digest(a, b)  # type: ignore[arg-type]
 
 
 def simulate_verification_work(work_factor: int = 12) -> None:

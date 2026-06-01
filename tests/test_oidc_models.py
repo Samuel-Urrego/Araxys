@@ -44,7 +44,7 @@ class TestOIDCProviderMetadata:
         from araxys.oidc.models import OIDCProviderMetadata
 
         with pytest.raises(ValidationError, match="issuer"):
-            OIDCProviderMetadata(
+            OIDCProviderMetadata(  # type: ignore[call-arg]
                 authorization_endpoint="https://accounts.example.com/authorize",
                 token_endpoint="https://accounts.example.com/token",
                 jwks_uri="https://accounts.example.com/jwks",
@@ -54,7 +54,7 @@ class TestOIDCProviderMetadata:
         from araxys.oidc.models import OIDCProviderMetadata
 
         with pytest.raises(ValidationError, match="jwks_uri"):
-            OIDCProviderMetadata(
+            OIDCProviderMetadata(  # type: ignore[call-arg]
                 issuer="https://accounts.example.com",
                 authorization_endpoint="https://accounts.example.com/authorize",
                 token_endpoint="https://accounts.example.com/token",
@@ -64,7 +64,7 @@ class TestOIDCProviderMetadata:
         from araxys.oidc.models import OIDCProviderMetadata
 
         with pytest.raises(ValidationError, match="token_endpoint"):
-            OIDCProviderMetadata(
+            OIDCProviderMetadata(  # type: ignore[call-arg]
                 issuer="https://accounts.example.com",
                 authorization_endpoint="https://accounts.example.com/authorize",
                 jwks_uri="https://accounts.example.com/jwks",

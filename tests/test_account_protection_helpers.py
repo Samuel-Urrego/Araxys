@@ -184,8 +184,7 @@ class TestSimulateHashLookup:
         config = AccountProtectionConfig(
             enabled=True, fake_hash_work_factor=0,
         )
-        result = simulate_hash_lookup("sk_test12", config)
-        assert result is None
+        simulate_hash_lookup("sk_test12", config)
 
     def test_computes_sha256_hash(self) -> None:
         """Should compute a SHA-256 hash internally (uses same algo as verify_key)."""

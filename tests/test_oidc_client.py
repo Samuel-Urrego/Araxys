@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -24,7 +25,7 @@ VALID_DISCOVERY_RESPONSE = {
 
 
 def _make_mock_httpx_response(
-    json_data: dict | str | None = None,
+    json_data: dict[str, Any] | str | None = None,
     status_code: int = 200,
 ) -> MagicMock:
     """Build a mock httpx.Response with the given JSON body and status."""

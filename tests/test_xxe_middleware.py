@@ -204,7 +204,7 @@ class TestCleanXMLPassthrough:
 class TestNonXMLPassthrough:
     """Middleware passes non-XML content through."""
 
-    async def _make_client(self):
+    async def _make_client(self) -> tuple[FastAPI, AsyncClient]:
         from araxys.xxe.config import XXEConfig
         from araxys.xxe.middleware import XXEMiddleware
 
@@ -219,7 +219,7 @@ class TestNonXMLPassthrough:
         app, c = await self._make_client()
 
         @app.post("/data")
-        async def endpoint(request: Request) -> dict:
+        async def endpoint(request: Request) -> dict[str, object]:
             body = await request.json()
             return {"received": body}
 

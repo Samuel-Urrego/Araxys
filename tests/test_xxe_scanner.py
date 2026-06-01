@@ -146,14 +146,14 @@ class TestXXEEvents:
         from araxys.core.types import AuditEventType
 
         assert hasattr(AuditEventType, "XXE_DETECTED")
-        assert AuditEventType.XXE_DETECTED == "xxe_detected"
+        assert AuditEventType.XXE_DETECTED.value == "xxe_detected"
 
     def test_xxe_detected_in_security_event_type(self) -> None:
         """SecurityEventType has XXE_DETECTED = 'xxe_detected'."""
         from araxys.core.types import SecurityEventType
 
         assert hasattr(SecurityEventType, "XXE_DETECTED")
-        assert SecurityEventType.XXE_DETECTED == "xxe_detected"
+        assert SecurityEventType.XXE_DETECTED.value == "xxe_detected"
 
     def test_xxe_audit_events_frozenset(self) -> None:
         """XXE_AUDIT_EVENTS frozenset contains XXE_DETECTED."""

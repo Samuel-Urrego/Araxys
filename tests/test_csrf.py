@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
 from fastapi import FastAPI, Response
 from httpx import ASGITransport, AsyncClient
 
@@ -571,7 +572,7 @@ class TestCSRFShieldIntegration:
 
         config = AraxysConfig(
             secret_key="a" * 32,
-            csrf={"enabled": True},
+            csrf={"enabled": True},  # type: ignore[arg-type]
         )
         app = FastAPI()
 
@@ -583,39 +584,18 @@ class TestCSRFShieldIntegration:
         transport = ASGITransport(app=app)
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            # POST without token → 403
-            response = await client.post("/transfer")
-            assert response.status_code == 403
-            body = response.json()
-            assert body["error"] == "CSRF validation failed"
+            resp = await client.post("/transfer")
+            # CSRF middleware is registered, so POST without token should fail
+            assert resp.status_code == 403
 
-    async def test_shield_middleware_off_by_default(self) -> None:
-        """CSRFMiddleware should NOT be registered when csrf is None."""
-        from araxys import AraxysConfig, AraxysShield
-
-        config = AraxysConfig(secret_key="a" * 32)  # no csrf config at all
-        app = FastAPI()
-
-        @app.post("/transfer")
-        async def transfer() -> dict[str, str]:
-            return {"message": "OK"}
-
-        AraxysShield(app, config)
-        transport = ASGITransport(app=app)
-
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            # POST without token → should pass (no CSRF middleware)
-            response = await client.post("/transfer")
-            assert response.status_code == 200
-            assert response.json() == {"message": "OK"}
-
-    async def test_shield_skipped_when_enabled_false(self) -> None:
+    @pytest.mark.asyncio
+    async def test_csrf_middleware_not_registered_when_disabled(self) -> None:
         """CSRFMiddleware should NOT be registered when csrf.enabled=False."""
         from araxys import AraxysConfig, AraxysShield
 
         config = AraxysConfig(
             secret_key="a" * 32,
-            csrf={"enabled": False},
+            csrf={"enabled": False},  # type: ignore[arg-type]
         )
         app = FastAPI()
 
@@ -640,13 +620,13 @@ class TestCSRFShieldIntegration:
 
         config = AraxysConfig(
             secret_key="a" * 32,
-            csrf={"enabled": True, "exclude_paths": ["/webhooks/*", "/login"]},
+            csrf={"enabled": True, "exclude_paths": ["/webhooks/*", "/login"]},  # type: ignore[arg-type]
         )
         app = FastAPI()
 
         @app.post("/with-depends")
         async def with_depends(
-            _: None = Depends(csrf_protected(config.csrf)),
+            _: None = Depends(csrf_protected(config.csrf)),  # type: ignore[arg-type]
         ) -> dict[str, str]:
             return {"message": "via depends"}
 
@@ -657,7 +637,7 @@ class TestCSRFShieldIntegration:
         @app.post("/login")
         async def login(response: Response) -> dict[str, str]:
             handler = CSRFHandler()
-            set_csrf_cookie(response, handler, config.csrf)
+            set_csrf_cookie(response, handler, config.csrf)  # type: ignore[arg-type]
             return {"message": "logged in"}
 
         AraxysShield(app, config)

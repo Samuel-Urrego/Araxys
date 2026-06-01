@@ -141,7 +141,7 @@ class TestMiddlewareOrder:
         app = FastAPI()
         AraxysShield(app, config)
 
-        names = [m.cls.__name__ for m in app.user_middleware]
+        names = [m.cls.__name__ for m in app.user_middleware]  # type: ignore[attr-defined]
         assert "AccountProtectionMiddleware" in names
 
         ap_idx = names.index("AccountProtectionMiddleware")
