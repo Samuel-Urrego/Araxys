@@ -842,6 +842,107 @@ class TestAccountProtectionConfig:
         assert c.enumeration_threshold == 10
 
 
+class TestOIDCDiscoveryConfig:
+    """OIDCDiscoveryConfig — configuration for OIDC provider discovery."""
+
+    def test_defaults(self) -> None:
+        from araxys.core.config import OIDCDiscoveryConfig
+
+        c = OIDCDiscoveryConfig()
+        assert c.enabled is True
+        assert c.cache_ttl_seconds == 300
+        assert c.timeout_seconds == 10
+        assert c.verify_ssl is True
+
+    def test_custom_values(self) -> None:
+        from araxys.core.config import OIDCDiscoveryConfig
+
+        c = OIDCDiscoveryConfig(
+            enabled=False,
+            cache_ttl_seconds=600,
+            timeout_seconds=5,
+            verify_ssl=False,
+        )
+        assert c.enabled is False
+        assert c.cache_ttl_seconds == 600
+        assert c.timeout_seconds == 5
+        assert c.verify_ssl is False
+
+    def test_cache_ttl_minimum(self) -> None:
+        """cache_ttl_seconds must be >= 1."""
+        import re
+
+        import pytest
+        from araxys.core.config import OIDCDiscoveryConfig
+
+        with pytest.raises(
+            Exception, match=re.escape("Input should be greater than or equal to 1")
+        ):
+            OIDCDiscoveryConfig(cache_ttl_seconds=0)
+
+    def test_timeout_minimum(self) -> None:
+        """timeout_seconds must be >= 1."""
+        import re
+
+        import pytest
+        from araxys.core.config import OIDCDiscoveryConfig
+
+        with pytest.raises(
+            Exception, match=re.escape("Input should be greater than or equal to 1")
+        ):
+            OIDCDiscoveryConfig(timeout_seconds=0)
+
+
+class TestOIDCDiscoveryInAraxysConfig:
+    """OIDCDiscoveryConfig must be optional on AraxysConfig."""
+
+    def test_defaults_to_none(self) -> None:
+        from araxys.core.config import AraxysConfig
+
+        c = AraxysConfig(secret_key="test-secret-key-must-be-32-chars!!")
+        assert c.oidc_discovery is None
+
+    def test_explicit_none(self) -> None:
+        from araxys.core.config import AraxysConfig
+
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            oidc_discovery=None,
+        )
+        assert c.oidc_discovery is None
+
+    def test_enabled_via_empty_dict(self) -> None:
+        from araxys.core.config import AraxysConfig
+
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            oidc_discovery={},  # type: ignore[arg-type]
+        )
+        assert c.oidc_discovery is not None
+        assert c.oidc_discovery.enabled is True
+        assert c.oidc_discovery.cache_ttl_seconds == 300
+        assert c.oidc_discovery.timeout_seconds == 10
+        assert c.oidc_discovery.verify_ssl is True
+
+    def test_custom_values_via_nested_dict(self) -> None:
+        from araxys.core.config import AraxysConfig
+
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            oidc_discovery={  # type: ignore[arg-type]
+                "enabled": False,
+                "cache_ttl_seconds": 120,
+                "timeout_seconds": 5,
+                "verify_ssl": False,
+            },
+        )
+        assert c.oidc_discovery is not None
+        assert c.oidc_discovery.enabled is False
+        assert c.oidc_discovery.cache_ttl_seconds == 120
+        assert c.oidc_discovery.timeout_seconds == 5
+        assert c.oidc_discovery.verify_ssl is False
+
+
 class TestAccountProtectionInAraxysConfig:
     """AccountProtectionConfig must be optional on AraxysConfig."""
 

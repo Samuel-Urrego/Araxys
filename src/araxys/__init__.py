@@ -51,6 +51,8 @@ from araxys.core.config import (
     # v0.6 configs
     WebAuthnConfig,
     WebhookConfig,
+    # OIDC Discovery
+    OIDCDiscoveryConfig,
 )
 from araxys.core.exceptions import (  # type: ignore[attr-defined]
     AraxysError,
@@ -72,6 +74,8 @@ from araxys.core.exceptions import (  # type: ignore[attr-defined]
     TokenInvalid,
     TokenRevoked,
     WebAuthnError,
+    # OIDC Discovery
+    OIDCDiscoveryError,
 )
 from araxys.core.types import (
     AuditEntry,
@@ -102,6 +106,7 @@ from araxys.ip_access.middleware import IPAccessMiddleware
 from araxys.jwt_auth.dependencies import create_jwks_router
 from araxys.jwt_auth.storage import InMemoryJWKSStore, JWKSStore
 from araxys.jwt_auth.tokens import JWTManager, TokenPair, TokenPayload
+from araxys.oidc import OIDCDiscoveryClient, OIDCProviderMetadata
 from araxys.malware.dependencies import (
     MalwareGuard,
     get_malware_guard,
@@ -149,6 +154,8 @@ __all__ = [
     "PromptInjectionConfig",
     # v0.8 configs
     "MalwareConfig",
+    # OIDC Discovery
+    "OIDCDiscoveryConfig",
     # v0.12 configs
     # Types
     "AuditEntry",
@@ -180,6 +187,8 @@ __all__ = [
     "PromptInjectionError",
     # v0.8 exceptions
     "MalwareDetectionError",
+    # OIDC Discovery
+    "OIDCDiscoveryError",
     # v0.12 Account Enumeration Prevention
     "AccountProtectionConfig",
     "AccountProtectionMiddleware",
@@ -243,4 +252,7 @@ __all__ = [
     "MalwareGuard",
     "get_malware_guard",
     "get_malware_scanner",
+    # OIDC Discovery (RFC 8414)
+    "OIDCDiscoveryClient",
+    "OIDCProviderMetadata",
 ]

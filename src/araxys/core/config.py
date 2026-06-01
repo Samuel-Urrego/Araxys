@@ -1084,6 +1084,32 @@ class MalwareConfig(BaseModel):
     )
 
 
+class OIDCDiscoveryConfig(BaseModel):
+    """Configuration for OIDC provider discovery (RFC 8414).
+
+    When ``None`` on :class:`AraxysConfig`, the entire feature is disabled.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable OIDC discovery client",
+    )
+    cache_ttl_seconds: int = Field(
+        default=300,
+        ge=1,
+        description="Cache time-to-live in seconds (default 5 min)",
+    )
+    timeout_seconds: int = Field(
+        default=10,
+        ge=1,
+        description="HTTP request timeout in seconds",
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        description="Verify TLS certificates when fetching discovery documents",
+    )
+
+
 class AccountProtectionConfig(BaseModel):
     """Configuration for account enumeration prevention.
 
@@ -1210,6 +1236,11 @@ class AraxysConfig(BaseSettings):
     malware: MalwareConfig | None = Field(
         default=None,
         description="Malware detection config (None = feature disabled)",
+    )
+    # OIDC Discovery (RFC 8414)
+    oidc_discovery: OIDCDiscoveryConfig | None = Field(
+        default=None,
+        description="OIDC discovery config (None = feature disabled)",
     )
     # v0.12 — Account Enumeration Prevention
     account_protection: AccountProtectionConfig | None = Field(

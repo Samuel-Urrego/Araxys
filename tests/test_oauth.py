@@ -222,3 +222,192 @@ class TestProviders:
 
         p = microsoft(client_id="cid", client_secret="csec", tenant="my-tenant-id")
         assert "my-tenant-id" in p.authorization_endpoint
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Task 2.3 — OAuth2Provider.from_issuer() (async classmethod)
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestOAuth2ProviderFromIssuer:
+    """OAuth2Provider.from_issuer() — auto-populate from OIDC discovery."""
+
+    @staticmethod
+    def _mock_metadata() -> tuple:
+        """Build mock OIDCProviderMetadata + patch for discover()."""
+        from unittest.mock import AsyncMock, patch
+
+        from araxys.oidc.models import OIDCProviderMetadata
+
+        meta = OIDCProviderMetadata(
+            issuer="https://accounts.example.com",
+            authorization_endpoint="https://accounts.example.com/authorize",
+            token_endpoint="https://accounts.example.com/token",
+            jwks_uri="https://accounts.example.com/jwks",
+            userinfo_endpoint="https://accounts.example.com/userinfo",
+        )
+        patcher = patch(
+            "araxys.oidc.client.OIDCDiscoveryClient.discover",
+            new_callable=AsyncMock,
+            return_value=meta,
+        )
+        return meta, patcher
+
+    async def test_from_issuer_populates_endpoints(self) -> None:
+        """from_issuer() should discover and populate all endpoints."""
+        from araxys.oauth.flow import OAuth2Provider
+
+        meta, patcher = self._mock_metadata()
+        patcher.start()
+
+        try:
+            provider = await OAuth2Provider.from_issuer(
+                issuer_url="https://accounts.example.com",
+                client_id="test-client-id",
+                client_secret="test-client-secret",
+            )
+        finally:
+            patcher.stop()
+
+        assert provider.authorization_endpoint == meta.authorization_endpoint
+        assert provider.token_endpoint == meta.token_endpoint
+        assert provider.userinfo_endpoint == meta.userinfo_endpoint
+        assert provider.client_id == "test-client-id"
+        assert provider.client_secret == "test-client-secret"
+
+    async def test_from_issuer_custom_scopes_and_name(self) -> None:
+        """Custom scopes and name should override defaults."""
+        from araxys.oauth.flow import OAuth2Provider
+
+        _, patcher = self._mock_metadata()
+        patcher.start()
+
+        try:
+            provider = await OAuth2Provider.from_issuer(
+                issuer_url="https://accounts.example.com",
+                client_id="cid",
+                client_secret="csec",
+                scopes=["custom", "scopes"],
+                name="my-provider",
+            )
+        finally:
+            patcher.stop()
+
+        assert provider.scopes == ["custom", "scopes"]
+        assert provider.name == "my-provider"
+
+    async def test_from_issuer_default_scopes_and_name(self) -> None:
+        """Default scopes and name should be used when not provided."""
+        from araxys.oauth.flow import OAuth2Provider
+
+        _, patcher = self._mock_metadata()
+        patcher.start()
+
+        try:
+            provider = await OAuth2Provider.from_issuer(
+                issuer_url="https://accounts.example.com",
+                client_id="cid",
+                client_secret="csec",
+            )
+        finally:
+            patcher.stop()
+
+        assert provider.scopes == ["openid", "email", "profile"]
+        assert provider.name == "oidc"
+
+    async def test_from_issuer_propagates_discovery_error(self) -> None:
+        """Discovery errors must propagate as OIDCDiscoveryError."""
+        from unittest.mock import AsyncMock, patch
+
+        import pytest
+
+        from araxys.core.exceptions import OIDCDiscoveryError
+        from araxys.oauth.flow import OAuth2Provider
+
+        patcher = patch(
+            "araxys.oidc.client.OIDCDiscoveryClient.discover",
+            new_callable=AsyncMock,
+            side_effect=OIDCDiscoveryError(
+                issuer_url="https://bad.example.com",
+                detail="Connection refused",
+            ),
+        )
+        patcher.start()
+
+        try:
+            with pytest.raises(OIDCDiscoveryError, match="Connection refused"):
+                await OAuth2Provider.from_issuer(
+                    issuer_url="https://bad.example.com",
+                    client_id="cid",
+                    client_secret="csec",
+                )
+        finally:
+            patcher.stop()
+
+    async def test_from_issuer_passes_issuer_url_to_discovery(self) -> None:
+        """The issuer_url must be forwarded to the discovery client."""
+        from unittest.mock import AsyncMock, patch
+
+        from araxys.oidc.models import OIDCProviderMetadata
+        from araxys.oauth.flow import OAuth2Provider
+
+        meta = OIDCProviderMetadata(
+            issuer="https://my-idp.example.com",
+            authorization_endpoint="https://my-idp.example.com/authorize",
+            token_endpoint="https://my-idp.example.com/token",
+            jwks_uri="https://my-idp.example.com/jwks",
+            userinfo_endpoint="https://my-idp.example.com/userinfo",
+        )
+        mock_discover = AsyncMock(return_value=meta)
+        patcher = patch(
+            "araxys.oidc.client.OIDCDiscoveryClient.discover",
+            new=mock_discover,
+        )
+        patcher.start()
+
+        try:
+            await OAuth2Provider.from_issuer(
+                issuer_url="https://my-idp.example.com",
+                client_id="cid",
+                client_secret="csec",
+            )
+        finally:
+            patcher.stop()
+
+        mock_discover.assert_awaited_once_with("https://my-idp.example.com")
+
+    # ── Triangulation: userinfo_endpoint None fallback ──────────────
+
+    async def test_from_issuer_userinfo_none_fallback(self) -> None:
+        """When metadata has userinfo_endpoint=None, it must fall back to ''."""
+        from unittest.mock import AsyncMock, patch
+
+        from araxys.oidc.models import OIDCProviderMetadata
+        from araxys.oauth.flow import OAuth2Provider
+
+        meta = OIDCProviderMetadata(
+            issuer="https://x.com",
+            authorization_endpoint="https://x.com/authorize",
+            token_endpoint="https://x.com/token",
+            jwks_uri="https://x.com/jwks",
+            # userinfo_endpoint defaults to None
+        )
+        patcher = patch(
+            "araxys.oidc.client.OIDCDiscoveryClient.discover",
+            new_callable=AsyncMock,
+            return_value=meta,
+        )
+        patcher.start()
+
+        try:
+            provider = await OAuth2Provider.from_issuer(
+                issuer_url="https://x.com",
+                client_id="cid",
+                client_secret="csec",
+            )
+        finally:
+            patcher.stop()
+
+        assert provider.userinfo_endpoint == ""
+        assert provider.authorization_endpoint == "https://x.com/authorize"
+        assert provider.token_endpoint == "https://x.com/token"
