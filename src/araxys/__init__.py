@@ -74,6 +74,7 @@ from araxys.core.types import (
 )
 from araxys.cors.middleware import CORSMiddleware
 from araxys.csrf.dependencies import csrf_protected, set_csrf_cookie
+from araxys.csrf.middleware import CSRFMiddleware
 from araxys.csrf.tokens import CSRFHandler
 from araxys.db_security import (
     ConnectionPool,
@@ -177,6 +178,8 @@ __all__ = [
     "CORSMiddleware",
     "IPAccessMiddleware",
     "BruteForceMiddleware",
+    # v0.3 modules — middleware
+    "CSRFMiddleware",
     # v0.3 modules — handlers
     "CSRFHandler",
     "SessionManager",
