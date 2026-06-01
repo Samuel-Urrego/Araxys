@@ -14,6 +14,8 @@ from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings
 
 from araxys.core.exceptions import ConfigurationError
+from araxys.websocket.config import WebSocketConfig  # noqa: TC001
+from araxys.xxe.config import XXEConfig  # noqa: TC001
 
 
 class RateLimitConfig(BaseModel):
@@ -1145,4 +1147,14 @@ class AraxysConfig(BaseSettings):
     malware: MalwareConfig | None = Field(
         default=None,
         description="Malware detection config (None = feature disabled)",
+    )
+    # v0.9 — WebSocket Security
+    websocket: WebSocketConfig | None = Field(
+        default=None,
+        description="WebSocket security config (None = feature disabled)",
+    )
+    # v0.13 — XXE Protection
+    xxe: XXEConfig | None = Field(
+        default=None,
+        description="XXE protection config (None = feature disabled)",
     )

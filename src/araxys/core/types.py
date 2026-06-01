@@ -34,6 +34,13 @@ class AuditEventType(StrEnum):
     IP_BANNED = "ip_banned"
     IP_UNBANNED = "ip_unbanned"
     QUERY_EXECUTED = "query_executed"
+    # v0.9 — WebSocket events
+    WS_CONNECT = "ws.connect"
+    WS_DISCONNECT = "ws.disconnect"
+    WS_VIOLATION = "ws.violation"
+    WS_AUTH_FAILED = "ws.auth_failed"
+    # v0.13 — XXE Protection
+    XXE_DETECTED = "xxe_detected"
 
 
 class SecurityEventType(StrEnum):
@@ -55,6 +62,15 @@ class SecurityEventType(StrEnum):
     SANITIZE_BLOCKED = "sanitize_blocked"
     AUDIT_TAMPER_DETECTED = "audit_tamper_detected"
     SESSION_IDLE_TIMEOUT = "session_idle_timeout"
+    # v0.9 — WebSocket events
+    WS_CONNECT = "ws.connect"
+    WS_DISCONNECT = "ws.disconnect"
+    WS_VIOLATION = "ws.violation"
+    WS_AUTH_FAILED = "ws.auth_failed"
+    WS_CHANNEL_UNAUTHORIZED = "ws.channel_unauthorized"
+    WS_RATE_EXCEEDED = "ws.rate_exceeded"
+    # v0.13 — XXE Protection
+    XXE_DETECTED = "xxe_detected"
 
 
 @dataclass(frozen=True, slots=True)

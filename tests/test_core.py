@@ -34,6 +34,15 @@ class TestSecurityEventType:
             "token_rotated",
             "sanitize_blocked",
             "audit_tamper_detected",
+            # v0.9 — WebSocket events
+            "ws.connect",
+            "ws.disconnect",
+            "ws.violation",
+            "ws.auth_failed",
+            "ws.channel_unauthorized",
+            "ws.rate_exceeded",
+            # v0.13 — XXE Protection
+            "xxe_detected",
         }
         assert values == expected
 
@@ -221,6 +230,13 @@ class TestAuditEventType:
             "ip_banned",
             "ip_unbanned",
             "query_executed",
+            # v0.9 — WebSocket events
+            "ws.connect",
+            "ws.disconnect",
+            "ws.violation",
+            "ws.auth_failed",
+            # v0.13 — XXE Protection
+            "xxe_detected",
         }
         assert values == expected
 
