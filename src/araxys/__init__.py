@@ -109,6 +109,11 @@ from araxys.sessions.storage import (
 from araxys.shield import AraxysShield
 from araxys.telemetry.tracer import AraxysTracer
 from araxys.webauthn import CredentialRecord, RelyingPartyConfig, WebAuthnManager
+from araxys.xxe.config import XXEConfig
+from araxys.xxe.dependencies import get_xxe_scanner, xxe_guard
+from araxys.xxe.exceptions import XXEError
+from araxys.xxe.middleware import XXEMiddleware
+from araxys.xxe.scanner import XXEScanner
 from araxys.webhooks.dlq import DLQConsumer, WebhookDLQBackend
 from araxys.webhooks.emitter import SecurityEventBus
 
@@ -222,4 +227,11 @@ __all__ = [
     "MalwareGuard",
     "get_malware_guard",
     "get_malware_scanner",
+    # v0.13 XXE Protection
+    "XXEConfig",
+    "XXEError",
+    "XXEScanner",
+    "XXEMiddleware",
+    "xxe_guard",
+    "get_xxe_scanner",
 ]

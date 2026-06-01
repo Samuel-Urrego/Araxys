@@ -59,7 +59,8 @@ webauthn = ["cbor2>=5.0"]
 prompt-guard-image = ["Pillow>=10"]
 prompt-guard-pdf = ["pypdf>=4"]
 prompt-guard-office = ["python-docx>=1", "openpyxl>=3"]
-all = ["araxys[redis,opentelemetry,prometheus,webhooks,audit,vault,aws_secrets,webauthn,prompt-guard-image,prompt-guard-pdf,prompt-guard-office]"]
+xxe = ["defusedxml>=0.7.1"]
+all = ["araxys[redis,opentelemetry,prometheus,webhooks,audit,vault,aws_secrets,webauthn,prompt-guard-image,prompt-guard-pdf,prompt-guard-office,xxe]"]
 
 [project.scripts]
 araxys = "araxys.cli:app"

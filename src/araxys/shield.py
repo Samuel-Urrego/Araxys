@@ -46,6 +46,7 @@ from araxys.ip_access.middleware import IPAccessMiddleware
 from araxys.jwt_auth.storage import InMemoryTokenStorage
 from araxys.jwt_auth.tokens import JWTManager
 from araxys.malware.middleware import MalwareMiddleware
+from araxys.xxe.middleware import XXEMiddleware
 from araxys.metrics.collector import MetricsRegistry
 from araxys.metrics.endpoint import mount_metrics
 from araxys.prompt_injection.middleware import PromptInjectionMiddleware
@@ -216,6 +217,10 @@ class AraxysShield:
 
             _bf_mw._event_bus = self.event_bus
 
+            import araxys.xxe.middleware as _xxe_mw
+
+            _xxe_mw._event_bus = self.event_bus
+
         # Session manager
         self._session_manager: SessionManager | None = None
         if config.session is not None and config.session.enabled:
@@ -290,6 +295,7 @@ class AraxysShield:
         #   RateLimit → Telemetry → SecureHeaders → CORS (outermost)
 
         self._register_sanitize(app, config)
+        self._register_xxe(app, config)  # between sanitize (inner) and prompt_injection
         self._register_prompt_injection(app, config)
         self._register_malware(app, config)
         self._register_honeypot(app, config)
@@ -316,6 +322,10 @@ class AraxysShield:
             (
                 "malware",
                 config.malware is not None,
+            ),
+            (
+                "xxe",
+                config.xxe is not None,
             ),
             ("audit", config.audit.enabled),
             ("sessions", config.session is not None and config.session.enabled),
@@ -433,6 +443,17 @@ class AraxysShield:
             PromptInjectionMiddleware,
             config=config.prompt_injection,
         )
+
+    def _register_xxe(self, app: FastAPI, config: AraxysConfig) -> None:
+        """Register XXE middleware (between Sanitize and PromptInjection).
+
+        The middleware is read-only — it scans XML request bodies for
+        XXE attack patterns and returns 400 on detection.
+        Only registered when ``config.xxe`` is not ``None``.
+        """
+        if config.xxe is None:
+            return
+        app.add_middleware(XXEMiddleware, config=config.xxe)
 
     def _register_malware(self, app: FastAPI, config: AraxysConfig) -> None:
         """Register Malware middleware (between PromptInjection and Honeypot).

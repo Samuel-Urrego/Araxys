@@ -19,10 +19,12 @@ Detection strategy
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from araxys.xxe.config import XXEConfig
 from araxys.core.types import ScanResult
+
+if TYPE_CHECKING:
+    from araxys.xxe.config import XXEConfig
 
 # ── Regex patterns for pre-scanning ──────────────────────────────────────────
 
@@ -87,12 +89,11 @@ class XXEScanner:
                 "detail": "DOCTYPE declaration detected",
             })
 
-        if self._config.forbid_entities:
-            if _ENTITY_PATTERN.search(data):
-                threats.append({
-                    "detection_type": "entity",
-                    "detail": "ENTITY declaration detected",
-                })
+        if self._config.forbid_entities and _ENTITY_PATTERN.search(data):
+            threats.append({
+                "detection_type": "entity",
+                "detail": "ENTITY declaration detected",
+            })
 
         if self._config.forbid_external:
             if _SYSTEM_PATTERN.search(data):
