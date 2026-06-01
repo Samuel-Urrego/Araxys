@@ -83,6 +83,10 @@ select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (excluded from normal CI runs, use --benchmark-only)",
+    "benchmark: marks tests as benchmarks (excluded from normal CI runs)",
+]
 
 [tool.mypy]
 python_version = "3.11"
