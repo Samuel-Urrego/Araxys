@@ -100,10 +100,10 @@ class CSRFHandler:
     def create_cookie(token: str, config: CSRFConfig) -> str:
         """Build a ``Set-Cookie`` header value for the CSRF token.
 
-        The cookie is **not** ``HttpOnly`` because the frontend JavaScript
-        must read it for the double-submit pattern. ``Secure`` is set
-        based on *config.secure_cookie*. ``SameSite=Strict`` prevents
-        the cookie from being sent on cross-site requests.
+        The cookie is **not** ``HttpOnly`` by default because the frontend
+        JavaScript must read it for the double-submit pattern. ``Secure``
+        is set based on *config.secure_cookie*. ``SameSite`` defaults to
+        ``strict`` for CSRF protection.
 
         Parameters
         ----------
@@ -114,10 +114,12 @@ class CSRFHandler:
         """
         parts = [
             f"{config.cookie_name}={token}",
-            "Path=/",
-            "SameSite=Strict",
+            f"Path={config.cookie_path}",
+            f"SameSite={config.cookie_samesite}",
         ]
+        if config.cookie_domain:
+            parts.append(f"Domain={config.cookie_domain}")
         if config.secure_cookie:
             parts.append("Secure")
-        parts.append("HttpOnly=False")
+        parts.append(f"HttpOnly={'True' if config.cookie_httponly else 'False'}")
         return "; ".join(parts)

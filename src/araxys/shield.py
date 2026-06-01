@@ -33,6 +33,7 @@ from araxys.core.exceptions import ConfigurationError
 
 # v0.3 module imports
 from araxys.cors.middleware import CORSMiddleware
+from araxys.csrf.middleware import CSRFMiddleware as _CSRFMiddleware
 from araxys.csrf.tokens import CSRFHandler
 from araxys.db_security.manager import DatabaseSecurityManager
 from araxys.db_security.pool import (
@@ -216,6 +217,10 @@ class AraxysShield:
 
             _bf_mw._event_bus = self.event_bus
 
+            import araxys.csrf.middleware as _csrf_mw
+
+            _csrf_mw._event_bus = self.event_bus
+
         # Session manager
         self._session_manager: SessionManager | None = None
         if config.session is not None and config.session.enabled:
@@ -297,6 +302,7 @@ class AraxysShield:
         self._register_brute_force(app, config)
         self._register_rate_limit(app, config)
         self._register_telemetry(app, config)
+        self._register_csrf(app, config)
         self._register_secure_headers(app, config)
         self._register_cors(app, config)
 
@@ -467,6 +473,20 @@ class AraxysShield:
             config=config.telemetry,
             tracer=self._tracer,
             trusted_proxies=config.trusted_proxies,
+        )
+
+    def _register_csrf(self, app: FastAPI, config: AraxysConfig) -> None:
+        """Register CSRF middleware (between Telemetry and SecureHeaders).
+
+        Only registered when ``config.csrf`` is not ``None`` and
+        ``config.csrf.enabled`` is ``True``.
+        """
+        if config.csrf is None or not config.csrf.enabled:
+            return
+        app.add_middleware(
+            _CSRFMiddleware,
+            config=config.csrf,
+            handler=self.csrf_handler,
         )
 
     def _register_ip_access(self, app: FastAPI, config: AraxysConfig) -> None:

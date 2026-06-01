@@ -554,6 +554,39 @@ class CSRFConfig(BaseModel):
         description="Set Secure flag on CSRF cookie",
     )
 
+    # ── Middleware configuration (v0.14+) ──────────────────────────────────
+    exclude_paths: list[str] = Field(
+        default_factory=lambda: ["/webhooks/*"],
+        description="Glob patterns for paths excluded from CSRF validation",
+    )
+    safe_methods: list[str] = Field(
+        default_factory=lambda: ["GET", "HEAD", "OPTIONS", "TRACE"],
+        description="HTTP methods exempt from CSRF validation",
+    )
+    cookie_samesite: str = Field(
+        default="strict",
+        description="SameSite attribute for the CSRF cookie",
+    )
+    cookie_domain: str | None = Field(
+        default=None,
+        description="Domain attribute for the CSRF cookie (None = omit)",
+    )
+    cookie_path: str = Field(
+        default="/",
+        description="Path attribute for the CSRF cookie",
+    )
+    cookie_httponly: bool = Field(
+        default=False,
+        description=(
+            "Set HttpOnly flag on CSRF cookie. Defaults to False because "
+            "the frontend JS must read the cookie for double-submit pattern."
+        ),
+    )
+    auto_refresh_cookie: bool = Field(
+        default=True,
+        description="Automatically refresh CSRF cookie on each state-changing request",
+    )
+
 
 class SessionConfig(BaseModel):
     """Configuration for server-side session management."""
