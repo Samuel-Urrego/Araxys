@@ -34,6 +34,7 @@ class AuditEventType(StrEnum):
     IP_BANNED = "ip_banned"
     IP_UNBANNED = "ip_unbanned"
     QUERY_EXECUTED = "query_executed"
+    ACCOUNT_ENUMERATION_DETECTED = "account_enumeration_detected"
 
 
 class SecurityEventType(StrEnum):
@@ -55,6 +56,7 @@ class SecurityEventType(StrEnum):
     SANITIZE_BLOCKED = "sanitize_blocked"
     AUDIT_TAMPER_DETECTED = "audit_tamper_detected"
     SESSION_IDLE_TIMEOUT = "session_idle_timeout"
+    ACCOUNT_ENUMERATION_DETECTED = "account_enumeration_detected"
 
 
 @dataclass(frozen=True, slots=True)

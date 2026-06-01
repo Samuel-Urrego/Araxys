@@ -1084,6 +1084,71 @@ class MalwareConfig(BaseModel):
     )
 
 
+class AccountProtectionConfig(BaseModel):
+    """Configuration for account enumeration prevention.
+
+    When ``None`` on :class:`AraxysConfig`, the entire feature is disabled.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Master switch — off by default",
+    )
+    fake_hash_work_factor: int = Field(
+        default=12,
+        ge=0,
+        le=31,
+        description="Work factor for fake hash computation (0 = disabled)",
+    )
+    timing_jitter_ms: int = Field(
+        default=50,
+        ge=0,
+        le=500,
+        description="±milliseconds of jitter added to auth response timing",
+    )
+    minimum_response_time_ms: int = Field(
+        default=100,
+        ge=0,
+        le=5000,
+        description="Minimum wall-clock processing time floor for auth endpoints",
+    )
+    generic_unauthorized_message: str = Field(
+        default="Invalid credentials",
+        description="Generic error message returned for login/api_key failures",
+    )
+    generic_verification_message: str = Field(
+        default="Invalid verification code",
+        description="Generic error message returned for MFA/verification failures",
+    )
+    enumeration_detection_enabled: bool = Field(
+        default=True,
+        description="Enable sliding-window enumeration detection",
+    )
+    enumeration_window_seconds: int = Field(
+        default=60,
+        ge=1,
+        description="Sliding window size for enumeration threshold counting",
+    )
+    enumeration_threshold: int = Field(
+        default=5,
+        ge=1,
+        description="Number of 401 responses from same IP before detection fires",
+    )
+    enumeration_paths: list[str] = Field(
+        default_factory=lambda: [
+            "/auth/*",
+            "/login",
+            "/register",
+            "/api/login",
+        ],
+        description=(
+            "Glob-style path patterns to apply timing normalization and "
+            "error message protection to. Only responses for these "
+            "paths are modified."
+        ),
+    )
+
+
 class AraxysConfig(BaseSettings):
     """Master configuration for the Araxys security shield.
 
@@ -1145,4 +1210,13 @@ class AraxysConfig(BaseSettings):
     malware: MalwareConfig | None = Field(
         default=None,
         description="Malware detection config (None = feature disabled)",
+    )
+    # v0.12 — Account Enumeration Prevention
+    account_protection: AccountProtectionConfig | None = Field(
+        default=None,
+        description=(
+            "Account enumeration prevention config (None = feature disabled). "
+            "Normalizes auth error messages and timing to prevent "
+            "username/identifier enumeration attacks."
+        ),
     )

@@ -46,7 +46,7 @@ class TestAPIKeyManager:
         await manager.verify_key(result.raw_key, required_scopes=[Scope.READ])
 
         # Should fail — doesn't have ADMIN scope
-        with pytest.raises(InvalidAPIKey, match="Missing required scopes"):
+        with pytest.raises(InvalidAPIKey, match="Insufficient permissions"):
             await manager.verify_key(result.raw_key, required_scopes=[Scope.ADMIN])
 
     async def test_revoke_key(self, manager: APIKeyManager) -> None:

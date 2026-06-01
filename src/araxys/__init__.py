@@ -13,11 +13,22 @@ Usage::
 """
 
 # v0.3 middleware imports
+from araxys.account_protection import (
+    AccountProtectionMiddleware,
+    EnumerationDetector,
+    apply_rate_limit_presets,
+    constant_time_compare,
+    normalize_error_message,
+    simulate_hash_lookup,
+    simulate_verification_work,
+)
 from araxys.brute_force.limiter import BruteForceBackend, BruteForceMiddleware
 
 # v0.3 module imports
 from araxys.brute_force.password_policy import password_policy_dependency
 from araxys.core.config import (
+    # v0.12 configs
+    AccountProtectionConfig,
     AraxysConfig,
     AuditConfig,
     # v0.3 configs
@@ -138,6 +149,7 @@ __all__ = [
     "PromptInjectionConfig",
     # v0.8 configs
     "MalwareConfig",
+    # v0.12 configs
     # Types
     "AuditEntry",
     "AuditEventType",
@@ -168,6 +180,15 @@ __all__ = [
     "PromptInjectionError",
     # v0.8 exceptions
     "MalwareDetectionError",
+    # v0.12 Account Enumeration Prevention
+    "AccountProtectionConfig",
+    "AccountProtectionMiddleware",
+    "apply_rate_limit_presets",
+    "constant_time_compare",
+    "normalize_error_message",
+    "simulate_hash_lookup",
+    "simulate_verification_work",
+    "EnumerationDetector",
     # v0.3 modules — middleware
     "CORSMiddleware",
     "IPAccessMiddleware",

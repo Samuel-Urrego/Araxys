@@ -34,8 +34,15 @@ class TestSecurityEventType:
             "token_rotated",
             "sanitize_blocked",
             "audit_tamper_detected",
+            "account_enumeration_detected",
         }
         assert values == expected
+
+    def test_account_enumeration_detected_value(self) -> None:
+        assert (
+            SecurityEventType.ACCOUNT_ENUMERATION_DETECTED.value
+            == "account_enumeration_detected"
+        )
 
     def test_is_str_enum(self) -> None:
         assert SecurityEventType.RATE_LIMIT_EXCEEDED.value == "rate_limit_exceeded"
@@ -221,8 +228,16 @@ class TestAuditEventType:
             "ip_banned",
             "ip_unbanned",
             "query_executed",
+            "account_enumeration_detected",
         }
         assert values == expected
+
+    def test_account_enumeration_detected_exists(self) -> None:
+        assert hasattr(AuditEventType, "ACCOUNT_ENUMERATION_DETECTED")
+        assert (
+            AuditEventType.ACCOUNT_ENUMERATION_DETECTED.value
+            == "account_enumeration_detected"
+        )
 
 
 class TestMalwareDetectionError:

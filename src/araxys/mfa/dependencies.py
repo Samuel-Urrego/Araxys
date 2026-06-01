@@ -20,7 +20,22 @@ from typing import TYPE_CHECKING, Any
 from fastapi import HTTPException, status
 
 if TYPE_CHECKING:
+    from araxys.core.config import AccountProtectionConfig
     from araxys.mfa.manager import MFAManager
+
+# Module-level config set by AraxysShield when account_protection is enabled.
+# When set and enabled, error messages are normalized to prevent enumeration.
+_account_protection_config: AccountProtectionConfig | None = None
+
+
+def _get_verification_message() -> str:
+    """Return the generic verification message when protection is active."""
+    if (
+        _account_protection_config is not None
+        and _account_protection_config.enabled
+    ):
+        return _account_protection_config.generic_verification_message
+    return ""
 
 
 def verify_mfa_code(
@@ -30,9 +45,10 @@ def verify_mfa_code(
 ) -> None:
     """Verify a TOTP code.  Raises ``HTTPException(401)`` on failure."""
     if not mfa_manager.verify(secret, code):
+        msg = _get_verification_message()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid MFA code",
+            detail=msg or "Invalid MFA code",
             headers={"X-MFA-Required": "true"},
         )
 
@@ -61,8 +77,9 @@ def verify_recovery_code(
 
     valid, remaining = MFAManager.verify_recovery_code(code, hashed_codes)
     if not valid:
+        msg = _get_verification_message()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid recovery code",
+            detail=msg or "Invalid recovery code",
         )
     return remaining

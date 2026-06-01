@@ -65,7 +65,7 @@ def require_api_key(
         except InvalidAPIKey as exc:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=exc.reason,
+                detail=str(exc),
             ) from exc
 
     return _dependency  # type: ignore
