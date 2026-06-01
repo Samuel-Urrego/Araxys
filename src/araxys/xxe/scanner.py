@@ -121,7 +121,7 @@ class XXEScanner:
                 _safe_fromstring(data)
                 return ScanResult()
             except Exception as exc:
-                from defusedxml.common import EntitiesForbidden  # type: ignore[import-untyped]
+                from defusedxml.common import EntitiesForbidden  # type: ignore[import-untyped]  # noqa: I001
 
                 if isinstance(exc, EntitiesForbidden):
                     # EntitiesForbidden fires when a DTD entity is declared.
@@ -131,7 +131,9 @@ class XXEScanner:
                     # - Local entities (system_id=None): respect forbid_entities
                     # - External entities (system_id is set): respect forbid_external
                     exc_str = str(exc)
-                    is_external = "system_id=" in exc_str and "system_id=None" not in exc_str
+                    is_external = (  # noqa: E501
+                        "system_id=" in exc_str and "system_id=None" not in exc_str
+                    )
                     if is_external and not self._config.forbid_external:
                         return ScanResult()
                     if not is_external and not self._config.forbid_entities:
