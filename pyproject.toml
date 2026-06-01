@@ -101,6 +101,7 @@ ignore_missing_imports = true
 [dependency-groups]
 dev = [
     "asyncpg>=0.31.0",
+    "defusedxml>=0.7.1",
     "pytest-cov>=7.1.0",
     "python-multipart>=0.0.29",
     "respx>=0.23.1",

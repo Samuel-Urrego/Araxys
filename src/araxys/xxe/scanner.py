@@ -121,6 +121,26 @@ class XXEScanner:
                 _safe_fromstring(data)
                 return ScanResult()
             except Exception as exc:
+                from defusedxml.common import EntitiesForbidden  # type: ignore[import-untyped]
+
+                if isinstance(exc, EntitiesForbidden):
+                    # EntitiesForbidden fires when a DTD entity is declared.
+                    # Since defusedxml always blocks ALL entity declarations,
+                    # we must check the config to see if this over-block
+                    # is acceptable:
+                    # - Local entities (system_id=None): respect forbid_entities
+                    # - External entities (system_id is set): respect forbid_external
+                    exc_str = str(exc)
+                    is_external = "system_id=" in exc_str and "system_id=None" not in exc_str
+                    if is_external and not self._config.forbid_external:
+                        return ScanResult()
+                    if not is_external and not self._config.forbid_entities:
+                        return ScanResult()
+                # Regular parse errors from defusedxml are treated the
+                # same as stdlib: invalid/unparseable XML is not a threat.
+                from xml.etree.ElementTree import ParseError
+                if isinstance(exc, ParseError):
+                    return ScanResult()
                 exc_name = type(exc).__name__
                 threats.append({
                     "detection_type": "parser_blocked",
