@@ -15,12 +15,14 @@ from typing import Literal
 
 import structlog
 
+from araxys.account_protection.helpers import simulate_hash_lookup
 from araxys.api_keys.models import APIKeyRecord, APIKeyResponse
 from araxys.core.exceptions import InvalidAPIKey
 from araxys.core.types import AuditEntry, AuditEventType, Scope
 
 if typing.TYPE_CHECKING:
     from araxys.api_keys.storage import APIKeyStorage
+    from araxys.core.config import AccountProtectionConfig
 
 logger = structlog.get_logger("araxys.api_keys")
 
@@ -42,9 +44,11 @@ class APIKeyManager:
         self,
         storage: APIKeyStorage,
         on_audit: typing.Callable | None = None,  # type: ignore
+        protection_config: AccountProtectionConfig | None = None,
     ) -> None:
         self._storage = storage
         self._on_audit = on_audit
+        self._protection_config = protection_config
 
     @staticmethod
     def _hash_key(raw_key: str) -> str:
@@ -170,7 +174,14 @@ class APIKeyManager:
                         detail="Key not found",
                     )
                 )
-            raise InvalidAPIKey("API key not found or expired")
+            # When account protection is enabled, simulate hash lookup to
+            # equalize timing with real key verification
+            if (
+                self._protection_config is not None
+                and self._protection_config.enabled
+            ):
+                simulate_hash_lookup(prefix, self._protection_config)
+            raise InvalidAPIKey("Invalid API key")
 
         # Verify hash (constant-time comparison to prevent timing attacks)
         if not hmac.compare_digest(record.key_hash, self._hash_key(raw_key)):
@@ -188,7 +199,7 @@ class APIKeyManager:
         # Check expiration
         if record.expires_at and record.expires_at < datetime.now(UTC):
             logger.warning("api_key.expired", prefix=prefix)
-            raise InvalidAPIKey("API key has expired")
+            raise InvalidAPIKey("Invalid API key")
 
         # Check scopes
         if required_scopes:
@@ -199,7 +210,7 @@ class APIKeyManager:
                     prefix=prefix,
                     missing=list(missing),
                 )
-                raise InvalidAPIKey(f"Missing required scopes: {', '.join(missing)}")
+                raise InvalidAPIKey("Insufficient permissions")
 
         # Check IP restriction
         if (

@@ -80,6 +80,62 @@ class OAuth2Provider:
     def default_scopes(self) -> str:
         return " ".join(self.scopes)
 
+    @classmethod
+    async def from_issuer(
+        cls,
+        issuer_url: str,
+        client_id: str,
+        client_secret: str,
+        *,
+        scopes: list[str] | None = None,
+        name: str = "oidc",
+    ) -> OAuth2Provider:
+        """Create an :class:`OAuth2Provider` from an OIDC issuer URL.
+
+        Uses :class:`~araxys.oidc.client.OIDCDiscoveryClient` to fetch
+        ``.well-known/openid-configuration`` and auto-populates
+        ``authorization_endpoint``, ``token_endpoint``, and
+        ``userinfo_endpoint`` from the discovery document.
+
+        Parameters
+        ----------
+        issuer_url:
+            OIDC provider issuer URL.
+        client_id:
+            OAuth2 client identifier.
+        client_secret:
+            OAuth2 client secret (stored with ``repr=False``).
+        scopes:
+            OAuth2 scopes to request (defaults to ``["openid", "email",
+            "profile"]``).
+        name:
+            Provider name identifier (defaults to ``"oidc"``).
+
+        Returns
+        -------
+        OAuth2Provider
+            Configured provider instance.
+
+        Raises
+        ------
+        OIDCDiscoveryError
+            If discovery fails (network, timeout, or invalid metadata).
+        """
+        from araxys.oidc.client import OIDCDiscoveryClient
+
+        client = OIDCDiscoveryClient()
+        metadata = await client.discover(issuer_url)
+
+        return cls(
+            authorization_endpoint=metadata.authorization_endpoint,
+            token_endpoint=metadata.token_endpoint,
+            userinfo_endpoint=metadata.userinfo_endpoint or "",
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=scopes if scopes is not None else ["openid", "email", "profile"],
+            name=name,
+        )
+
 
 # ── OAuth2 Flow ───────────────────────────────────────────────────
 

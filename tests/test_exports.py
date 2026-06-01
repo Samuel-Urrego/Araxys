@@ -207,3 +207,23 @@ class TestExistingExports:
         assert TokenExpired is not None
         assert TokenInvalid is not None
         assert TokenRevoked is not None
+
+
+class TestOIDCDiscoveryExports:
+    """All OIDC Discovery types must be importable from araxys."""
+
+    def test_oidc_discovery_client(self) -> None:
+        from araxys import OIDCDiscoveryClient  # noqa: F811
+        assert OIDCDiscoveryClient is not None
+
+    def test_oidc_provider_metadata(self) -> None:
+        from araxys import OIDCProviderMetadata
+        assert OIDCProviderMetadata is not None
+
+    def test_oidc_discovery_error(self) -> None:
+        from araxys import OIDCDiscoveryError
+        assert OIDCDiscoveryError is not None
+
+    def test_oidc_discovery_config(self) -> None:
+        from araxys import OIDCDiscoveryConfig
+        assert OIDCDiscoveryConfig is not None

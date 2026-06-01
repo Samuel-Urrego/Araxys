@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Plug & Play Security for FastAPI</strong><br>
-  <em>CORS · CSRF · Rate Limiting · JWT · API Keys · MFA · OAuth2 · RBAC · WebAuthn · Sessions · Prompt Injection · Malware Scan · Webhooks + DLQ · Honeypots · Audit · DB Security · Redis Sentinel/Cluster</em>
+  <em>CORS · CSRF · Rate Limiting · JWT · API Keys · MFA · OAuth2 · RBAC · WebAuthn · Sessions · Prompt Injection · Malware Scan · XXE · Account Enumeration Prevention · OIDC Discovery · Webhooks + DLQ · Honeypots · Audit · DB Security · Redis Sentinel/Cluster</em>
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Pydantic-v2-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic">
   <img src="https://img.shields.io/badge/uv-package%20manager-DE5FE9?style=for-the-badge&logo=uv&logoColor=white" alt="uv">
   <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/version-0.12.0-blue?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.13.0-blue?style=for-the-badge" alt="Version">
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
   <img src="https://img.shields.io/badge/OpenTelemetry-optional-8B5CF6?style=flat-square&logo=opentelemetry&logoColor=white" alt="OTEL">
   <img src="https://img.shields.io/badge/Prometheus-optional-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/structlog-logging-4B8BBE?style=flat-square" alt="structlog">
-  <img src="https://img.shields.io/badge/tests-1326%20passed-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-1490%20passed-brightgreen?style=flat-square" alt="Tests">
 </p>
 
 ---
@@ -32,7 +32,7 @@
 
 **Araxys** is a comprehensive security library for [FastAPI](https://fastapi.tiangolo.com/) that provides enterprise-grade protection with a plug & play architecture. Add security to your API with **three lines of code** — no rewrites, no boilerplate.
 
-> **v0.12.0** adds heuristic malware scanning — 9 detectors (magic bytes, MIME, archive bombs, macros, polyglots, double extension, path traversal, size mismatch) for file upload protection, zero external dependencies. **v0.11.0** added prompt injection detection. [1326 tests](https://github.com/Samuel-Urrego/Araxys/actions).
+> **v0.13.0** adds XXE protection (regex + entity expansion detection, ASGI middleware), account enumeration prevention (unified error messages, timing jitter, fake hash pre-lookup), automatic CSRF middleware (no per-route `Depends` wiring), and OIDC Discovery client (RFC 8414, `OAuth2Provider.from_issuer()` sugar). **v0.12.0** added heuristic malware scanning. [1490 tests](https://github.com/Samuel-Urrego/Araxys/actions).
 
 ```python
 from fastapi import FastAPI
@@ -51,14 +51,14 @@ shield = AraxysShield(app, AraxysConfig(secret_key="your-32-char-secret-key-here
 |--------|------------|--------|
 | 🚦 **CORS** | Per-origin policy with fail-closed default | ✅ v0.3 |
 | 🛑 **IP Access Control** | Allow/block/hybrid modes with CIDR support | ✅ v0.3 |
-| 🍪 **CSRF Protection** | Double-submit cookie with constant-time validation | ✅ v0.3 |
+| 🍪 **CSRF Protection** | Double-submit cookie + automatic ASGI middleware | ✅ v0.3 / 🆕 v0.13 |
 | 🔒 **Brute Force** | Account lockout + password policy + HIBP check | ✅ v0.3 |
 | 👥 **Session Management** | Max concurrent, idle timeout, TTL expiry, touch_session() | ✅ v0.10 |
 | 🗄️ **DB Security** | Redis Sentinel/Cluster pools, PG pool, TLS/cert pinning, secret resolver chain | ✅ v0.10 |
 | 🎟️ **JWT Auth** | RS256/ES256 + HS256, JWKS, token rotation, family revocation | ✅ Ready |
 | 🔑 **API Keys** | Scoped keys with SHA-256 hashing & expiration | ✅ Ready |
 | 🔐 **MFA / TOTP** | Time-based OTP (RFC 6238), recovery codes | ✅ v0.9 |
-| 🔓 **OAuth2 / OIDC** | PKCE flow, state store, multi-provider support | ✅ v0.9 |
+| 🔓 **OAuth2 / OIDC** | PKCE flow, state store, multi-provider, OIDC Discovery (RFC 8414) | ✅ v0.9 / 🆕 v0.13 |
 | 🏷️ **RBAC** | Resource:action permission model | ✅ v0.9 |
 | 🔏 **WebAuthn / Passkeys** | FIDO2 registration + authentication, COSE key parsing, attestation | ✅ v0.10 |
 | 📨 **Webhooks** | Event bus + retry (1s/2s/4s) + dead-letter queue with admin API | ✅ v0.10 |
@@ -67,6 +67,9 @@ shield = AraxysShield(app, AraxysConfig(secret_key="your-32-char-secret-key-here
 | 🛡️ **Secure Headers** | CSP, COOP/COEP/CORP, HSTS, X-Frame-Options (OWASP) | ✅ Ready |
 | 🧹 **Sanitization** | SQLi (sqlparse), NoSQL, command injection, XSS, path traversal, multipart | ✅ Ready |
 | 🤖 **Prompt Injection** | Heuristic detection (injection, jailbreak, zero-width, homoglyphs), file metadata + hidden content scanning | ✅ v0.11 |
+| 📄 **XXE Protection** | Regex + entity expansion detection, ASGI middleware, per-endpoint `xxe_guard` | 🆕 v0.13 |
+| 🛡️ **Account Enumeration** | Unified error messages, timing jitter, fake hash pre-lookup, middleware | 🆕 v0.13 |
+| 🌐 **OIDC Discovery** | RFC 8414 async client, in-memory TTL cache, `OAuth2Provider.from_issuer()` | 🆕 v0.13 |
 | 🦠 **Malware Scan** | Heuristic file-upload scanning (magic bytes, MIME, archive bombs, macros, polyglots, double ext, path traversal) | ✅ v0.12 |
 | 📋 **Audit Logging** | AES-256-GCM encrypted, async I/O, hash-chain integrity, PII masking | ✅ Ready |
 | 📡 **OpenTelemetry** | Graceful span tracing (opt-in, no-op fallback) | ✅ v0.3 |
@@ -166,10 +169,16 @@ config = AraxysConfig(
 ### CSRF Protection
 
 ```python
+# v0.13 — Automatic ASGI middleware (no per-route wiring needed)
+config = AraxysConfig(
+    secret_key="...",
+    csrf={"enabled": True},  # Intercepts PUT/POST/DELETE/PATCH automatically
+)
+
+# v0.12 and earlier — Per-route opt-in
 from fastapi import Depends
 from araxys import csrf_protected, CSRFConfig
 
-# Per-route opt-in — only state-changing endpoints
 @app.post("/submit", dependencies=[Depends(csrf_protected(CSRFConfig()))])
 async def submit_form():
     return {"status": "ok"}
@@ -293,7 +302,8 @@ src/araxys/
 │   └── middleware.py   # Allow/block/hybrid modes, CIDR
 ├── csrf/               # 🍪 CSRF protection
 │   ├── tokens.py       # Double-submit cookie, constant-time
-│   └── dependencies.py # Per-route FastAPI dependency
+│   ├── dependencies.py # Per-route FastAPI dependency
+│   └── middleware.py   # 🆕 v0.13 — Automatic ASGI middleware
 ├── brute_force/        # 🔒 Brute force + password policy
 │   ├── backends.py     # InMemory + Redis attempt tracking
 │   ├── limiter.py      # Lockout middleware
@@ -338,6 +348,22 @@ src/araxys/
 │   ├── backends.py     # Protocol + InMemory + Redis
 │   ├── limiter.py      # Sliding window + escalation
 │   └── middleware.py   # ASGI middleware
+├── xxe/                # 📄 XXE Protection (v0.13)
+│   ├── config.py       # Detection toggles, exclusions
+│   ├── scanner.py      # Regex + entity expansion detection
+│   ├── middleware.py   # ASGI middleware
+│   ├── dependencies.py # Per-endpoint xxe_guard
+│   ├── events.py       # Audit + security event definitions
+│   └── exceptions.py   # XXEError
+├── account_protection/ # 🛡️ Account Enumeration (v0.13)
+│   ├── config.py       # Protection config
+│   ├── middleware.py   # Response normalization + timing jitter
+│   ├── detection.py    # Enumeration detection logic
+│   └── helpers.py      # Constant-time compare, normalize
+├── oidc/               # 🌐 OIDC Discovery (v0.13)
+│   ├── models.py       # OIDCProviderMetadata (Pydantic)
+│   ├── client.py       # Async discovery client + TTL cache
+│   └── __init__.py     # Public exports
 ├── honeypot/           # 🍯 Trap endpoints
 │   ├── trap.py         # Route registration + auto-ban
 │   └── middleware.py   # IP ban enforcement
@@ -374,7 +400,7 @@ src/araxys/
 ### Middleware Chain (outer → inner)
 
 ```
-CORS → SecureHeaders → Telemetry → RateLimit → BruteForce → IP Access → Honeypot → Sanitize → Auth (JWT / APIKey / WebAuthn)
+CORS → SecureHeaders → Telemetry → CSRF → RateLimit → BruteForce → Honeypot → AccountProtection → IP Access → Sanitize → XXE → Auth (JWT / APIKey / WebAuthn)
 ```
 
 ---
@@ -395,12 +421,13 @@ CORS → SecureHeaders → Telemetry → RateLimit → BruteForce → IP Access 
 - **X-Forwarded-For** fallback for proxied requests
 - Pluggable backends (InMemory + Redis)
 
-### CSRF Protection (v0.3)
+### CSRF Protection (v0.3 / 🆕 v0.13)
 
 - **Double-submit cookie** pattern
 - **Constant-time comparison** via `secrets.compare_digest`
-- **Per-route opt-in** as a FastAPI dependency — no global middleware overhead
-- Configurable token expiry and cookie security
+- **Per-route opt-in** as a FastAPI dependency — original approach
+- **🆕 v0.13 — Automatic ASGI middleware** (`CSRFMiddleware`) — intercepts PUT/POST/DELETE/PATCH automatically, no per-route `Depends` wiring
+- Configurable token expiry, cookie security, path exclusions, and safe methods
 
 ### Brute Force Protection (v0.3)
 
@@ -482,6 +509,31 @@ CORS → SecureHeaders → Telemetry → RateLimit → BruteForce → IP Access 
 | `Permissions-Policy` | Configurable |
 | `Server` | Hidden by default (v0.3) |
 
+### XXE Protection (v0.13)
+
+- **Regex-based pre-scanning**: DTD, ENTITY, SYSTEM, `<!DOCTYPE>` detection
+- **Entity expansion detection**: Billion-laughs / quadratic blowup via `XXEScanner`
+- **ASGI middleware**: `XXEMiddleware` — intercepts XML content types at the middleware level
+- **Per-endpoint guard**: `xxe_guard` Depends for targeted protection
+- **Zero external dependencies**: stdlib-only, no `defusedxml` required
+- **Security events**: `XXE_DETECTED` security event + audit trail
+
+### Account Enumeration Prevention (v0.13)
+
+- **Unified error messages**: Auth endpoints return identical responses regardless of user/key existence
+- **Timing jitter**: Randomized response delays to mask timing-based enumeration
+- **Fake hash pre-lookup**: Constant-time fake hash verification for non-existent API keys
+- **ASGI middleware**: `AccountProtectionMiddleware` normalizes 401/403 responses
+- **Enumeration detection**: Identifies scanning patterns and emits audit events
+
+### OIDC Discovery (v0.13)
+
+- **RFC 8414 client**: Async `OIDCDiscoveryClient` fetches `/.well-known/openid-configuration`
+- **Pydantic metadata model**: `OIDCProviderMetadata` with required fields (issuer, authorization_endpoint, token_endpoint, jwks_uri)
+- **In-memory TTL cache**: Keyed by issuer URL, configurable cache duration
+- **OAuth2Provider integration**: `OAuth2Provider.from_issuer()` classmethod for auto-discovery
+- **Graceful error handling**: Timeout, invalid JSON, missing fields → `OIDCDiscoveryError`
+
 ### Payload Sanitization
 
 - **16 SQL injection patterns**: UNION, DROP, blind injection, time-based, etc.
@@ -552,7 +604,7 @@ uv run pytest tests/ -v
 uv run pytest tests/ --cov=araxys --cov-report=term-missing
 ```
 
-**1326 tests** covering all 24 modules — CORS, IP access, CSRF, brute force, sessions, telemetry, webhooks, DLQ, WebAuthn, MFA, OAuth2/OIDC, RBAC, admin, metrics, rate limiting, honeypots, API keys, JWT, headers, sanitization, prompt injection, malware scanning, audit logging, and database security.
+**1490 tests** covering all 28 modules — CORS, IP access, CSRF, brute force, sessions, telemetry, webhooks, DLQ, WebAuthn, MFA, OAuth2/OIDC, RBAC, admin, metrics, rate limiting, honeypots, API keys, JWT, headers, sanitization, prompt injection, malware scanning, XXE protection, account enumeration prevention, OIDC Discovery, audit logging, and database security.
 
 ---
 

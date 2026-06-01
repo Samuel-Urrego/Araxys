@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from araxys.account_protection.middleware import AccountProtectionMiddleware
 from araxys.api_keys.manager import APIKeyManager
 from araxys.api_keys.storage import InMemoryAPIKeyStorage
 from araxys.audit.logger import AuditLogger
@@ -146,6 +147,7 @@ class AraxysShield:
         self.api_key_manager = APIKeyManager(
             storage=self._api_key_storage,
             on_audit=self._emit_audit,
+            protection_config=config.account_protection,
         )
 
         # JWT manager
@@ -225,6 +227,15 @@ class AraxysShield:
 
             _csrf_mw._event_bus = self.event_bus
 
+        # Set module-level config for account_protection
+        if config.account_protection is not None and config.account_protection.enabled:
+            import araxys.account_protection.middleware as _ap_mw
+            import araxys.mfa.dependencies as _mfa_deps
+
+            if self.event_bus is not None:
+                _ap_mw._event_bus = self.event_bus
+            _mfa_deps._account_protection_config = config.account_protection
+
         # Session manager
         self._session_manager: SessionManager | None = None
         if config.session is not None and config.session.enabled:
@@ -303,6 +314,7 @@ class AraxysShield:
         self._register_prompt_injection(app, config)
         self._register_malware(app, config)
         self._register_honeypot(app, config)
+        self._register_account_protection(app, config)
         self._register_ip_access(app, config)
         self._register_brute_force(app, config)
         self._register_rate_limit(app, config)
@@ -319,6 +331,11 @@ class AraxysShield:
             ("brute_force", config.brute_force is not None and config.brute_force.enabled),  # noqa: E501
             ("ip_access", config.ip_control is not None and config.ip_control.enabled),  # noqa: E501
             ("honeypot", config.honeypot.enabled),
+            (
+                "account_protection",
+                config.account_protection is not None
+                and config.account_protection.enabled,
+            ),
             ("sanitize", config.sanitize.enabled),
             (
                 "prompt_injection",
@@ -507,6 +524,24 @@ class AraxysShield:
             _CSRFMiddleware,
             config=config.csrf,
             handler=self.csrf_handler,
+        )
+
+    def _register_account_protection(
+        self, app: FastAPI, config: AraxysConfig
+    ) -> None:
+        """Register Account Protection middleware (between Honeypot and IP Access).
+
+        Normalizes auth endpoint responses — masks 401/403 error detail
+        fields and adds timing jitter — to prevent attackers from
+        inferring valid usernames or API keys via timing or message
+        differences.
+        """
+        if config.account_protection is None or not config.account_protection.enabled:
+            return
+        app.add_middleware(
+            AccountProtectionMiddleware,
+            config=config.account_protection,
+            on_audit=self._emit_audit,
         )
 
     def _register_ip_access(self, app: FastAPI, config: AraxysConfig) -> None:

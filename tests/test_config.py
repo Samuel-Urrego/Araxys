@@ -5,6 +5,7 @@ import re
 import pytest
 
 from araxys.core.config import (
+    AccountProtectionConfig,
     AraxysConfig,
     AuditConfig,
     BruteForceConfig,
@@ -800,3 +801,183 @@ class TestMalwareConfig:
         assert c.malware.max_file_size == 5_000_000
         assert c.malware.detect_polyglot is True
         assert c.malware.excluded_paths == ["/healthz"]
+
+
+class TestAccountProtectionConfig:
+    """Tests for account enumeration prevention configuration."""
+
+    def test_defaults(self) -> None:
+        c = AccountProtectionConfig()
+        assert c.enabled is False
+        assert c.fake_hash_work_factor == 12
+        assert c.timing_jitter_ms == 50
+        assert c.minimum_response_time_ms == 100
+        assert c.generic_unauthorized_message == "Invalid credentials"
+        assert c.generic_verification_message == "Invalid verification code"
+        assert c.enumeration_detection_enabled is True
+        assert c.enumeration_window_seconds == 60
+        assert c.enumeration_threshold == 5
+        assert c.enumeration_paths == ["/auth/*", "/login", "/register", "/api/login"]
+
+    def test_custom_values(self) -> None:
+        c = AccountProtectionConfig(
+            enabled=True,
+            fake_hash_work_factor=10,
+            timing_jitter_ms=100,
+            minimum_response_time_ms=200,
+            generic_unauthorized_message="Wrong email or password",
+            generic_verification_message="Wrong code",
+            enumeration_detection_enabled=False,
+            enumeration_window_seconds=120,
+            enumeration_threshold=10,
+        )
+        assert c.enabled is True
+        assert c.fake_hash_work_factor == 10
+        assert c.timing_jitter_ms == 100
+        assert c.minimum_response_time_ms == 200
+        assert c.generic_unauthorized_message == "Wrong email or password"
+        assert c.generic_verification_message == "Wrong code"
+        assert c.enumeration_detection_enabled is False
+        assert c.enumeration_window_seconds == 120
+        assert c.enumeration_threshold == 10
+
+
+class TestOIDCDiscoveryConfig:
+    """OIDCDiscoveryConfig — configuration for OIDC provider discovery."""
+
+    def test_defaults(self) -> None:
+        from araxys.core.config import OIDCDiscoveryConfig
+
+        c = OIDCDiscoveryConfig()
+        assert c.enabled is True
+        assert c.cache_ttl_seconds == 300
+        assert c.timeout_seconds == 10
+        assert c.verify_ssl is True
+
+    def test_custom_values(self) -> None:
+        from araxys.core.config import OIDCDiscoveryConfig
+
+        c = OIDCDiscoveryConfig(
+            enabled=False,
+            cache_ttl_seconds=600,
+            timeout_seconds=5,
+            verify_ssl=False,
+        )
+        assert c.enabled is False
+        assert c.cache_ttl_seconds == 600
+        assert c.timeout_seconds == 5
+        assert c.verify_ssl is False
+
+    def test_cache_ttl_minimum(self) -> None:
+        """cache_ttl_seconds must be >= 1."""
+        import re
+
+        import pytest
+        from araxys.core.config import OIDCDiscoveryConfig
+
+        with pytest.raises(
+            Exception, match=re.escape("Input should be greater than or equal to 1")
+        ):
+            OIDCDiscoveryConfig(cache_ttl_seconds=0)
+
+    def test_timeout_minimum(self) -> None:
+        """timeout_seconds must be >= 1."""
+        import re
+
+        import pytest
+        from araxys.core.config import OIDCDiscoveryConfig
+
+        with pytest.raises(
+            Exception, match=re.escape("Input should be greater than or equal to 1")
+        ):
+            OIDCDiscoveryConfig(timeout_seconds=0)
+
+
+class TestOIDCDiscoveryInAraxysConfig:
+    """OIDCDiscoveryConfig must be optional on AraxysConfig."""
+
+    def test_defaults_to_none(self) -> None:
+        from araxys.core.config import AraxysConfig
+
+        c = AraxysConfig(secret_key="test-secret-key-must-be-32-chars!!")
+        assert c.oidc_discovery is None
+
+    def test_explicit_none(self) -> None:
+        from araxys.core.config import AraxysConfig
+
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            oidc_discovery=None,
+        )
+        assert c.oidc_discovery is None
+
+    def test_enabled_via_empty_dict(self) -> None:
+        from araxys.core.config import AraxysConfig
+
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            oidc_discovery={},  # type: ignore[arg-type]
+        )
+        assert c.oidc_discovery is not None
+        assert c.oidc_discovery.enabled is True
+        assert c.oidc_discovery.cache_ttl_seconds == 300
+        assert c.oidc_discovery.timeout_seconds == 10
+        assert c.oidc_discovery.verify_ssl is True
+
+    def test_custom_values_via_nested_dict(self) -> None:
+        from araxys.core.config import AraxysConfig
+
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            oidc_discovery={  # type: ignore[arg-type]
+                "enabled": False,
+                "cache_ttl_seconds": 120,
+                "timeout_seconds": 5,
+                "verify_ssl": False,
+            },
+        )
+        assert c.oidc_discovery is not None
+        assert c.oidc_discovery.enabled is False
+        assert c.oidc_discovery.cache_ttl_seconds == 120
+        assert c.oidc_discovery.timeout_seconds == 5
+        assert c.oidc_discovery.verify_ssl is False
+
+
+class TestAccountProtectionInAraxysConfig:
+    """AccountProtectionConfig must be optional on AraxysConfig."""
+
+    def test_defaults_to_none(self) -> None:
+        c = AraxysConfig(secret_key="test-secret-key-must-be-32-chars!!")
+        assert c.account_protection is None
+
+    def test_explicit_none(self) -> None:
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            account_protection=None,
+        )
+        assert c.account_protection is None
+
+    def test_enabled_via_defaults(self) -> None:
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            account_protection={},  # type: ignore[arg-type]
+        )
+        assert c.account_protection is not None
+        assert c.account_protection.enabled is False
+        assert c.account_protection.fake_hash_work_factor == 12
+        assert c.account_protection.timing_jitter_ms == 50
+        assert c.account_protection.minimum_response_time_ms == 100
+
+    def test_custom_values(self) -> None:
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            account_protection={  # type: ignore[arg-type]
+                "enabled": True,
+                "fake_hash_work_factor": 8,
+                "enumeration_threshold": 3,
+            },
+        )
+        assert c.account_protection is not None
+        assert c.account_protection.enabled is True
+        assert c.account_protection.fake_hash_work_factor == 8
+        assert c.account_protection.enumeration_threshold == 3

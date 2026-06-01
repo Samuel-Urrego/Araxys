@@ -216,6 +216,34 @@ class MalwareDetectionError(AraxysError):
         )
 
 
+class OIDCDiscoveryError(AraxysError):
+    """Raised when OIDC provider discovery fails.
+
+    Attributes
+    ----------
+    issuer_url:
+        The issuer URL that was being discovered, if available.
+    detail:
+        Additional detail about the failure (e.g., timeout, HTTP status).
+    """
+
+    def __init__(
+        self,
+        *,
+        issuer_url: str | None = None,
+        detail: str | None = None,
+        message: str | None = None,
+    ) -> None:
+        self.issuer_url = issuer_url
+        self.detail = detail
+        parts = ["OIDC discovery failed"]
+        if issuer_url:
+            parts.append(f"for issuer {issuer_url}")
+        if detail:
+            parts.append(f": {detail}")
+        super().__init__(message or "".join(parts))
+
+
 # Re-export WebAuthnError for public API convenience.
 # Import is here (not at top) to avoid circular imports since
 # webauthn.exceptions itself imports AraxysError from this module.

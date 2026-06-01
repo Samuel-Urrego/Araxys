@@ -8,15 +8,18 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 
 **Middleware Order (from innermost to outermost — FastAPI registration order):**
 1. `SanitizeMiddleware` (innermost — closest to app logic)
-2. `PromptInjectionMiddleware` (v0.11 — read-only, scans text + files before sanitization blocks)
-3. `MalwareMiddleware` (v0.12 — read-only, scans multipart uploads heuristically)
-4. `HoneypotMiddleware` (IP-ban check + trap routes)
-5. `IPAccessMiddleware` (v0.3 — allow/block/hybrid before lockout)
-6. `BruteForceMiddleware` (v0.3 — lockout before rate limiting)
-7. `RateLimitMiddleware` (sliding window, per-IP/user/key)
-8. `TelemetryMiddleware` (v0.3 — opt-in, wraps everything below)
-9. `SecureHeadersMiddleware` (HSTS, CSP, COOP/CORP, X-Frame-Options)
-10. `CORSMiddleware` (v0.3 — outermost, fail-closed)
+2. `XXEMiddleware` (v0.13 — intercepts XML content types)
+3. `PromptInjectionMiddleware` (v0.11 — read-only, scans text + files before sanitization blocks)
+4. `MalwareMiddleware` (v0.12 — read-only, scans multipart uploads heuristically)
+5. `HoneypotMiddleware` (IP-ban check + trap routes)
+6. `AccountProtectionMiddleware` (v0.13 — normalizes auth error responses, timing jitter)
+7. `IPAccessMiddleware` (v0.3 — allow/block/hybrid before lockout)
+8. `BruteForceMiddleware` (v0.3 — lockout before rate limiting)
+9. `RateLimitMiddleware` (sliding window, per-IP/user/key)
+10. `CSRFMiddleware` (v0.13 — automatic state-changing method protection)
+11. `TelemetryMiddleware` (v0.3 — opt-in, wraps everything below)
+12. `SecureHeadersMiddleware` (HSTS, CSP, COOP/CORP, X-Frame-Options)
+13. `CORSMiddleware` (v0.3 — outermost, fail-closed)
 
 ## 🔑 Key Abstractions
 
@@ -44,6 +47,13 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 | `PromptInjectionGuard` | `araxys.prompt_injection.dependencies` | FastAPI `Depends` factory — scans text payloads against 5 detectors + file metadata. |
 | `PromptInjectionMiddleware` | `araxys.prompt_injection.middleware` | Read-only ASGI middleware for text + file scanning (query params, JSON, multipart). |
 | `MalwareScanner` | `araxys.malware.scanner` | Config-driven heuristic scanner: 9 detectors, async via `run_in_executor`. |
+| `XXEScanner` | `araxys.xxe.scanner` | Regex + entity expansion detection for XXE (billion-laughs, quadratic blowup). |
+| `XXEMiddleware` | `araxys.xxe.middleware` | ASGI middleware intercepting XML content types. |
+| `XXEGuard` | `araxys.xxe.dependencies` | `Depends` factory — per-endpoint XXE protection. |
+| `AccountProtectionMiddleware` | `araxys.account_protection.middleware` | Normalizes auth error responses, adds timing jitter. |
+| `EnumerationDetector` | `araxys.account_protection.detection` | Detects scanning patterns and emits audit events. |
+| `OIDCDiscoveryClient` | `araxys.oidc.client` | Async RFC 8414 client with in-memory TTL cache. |
+| `OIDCProviderMetadata` | `araxys.oidc.models` | Pydantic model for OIDC provider metadata. |
 | `MalwareGuard` | `araxys.malware.dependencies` | FastAPI `Depends` factory — scans uploaded files against malware detectors. |
 | `MalwareMiddleware` | `araxys.malware.middleware` | Read-only ASGI middleware for multipart file upload scanning. |
 | `DatabaseSecurityManager` | `araxys.db_security.manager` | Shared Redis/PG pool lifecycle, secret resolver chain, TLS cert pinning, query auditing. |
@@ -96,7 +106,11 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 - **PromptInjectionMiddleware / MalwareMiddleware**: Both are read-only — they read the request body via `request.body()` (cached by Starlette, no mutation). They check for `PromptInjectionError` / `MalwareDetectionError` and return 400 with JSON detail. Never consume the upload stream — use `UploadFile` API.
 - **Middleware Order Matters**: Prompt injection runs AFTER sanitization but BEFORE malware (innermost chain: Sanitize → PromptInjection → Malware). Changing this order without understanding the read-only contract will break request body consumption.
 - **`ScanResult` Type**: `threat_score: float` is a design seam for future LLM-based secondary validation. Current detectors set `is_threat=True` for definitive matches. `detectors_triggered` is a list of detector names for audit trails.
-- **Python Version (v0.12)**: Minimum Python 3.11. Uses `datetime.timezone.utc` (not `datetime.UTC`) and `(str, Enum)` (not `StrEnum`) for compatibility. `from __future__ import annotations` is required in all module files.
+- **XXE (v0.13)**: `XXEScanner` uses regex pre-scanning with stdlib fallback — no `defusedxml` dependency. Entity expansion is detected via `re.DOTALL` patterns. `XXEMiddleware` is registered by shield automatically when `config.xxe.enabled=True`. Per-endpoint `xxe_guard` Depends works independently of the middleware.
+- **CSRF Auto-Middleware (v0.13)**: `CSRFMiddleware` is a Starlette `BaseHTTPMiddleware` registered by shield. It intercepts PUT/POST/DELETE/PATCH automatically. Original per-route `csrf_protected` Depends still works and takes precedence. The auto middleware runs OUTSIDE the auth middleware chain — it validates the CSRF cookie before authentication. Safe methods (GET, HEAD, OPTIONS, TRACE) are never checked. Path exclusion via `exclude_paths` list.
+- **Account Protection (v0.13)**: `AccountProtectionMiddleware` is registered between Honeypot and IP Access in the middleware chain. It normalizes 401/403 `detail` fields to a generic message and adds configurable timing jitter (uniform distribution, ±50% of `jitter_delay_ms`). `enumeration_paths` config list controls which paths are monitored for enumeration detection. Fake hash pre-lookup is injected into `APIKeyManager` — existing key lookups always return a fake result for non-existent keys.
+- **OIDC Discovery (v0.13)**: `OIDCDiscoveryClient` is a standalone utility — no middleware, no shield registration. `OAuth2Provider.from_issuer()` is an async classmethod, so endpoints using it must be async. Cache is in-memory dict with wall-clock TTL (no Redis). httpx was promoted to core dependency in v0.13.
+- **Python Version (v0.13)**: Minimum Python 3.11. Uses `datetime.timezone.utc` (not `datetime.UTC`) and `(str, Enum)` (not `StrEnum`) for compatibility. `from __future__ import annotations` is required in all module files.
 
 ## 🛠️ Common Usage Patterns
 
@@ -219,7 +233,46 @@ config = AraxysConfig(
 # Per-route: Depends(get_malware_guard(config.malware))
 ```
 
-### 10. Graceful Shutdown
+### 10. OIDC Discovery (v0.13)
+```python
+# Standalone — auto-discover provider endpoints
+from araxys.oidc import OIDCDiscoveryClient, OIDCDiscoveryConfig
+
+client = OIDCDiscoveryClient()
+metadata = await client.discover("https://accounts.google.com")
+print(metadata.authorization_endpoint)  # https://accounts.google.com/o/oauth2/v2/auth
+
+# Or via OAuth2Provider sugar
+from araxys.oauth.flow import OAuth2Provider
+provider = await OAuth2Provider.from_issuer(
+    "https://accounts.google.com",
+    client_id="your-client-id",
+    client_secret="your-client-secret",
+    scopes={"openid", "profile", "email"},
+)
+# Endpoints auto-populated from OIDC discovery document
+```
+
+### 11. XXE Protection (v0.13)
+```python
+config = AraxysConfig(
+    secret_key="...",
+    xxe=XXEConfig(
+        enabled=True,
+        max_entity_expansions=100_000,
+        scan_body=True,
+        scan_query_params=True,
+    ),
+)
+# ASGI middleware intercepts XML content types automatically
+# Per-endpoint guard also available:
+from araxys.xxe.dependencies import xxe_guard
+@app.post("/upload-xml", dependencies=[Depends(xxe_guard())])
+async def upload_xml():
+    return {"status": "ok"}
+```
+
+### 12. Graceful Shutdown
 ```python
 # On app shutdown
 await shield.shutdown()
@@ -241,8 +294,8 @@ The `araxys` CLI is the preferred way for agents to perform environment manageme
 - **OTEL mocks**: Use `unittest.mock` to mock `opentelemetry` imports — never require the real SDK in tests.
 - **HIBP tests**: Mock `httpx.AsyncClient` responses for `check_hibp()` — never hit the real API in tests.
 
-## 📊 Test Coverage (v0.12)
-- **1,326 tests** across 46 test files covering all 24 modules
+## 📊 Test Coverage (v0.13)
+- **1,490 tests** across 54 test files covering all 28 modules
 - Unit: ~600 tests (backends, stateless logic, pure functions, detectors, scanners, sqlparser, pool, query_validator)
 - Integration: ~400 tests (middleware via `httpx.AsyncClient` + `TestClient`)
 - E2E: ~150 tests (full middleware chain, file upload scanning, prompt injection file detection)

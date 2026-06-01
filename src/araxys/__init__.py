@@ -13,11 +13,22 @@ Usage::
 """
 
 # v0.3 middleware imports
+from araxys.account_protection import (
+    AccountProtectionMiddleware,
+    EnumerationDetector,
+    apply_rate_limit_presets,
+    constant_time_compare,
+    normalize_error_message,
+    simulate_hash_lookup,
+    simulate_verification_work,
+)
 from araxys.brute_force.limiter import BruteForceBackend, BruteForceMiddleware
 
 # v0.3 module imports
 from araxys.brute_force.password_policy import password_policy_dependency
 from araxys.core.config import (
+    # v0.12 configs
+    AccountProtectionConfig,
     AraxysConfig,
     AuditConfig,
     # v0.3 configs
@@ -40,6 +51,8 @@ from araxys.core.config import (
     # v0.6 configs
     WebAuthnConfig,
     WebhookConfig,
+    # OIDC Discovery
+    OIDCDiscoveryConfig,
 )
 from araxys.core.exceptions import (  # type: ignore[attr-defined]
     AraxysError,
@@ -61,6 +74,8 @@ from araxys.core.exceptions import (  # type: ignore[attr-defined]
     TokenInvalid,
     TokenRevoked,
     WebAuthnError,
+    # OIDC Discovery
+    OIDCDiscoveryError,
 )
 from araxys.core.types import (
     AuditEntry,
@@ -92,6 +107,7 @@ from araxys.ip_access.middleware import IPAccessMiddleware
 from araxys.jwt_auth.dependencies import create_jwks_router
 from araxys.jwt_auth.storage import InMemoryJWKSStore, JWKSStore
 from araxys.jwt_auth.tokens import JWTManager, TokenPair, TokenPayload
+from araxys.oidc import OIDCDiscoveryClient, OIDCProviderMetadata
 from araxys.malware.dependencies import (
     MalwareGuard,
     get_malware_guard,
@@ -144,6 +160,9 @@ __all__ = [
     "PromptInjectionConfig",
     # v0.8 configs
     "MalwareConfig",
+    # OIDC Discovery
+    "OIDCDiscoveryConfig",
+    # v0.12 configs
     # Types
     "AuditEntry",
     "AuditEventType",
@@ -174,6 +193,17 @@ __all__ = [
     "PromptInjectionError",
     # v0.8 exceptions
     "MalwareDetectionError",
+    # OIDC Discovery
+    "OIDCDiscoveryError",
+    # v0.12 Account Enumeration Prevention
+    "AccountProtectionConfig",
+    "AccountProtectionMiddleware",
+    "apply_rate_limit_presets",
+    "constant_time_compare",
+    "normalize_error_message",
+    "simulate_hash_lookup",
+    "simulate_verification_work",
+    "EnumerationDetector",
     # v0.3 modules — middleware
     "CORSMiddleware",
     "IPAccessMiddleware",
@@ -237,4 +267,7 @@ __all__ = [
     "XXEMiddleware",
     "xxe_guard",
     "get_xxe_scanner",
+    # v0.13 OIDC Discovery (RFC 8414)
+    "OIDCDiscoveryClient",
+    "OIDCProviderMetadata",
 ]

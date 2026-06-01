@@ -43,8 +43,15 @@ class TestSecurityEventType:
             "ws.rate_exceeded",
             # v0.13 — XXE Protection
             "xxe_detected",
+            "account_enumeration_detected",
         }
         assert values == expected
+
+    def test_account_enumeration_detected_value(self) -> None:
+        assert (
+            SecurityEventType.ACCOUNT_ENUMERATION_DETECTED.value
+            == "account_enumeration_detected"
+        )
 
     def test_is_str_enum(self) -> None:
         assert SecurityEventType.RATE_LIMIT_EXCEEDED.value == "rate_limit_exceeded"
@@ -237,8 +244,16 @@ class TestAuditEventType:
             "ws.auth_failed",
             # v0.13 — XXE Protection
             "xxe_detected",
+            "account_enumeration_detected",
         }
         assert values == expected
+
+    def test_account_enumeration_detected_exists(self) -> None:
+        assert hasattr(AuditEventType, "ACCOUNT_ENUMERATION_DETECTED")
+        assert (
+            AuditEventType.ACCOUNT_ENUMERATION_DETECTED.value
+            == "account_enumeration_detected"
+        )
 
 
 class TestMalwareDetectionError:
@@ -291,3 +306,56 @@ class TestMalwareDetectionError:
 
     def test_exception_hierarchy(self) -> None:
         assert issubclass(MalwareDetectionError, AraxysError)
+
+
+class TestOIDCDiscoveryError:
+    """OIDCDiscoveryError — added for OIDC discovery module."""
+
+    def test_is_araxys_error(self) -> None:
+        from araxys.core.exceptions import OIDCDiscoveryError
+
+        exc = OIDCDiscoveryError()
+        assert isinstance(exc, AraxysError)
+
+    def test_default_message(self) -> None:
+        from araxys.core.exceptions import OIDCDiscoveryError
+
+        exc = OIDCDiscoveryError()
+        assert "OIDC discovery" in str(exc)
+
+    def test_with_issuer_url(self) -> None:
+        from araxys.core.exceptions import OIDCDiscoveryError
+
+        exc = OIDCDiscoveryError(issuer_url="https://accounts.example.com")
+        assert exc.issuer_url == "https://accounts.example.com"
+        assert "https://accounts.example.com" in str(exc)
+
+    def test_with_detail(self) -> None:
+        from araxys.core.exceptions import OIDCDiscoveryError
+
+        exc = OIDCDiscoveryError(
+            issuer_url="https://idp.example.com",
+            detail="Connection timed out after 10s",
+        )
+        assert exc.issuer_url == "https://idp.example.com"
+        assert exc.detail == "Connection timed out after 10s"
+        assert "https://idp.example.com" in str(exc)
+        assert "Connection timed out after 10s" in str(exc)
+
+    def test_detail_defaults_to_none(self) -> None:
+        from araxys.core.exceptions import OIDCDiscoveryError
+
+        exc = OIDCDiscoveryError(issuer_url="https://idp.example.com")
+        assert exc.detail is None
+
+    def test_issuer_url_defaults_to_none(self) -> None:
+        from araxys.core.exceptions import OIDCDiscoveryError
+
+        exc = OIDCDiscoveryError(detail="Some detail")
+        assert exc.issuer_url is None
+        assert "OIDC discovery" in str(exc)
+
+    def test_exception_hierarchy(self) -> None:
+        from araxys.core.exceptions import OIDCDiscoveryError
+
+        assert issubclass(OIDCDiscoveryError, AraxysError)

@@ -1119,6 +1119,97 @@ class MalwareConfig(BaseModel):
     )
 
 
+class OIDCDiscoveryConfig(BaseModel):
+    """Configuration for OIDC provider discovery (RFC 8414).
+
+    When ``None`` on :class:`AraxysConfig`, the entire feature is disabled.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable OIDC discovery client",
+    )
+    cache_ttl_seconds: int = Field(
+        default=300,
+        ge=1,
+        description="Cache time-to-live in seconds (default 5 min)",
+    )
+    timeout_seconds: int = Field(
+        default=10,
+        ge=1,
+        description="HTTP request timeout in seconds",
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        description="Verify TLS certificates when fetching discovery documents",
+    )
+
+
+class AccountProtectionConfig(BaseModel):
+    """Configuration for account enumeration prevention.
+
+    When ``None`` on :class:`AraxysConfig`, the entire feature is disabled.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Master switch — off by default",
+    )
+    fake_hash_work_factor: int = Field(
+        default=12,
+        ge=0,
+        le=31,
+        description="Work factor for fake hash computation (0 = disabled)",
+    )
+    timing_jitter_ms: int = Field(
+        default=50,
+        ge=0,
+        le=500,
+        description="±milliseconds of jitter added to auth response timing",
+    )
+    minimum_response_time_ms: int = Field(
+        default=100,
+        ge=0,
+        le=5000,
+        description="Minimum wall-clock processing time floor for auth endpoints",
+    )
+    generic_unauthorized_message: str = Field(
+        default="Invalid credentials",
+        description="Generic error message returned for login/api_key failures",
+    )
+    generic_verification_message: str = Field(
+        default="Invalid verification code",
+        description="Generic error message returned for MFA/verification failures",
+    )
+    enumeration_detection_enabled: bool = Field(
+        default=True,
+        description="Enable sliding-window enumeration detection",
+    )
+    enumeration_window_seconds: int = Field(
+        default=60,
+        ge=1,
+        description="Sliding window size for enumeration threshold counting",
+    )
+    enumeration_threshold: int = Field(
+        default=5,
+        ge=1,
+        description="Number of 401 responses from same IP before detection fires",
+    )
+    enumeration_paths: list[str] = Field(
+        default_factory=lambda: [
+            "/auth/*",
+            "/login",
+            "/register",
+            "/api/login",
+        ],
+        description=(
+            "Glob-style path patterns to apply timing normalization and "
+            "error message protection to. Only responses for these "
+            "paths are modified."
+        ),
+    )
+
+
 class AraxysConfig(BaseSettings):
     """Master configuration for the Araxys security shield.
 
@@ -1190,4 +1281,18 @@ class AraxysConfig(BaseSettings):
     xxe: XXEConfig | None = Field(
         default=None,
         description="XXE protection config (None = feature disabled)",
+    )
+    # v0.13 — OIDC Discovery (RFC 8414)
+    oidc_discovery: OIDCDiscoveryConfig | None = Field(
+        default=None,
+        description="OIDC discovery config (None = feature disabled)",
+    )
+    # v0.13 — Account Enumeration Prevention
+    account_protection: AccountProtectionConfig | None = Field(
+        default=None,
+        description=(
+            "Account enumeration prevention config (None = feature disabled). "
+            "Normalizes auth error messages and timing to prevent "
+            "username/identifier enumeration attacks."
+        ),
     )

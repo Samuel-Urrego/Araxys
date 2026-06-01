@@ -34,13 +34,9 @@ class AuditEventType(StrEnum):
     IP_BANNED = "ip_banned"
     IP_UNBANNED = "ip_unbanned"
     QUERY_EXECUTED = "query_executed"
-    # v0.9 — WebSocket events
-    WS_CONNECT = "ws.connect"
-    WS_DISCONNECT = "ws.disconnect"
-    WS_VIOLATION = "ws.violation"
-    WS_AUTH_FAILED = "ws.auth_failed"
     # v0.13 — XXE Protection
     XXE_DETECTED = "xxe_detected"
+    ACCOUNT_ENUMERATION_DETECTED = "account_enumeration_detected"
 
 
 class SecurityEventType(StrEnum):
@@ -71,6 +67,7 @@ class SecurityEventType(StrEnum):
     WS_RATE_EXCEEDED = "ws.rate_exceeded"
     # v0.13 — XXE Protection
     XXE_DETECTED = "xxe_detected"
+    ACCOUNT_ENUMERATION_DETECTED = "account_enumeration_detected"
 
 
 @dataclass(frozen=True, slots=True)
