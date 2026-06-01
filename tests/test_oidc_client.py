@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -11,7 +10,6 @@ import pytest
 from araxys.core.config import OIDCDiscoveryConfig
 from araxys.core.exceptions import OIDCDiscoveryError
 from araxys.oidc.models import OIDCProviderMetadata
-
 
 # Fixture: valid discovery JSON response
 VALID_DISCOVERY_RESPONSE = {

@@ -41,6 +41,8 @@ from araxys.core.config import (
     # v0.8 configs
     MalwareConfig,
     MetricsConfig,
+    # OIDC Discovery
+    OIDCDiscoveryConfig,
     # v0.7 configs
     PromptInjectionConfig,
     RateLimitConfig,
@@ -51,8 +53,6 @@ from araxys.core.config import (
     # v0.6 configs
     WebAuthnConfig,
     WebhookConfig,
-    # OIDC Discovery
-    OIDCDiscoveryConfig,
 )
 from araxys.core.exceptions import (  # type: ignore[attr-defined]
     AraxysError,
@@ -65,6 +65,8 @@ from araxys.core.exceptions import (  # type: ignore[attr-defined]
     IPBlockedError,
     # v0.8 exceptions
     MalwareDetectionError,
+    # OIDC Discovery
+    OIDCDiscoveryError,
     PasswordValidationError,
     # v0.7 exceptions
     PromptInjectionError,
@@ -74,8 +76,6 @@ from araxys.core.exceptions import (  # type: ignore[attr-defined]
     TokenInvalid,
     TokenRevoked,
     WebAuthnError,
-    # OIDC Discovery
-    OIDCDiscoveryError,
 )
 from araxys.core.types import (
     AuditEntry,
@@ -107,7 +107,6 @@ from araxys.ip_access.middleware import IPAccessMiddleware
 from araxys.jwt_auth.dependencies import create_jwks_router
 from araxys.jwt_auth.storage import InMemoryJWKSStore, JWKSStore
 from araxys.jwt_auth.tokens import JWTManager, TokenPair, TokenPayload
-from araxys.oidc import OIDCDiscoveryClient, OIDCProviderMetadata
 from araxys.malware.dependencies import (
     MalwareGuard,
     get_malware_guard,
@@ -115,6 +114,7 @@ from araxys.malware.dependencies import (
 )
 from araxys.malware.scanner import MalwareScanner
 from araxys.metrics.collector import MetricsRegistry
+from araxys.oidc import OIDCDiscoveryClient, OIDCProviderMetadata
 from araxys.prompt_injection.dependencies import PromptInjectionGuard
 from araxys.sessions.manager import SessionManager
 from araxys.sessions.storage import (
@@ -126,13 +126,13 @@ from araxys.sessions.storage import (
 from araxys.shield import AraxysShield
 from araxys.telemetry.tracer import AraxysTracer
 from araxys.webauthn import CredentialRecord, RelyingPartyConfig, WebAuthnManager
+from araxys.webhooks.dlq import DLQConsumer, WebhookDLQBackend
+from araxys.webhooks.emitter import SecurityEventBus
 from araxys.xxe.config import XXEConfig
 from araxys.xxe.dependencies import get_xxe_scanner, xxe_guard
 from araxys.xxe.exceptions import XXEError
 from araxys.xxe.middleware import XXEMiddleware
 from araxys.xxe.scanner import XXEScanner
-from araxys.webhooks.dlq import DLQConsumer, WebhookDLQBackend
-from araxys.webhooks.emitter import SecurityEventBus
 
 __all__ = [
     # Main entry point

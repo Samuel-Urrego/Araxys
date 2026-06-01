@@ -348,8 +348,8 @@ class TestOAuth2ProviderFromIssuer:
         """The issuer_url must be forwarded to the discovery client."""
         from unittest.mock import AsyncMock, patch
 
-        from araxys.oidc.models import OIDCProviderMetadata
         from araxys.oauth.flow import OAuth2Provider
+        from araxys.oidc.models import OIDCProviderMetadata
 
         meta = OIDCProviderMetadata(
             issuer="https://my-idp.example.com",
@@ -382,8 +382,8 @@ class TestOAuth2ProviderFromIssuer:
         """When metadata has userinfo_endpoint=None, it must fall back to ''."""
         from unittest.mock import AsyncMock, patch
 
-        from araxys.oidc.models import OIDCProviderMetadata
         from araxys.oauth.flow import OAuth2Provider
+        from araxys.oidc.models import OIDCProviderMetadata
 
         meta = OIDCProviderMetadata(
             issuer="https://x.com",

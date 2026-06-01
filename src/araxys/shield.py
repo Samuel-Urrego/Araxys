@@ -48,7 +48,6 @@ from araxys.ip_access.middleware import IPAccessMiddleware
 from araxys.jwt_auth.storage import InMemoryTokenStorage
 from araxys.jwt_auth.tokens import JWTManager
 from araxys.malware.middleware import MalwareMiddleware
-from araxys.xxe.middleware import XXEMiddleware
 from araxys.metrics.collector import MetricsRegistry
 from araxys.metrics.endpoint import mount_metrics
 from araxys.prompt_injection.middleware import PromptInjectionMiddleware
@@ -71,6 +70,7 @@ from araxys.webauthn.storage import (
 from araxys.webhooks.delivery import WebhookDelivery
 from araxys.webhooks.dlq import DLQConsumer, WebhookDLQBackend
 from araxys.webhooks.emitter import SecurityEventBus
+from araxys.xxe.middleware import XXEMiddleware
 
 if TYPE_CHECKING:
     from fastapi import FastAPI

@@ -237,11 +237,6 @@ class TestAuditEventType:
             "ip_banned",
             "ip_unbanned",
             "query_executed",
-            # v0.9 — WebSocket events
-            "ws.connect",
-            "ws.disconnect",
-            "ws.violation",
-            "ws.auth_failed",
             # v0.13 — XXE Protection
             "xxe_detected",
             "account_enumeration_detected",

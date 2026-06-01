@@ -873,6 +873,7 @@ class TestOIDCDiscoveryConfig:
         import re
 
         import pytest
+
         from araxys.core.config import OIDCDiscoveryConfig
 
         with pytest.raises(
@@ -885,6 +886,7 @@ class TestOIDCDiscoveryConfig:
         import re
 
         import pytest
+
         from araxys.core.config import OIDCDiscoveryConfig
 
         with pytest.raises(
