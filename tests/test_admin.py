@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -137,7 +138,7 @@ class TestAdminRouter:
 
 
 @pytest.fixture
-async def rotation_admin_setup() -> tuple[FastAPI, str, object]:
+async def rotation_admin_setup() -> tuple[FastAPI, str, Any]:
     """Create app with rotation admin router; returns (app, admin_key, shield).
     
     Creates a minimal shield, then manually attaches a mock SecretsRotationScheduler
@@ -193,7 +194,7 @@ class TestSecretsRotationAdmin:
     """Admin endpoints for dynamic secrets rotation."""
 
     async def test_secrets_status_returns_config_and_stats(
-        self, rotation_admin_setup: tuple[FastAPI, str, object],
+        self, rotation_admin_setup: tuple[FastAPI, str, Any],
     ) -> None:
         """GET /admin/secrets/status returns enabled, interval, targets, stats."""
         app, admin_key, shield = rotation_admin_setup
@@ -212,7 +213,7 @@ class TestSecretsRotationAdmin:
             assert data["per_target"]["postgres"]["failures"] == 1
 
     async def test_secrets_rotate_manual_trigger(
-        self, rotation_admin_setup: tuple[FastAPI, str, object],
+        self, rotation_admin_setup: tuple[FastAPI, str, Any],
     ) -> None:
         """POST /admin/secrets/rotate triggers rotate_targets and returns results."""
         app, admin_key, shield = rotation_admin_setup
@@ -240,7 +241,7 @@ class TestSecretsRotationAdmin:
                 assert "redis" in data["results"]
 
     async def test_secrets_rotate_invalid_target(
-        self, rotation_admin_setup: tuple[FastAPI, str, object],
+        self, rotation_admin_setup: tuple[FastAPI, str, Any],
     ) -> None:
         """POST /admin/secrets/rotate returns error for unknown target."""
         app, admin_key, shield = rotation_admin_setup

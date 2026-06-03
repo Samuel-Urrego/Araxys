@@ -706,7 +706,7 @@ class TestRedisPoolReloadUrl:
 
             call_count = [0]
 
-            def from_url_side_effect(url: str, ssl_context=None) -> object:
+            def from_url_side_effect(url: str, ssl_context: object = None) -> object:
                 # First call: temp client for PING validation (outside lock)
                 # Second call: permanent client inside lock
                 if call_count[0] == 0:

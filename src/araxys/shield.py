@@ -223,13 +223,20 @@ class AraxysShield:
             and config.rotation.enabled
             and self._db_security is not None
         ):
-            self._rotation_scheduler = SecretsRotationScheduler(
-                manager=self._db_security,
-                resolver=self._db_security.resolver,
-                config=config.rotation,
-                event_bus=self.event_bus,
-            )
-            self._rotation_scheduler.start()
+            resolver = self._db_security.resolver
+            if resolver is None:
+                logger.warning(
+                    "araxys.rotation.no_resolver",
+                    message="No secret resolver configured — rotation disabled",
+                )
+            else:
+                self._rotation_scheduler = SecretsRotationScheduler(
+                    manager=self._db_security,
+                    resolver=resolver,
+                    config=config.rotation,
+                    event_bus=self.event_bus,
+                )
+                self._rotation_scheduler.start()
 
         # Set module-level event bus references so middlewares can emit events
         if self.event_bus is not None:

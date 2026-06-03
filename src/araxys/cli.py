@@ -280,7 +280,7 @@ def secrets_rotate(
                 headers={"X-API-Key": api_key},
             )
             resp.raise_for_status()
-            return resp.json()
+            return resp.json()  # type: ignore[no-any-return]
 
     try:
         result = asyncio.run(_run())
@@ -311,7 +311,7 @@ def secrets_status() -> None:
                 headers={"X-API-Key": api_key},
             )
             resp.raise_for_status()
-            return resp.json()
+            return resp.json()  # type: ignore[no-any-return]
 
     try:
         data = asyncio.run(_run())
@@ -552,13 +552,12 @@ def _audit_headers_command(
             "status_code": response.status_code,
             "findings": [
                 {
-                    "header": f.header,
+                    "header": f.header_name,
                     "status": f.status,
                     "severity": f.severity,
-                    "message": f.message,
-                    "recommendation": f.recommendation,
-                    "current_value": f.current_value,
-                    "expected": f.expected,
+                    "detail": f.detail,
+                    "recommended_value": f.recommended_value,
+                    "found_value": f.found_value,
                 }
                 for f in findings
             ],
@@ -573,8 +572,8 @@ def _audit_headers_command(
         table.add_column("Header", style="cyan")
         table.add_column("Status")
         table.add_column("Severity")
-        table.add_column("Message")
-        table.add_column("Recommendation", style="dim")
+        table.add_column("Detail")
+        table.add_column("Recommended", style="dim")
 
         for f in findings:
             status_color = {
@@ -584,26 +583,26 @@ def _audit_headers_command(
             }.get(f.status, "white")
 
             severity_color = {
-                "CRITICAL": "red",
-                "HIGH": "yellow",
-                "WARNING": "yellow",
-                "INFO": "dim",
+                "high": "red",
+                "medium": "yellow",
+                "low": "yellow",
+                "info": "dim",
             }.get(f.severity, "white")
 
             table.add_row(
-                f.header,
+                f.header_name,
                 f"[{status_color}]{f.status}[/{status_color}]",
                 f"[{severity_color}]{f.severity}[/{severity_color}]",
-                f.message,
-                f.recommendation or "-",
+                f.detail or "-",
+                f.recommended_value or "-",
             )
 
         console.print(table)
 
     # Check fail-on threshold
     if fail_on:
-        _severity_rank = {"CRITICAL": 0, "HIGH": 1, "WARNING": 2, "INFO": 3}
-        threshold = _severity_rank.get(fail_on.upper(), 99)
+        _severity_rank = {"high": 0, "medium": 1, "low": 2, "info": 3}
+        threshold = _severity_rank.get(fail_on.lower(), 99)
         for f in findings:
             if _severity_rank.get(f.severity, 99) <= threshold and f.status != "pass":
                 return False

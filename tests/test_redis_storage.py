@@ -124,6 +124,9 @@ class _FakePool:
     def get_redis_client(self) -> Redis:
         return self._redis
 
+    async def reload_url(self, url: str) -> None:
+        """No-op: test pool doesn't support credential rotation."""
+
     async def close(self) -> None:
         await self._redis.aclose()
 
