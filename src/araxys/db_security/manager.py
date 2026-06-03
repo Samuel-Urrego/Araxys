@@ -161,6 +161,57 @@ class DatabaseSecurityManager:
         """The PostgreSQL connection pool, if enabled."""
         return self._pg_pool
 
+    @property
+    def resolver(self) -> ConnectionStringResolver | None:
+        """The secret resolver chain used by this manager."""
+        return self._resolver
+
+    # ── Dynamic secrets rotation ────────────────────────────────────────
+
+    async def rotate_target(self, target: str) -> None:
+        """Rotate credentials for a single target.
+
+        Resolves the latest secret for *target* and reloads the
+        corresponding connection pool.
+
+        Mapping:
+        * ``"postgres"`` / ``"database"`` → :meth:`PGPool.reload_dsn`
+        * Everything else → :meth:`ConnectionPool.reload_url`
+
+        Parameters
+        ----------
+        target:
+            The secret target name (e.g. ``"redis"``, ``"postgres"``).
+        """
+        if self._resolver is None:
+            logger.warning(
+                "db_security.rotate_target_no_resolver",
+                target=target,
+                msg=f"No resolver configured — cannot rotate '{target}'",
+            )
+            return
+
+        new_value = await self._resolver.resolve(target)
+        if new_value is None:
+            logger.debug(
+                "db_security.rotate_target_resolved_none",
+                target=target,
+                msg=f"No credential resolved for '{target}'",
+            )
+            return
+
+        if target in ("postgres", "database"):
+            if self._pg_pool is not None:
+                await self._pg_pool.reload_dsn(new_value)
+            else:
+                logger.warning(
+                    "db_security.rotate_target_no_pg_pool",
+                    target=target,
+                    msg=f"Cannot rotate '{target}' — no PostgreSQL pool configured",
+                )
+        else:
+            await self._pool.reload_url(new_value)
+
     async def shutdown(self) -> None:
         """Shut down all connection pools."""
         try:

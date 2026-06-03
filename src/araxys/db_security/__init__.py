@@ -17,6 +17,7 @@ from araxys.db_security.pool import (
     RedisSentinelPool,
 )
 from araxys.db_security.query_validator import QueryValidationResult, QueryValidator
+from araxys.db_security.rotation import SecretsRotationScheduler
 from araxys.db_security.secrets import (
     AWSSecretsResolver,
     ChainedResolver,
@@ -46,6 +47,8 @@ __all__: list[str] = [
     "QueryAuditor",
     # Manager
     "DatabaseSecurityManager",
+    # Rotation (v0.14)
+    "SecretsRotationScheduler",
     # Dependencies
     "get_db_pool",
     "get_query_auditor",
