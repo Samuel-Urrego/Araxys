@@ -54,7 +54,8 @@ class PlaintextFeedFetcher:
         url = config.url
         if url is None:
             defaults = FEED_DEFAULTS.get(self.name, {})
-            url = defaults.get("url")
+            url_val = defaults.get("url")
+            url = str(url_val) if url_val is not None else None
             if url is None or not isinstance(url, str):
                 return FeedResult(
                     feed_name=self.name,

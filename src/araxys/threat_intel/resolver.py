@@ -162,7 +162,7 @@ class IPResolver:
             if asyncio.iscoroutinefunction(bulk_fn):
                 for i in range(0, len(ips), BATCH_SIZE):
                     batch = ips[i : i + BATCH_SIZE]
-                    await bulk_fn(batch)  # type: ignore[misc]
+                    await bulk_fn(batch)
                 return
 
         # Fallback: per-IP add

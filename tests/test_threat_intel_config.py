@@ -47,18 +47,18 @@ class TestThreatIntelConfig:
     def test_enabling_one_feed(self) -> None:
         """Setting a FeedConfig dict on a feed enables it."""
         c = ThreatIntelConfig(
-            firehol_level1={"enabled": True},
-        )  # type: ignore[arg-type]  # noqa: E501
+            firehol_level1={"enabled": True},  # type: ignore[arg-type]
+        )
         assert c.firehol_level1 is not None
         assert c.firehol_level1.enabled is True
-        assert c.firehol_level1.refresh_interval_seconds == 3600  # default
+        assert c.firehol_level1.refresh_interval_seconds == 3600
         # Other feeds still disabled
         assert c.firehol_level2 is None
 
     def test_enabling_multiple_feeds(self) -> None:
         c = ThreatIntelConfig(
-            spamhaus_drop={"enabled": True, "ttl_seconds": 86400},
-            blocklist_de={"enabled": True, "refresh_interval_seconds": 600},
+            spamhaus_drop={"enabled": True, "ttl_seconds": 86400},  # type: ignore[arg-type]
+            blocklist_de={"enabled": True, "refresh_interval_seconds": 600},  # type: ignore[arg-type]
         )
         assert c.spamhaus_drop is not None
         assert c.spamhaus_drop.enabled is True
@@ -94,9 +94,9 @@ class TestThreatIntelConfig:
 
     def test_enabled_feeds_detects_enabled(self) -> None:
         c = ThreatIntelConfig(
-            firehol_level1={"enabled": True},
-            blocklist_de={"enabled": True},
-            abuseipdb={"enabled": True, "api_key": "test-key"},
+            firehol_level1={"enabled": True},  # type: ignore[arg-type]
+            blocklist_de={"enabled": True},  # type: ignore[arg-type]
+            abuseipdb={"enabled": True, "api_key": "test-key"},  # type: ignore[arg-type]
         )
         feeds = c.enabled_feeds()
         assert len(feeds) == 3
@@ -107,8 +107,8 @@ class TestThreatIntelConfig:
 
     def test_enabled_feeds_skips_disabled(self) -> None:
         c = ThreatIntelConfig(
-            firehol_level1={"enabled": True},
-            spamhaus_drop={"enabled": False},
+            firehol_level1={"enabled": True},  # type: ignore[arg-type]
+            spamhaus_drop={"enabled": False},  # type: ignore[arg-type]
         )
         feeds = c.enabled_feeds()
         assert len(feeds) == 1

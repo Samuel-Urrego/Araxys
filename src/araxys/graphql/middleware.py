@@ -184,7 +184,7 @@ class GraphQLSecurityMiddleware:
             try:
                 evt_type = SecurityEventType(event_type)
             except ValueError:
-                evt_type = SecurityEventType.GRAPHQL_BLOCKED  # type: ignore[attr-defined]
+                evt_type = SecurityEventType.GRAPHQL_BLOCKED
             event = SecurityEvent(
                 event_type=evt_type,
                 severity="warning",

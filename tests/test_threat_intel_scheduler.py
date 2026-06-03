@@ -51,7 +51,7 @@ def _make_mock_feed(
         async def _fetch(config: object) -> FeedResult:
             return FeedResult(feed_name=name, ips=ips or [])
 
-        mock.fetch = _fetch  # type: ignore[method-assign]
+        mock.fetch = _fetch
     return mock
 
 
@@ -296,7 +296,7 @@ class TestSchedulerFetchAndSync:
 
         feed = AsyncMock(spec=FeedSource)
         feed.name = "firehol_level1"
-        feed.fetch = _fetch  # type: ignore[method-assign]
+        feed.fetch = _fetch
 
         sched = ThreatIntelScheduler(cfg, backend, feeds=[feed])
         await sched.refresh("firehol_level1")

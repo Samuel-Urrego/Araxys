@@ -14,13 +14,6 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-if hasattr(typer, "Option"):
-    Option = typer.Option
-else:
-    from typing import Annotated as _Annotated
-
-    Option = _Annotated[Any, typer.Option()]  # type: ignore[misc]
-
 console = Console()
 
 
@@ -37,7 +30,7 @@ def _get_threat_intel_scheduler() -> Any:
 
 
 def _ti_refresh(
-    feed: str | None = Option(  # type: ignore[assignment]
+    feed: str | None = typer.Option(
         None,
         "--feed",
         "-f",

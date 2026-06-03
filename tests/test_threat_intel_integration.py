@@ -33,7 +33,6 @@ def _make_threat_intel_config(
     """Create a ThreatIntelConfig for integration tests."""
     return ThreatIntelConfig(
         enabled=enabled,
-        ttl_seconds=ttl_seconds,
         exclude_ips=exclude_ips or [],
         firehol_level1=FeedConfig(
             enabled=True,
@@ -56,7 +55,7 @@ def _make_mock_feed(name: str, ips: list[str]) -> AsyncMock:
     async def _fetch(config: object) -> FeedResult:
         return FeedResult(feed_name=name, ips=list(ips))
 
-    mock.fetch = _fetch  # type: ignore[method-assign]
+    mock.fetch = _fetch
     return mock
 
 

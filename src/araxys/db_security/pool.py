@@ -1074,7 +1074,7 @@ class RedisSentinelPool:
         )
         temp_client = temp_sentinel.master_for(master_name)
         try:
-            await temp_client.ping()  # type: ignore[misc]
+            await temp_client.ping()
         except Exception as exc:
             raise SecretRotationError(
                 "redis-sentinel",
