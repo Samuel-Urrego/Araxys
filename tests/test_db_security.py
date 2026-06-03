@@ -1470,6 +1470,106 @@ class TestDatabaseSecurityManager:
 
 
 # =============================================================================
+# v0.14 — rotate_target and resolver property (Tasks 3.7 RED)
+# =============================================================================
+
+
+class TestDatabaseSecurityManagerRotateTarget:
+    """DatabaseSecurityManager.rotate_target() dispatches to pool reload."""
+
+    @pytest.fixture
+    def config(self) -> DatabaseSecurityConfig:
+        return DatabaseSecurityConfig(
+            enabled=True,
+            redis_pool=RedisPoolConfig(url="redis://test:6379"),
+            tls=TLSConfig(enabled=False),
+            query_audit=QueryAuditConfig(enabled=False),
+        )
+
+    # ── 3.7 test_rotate_target_redis_calls_reload_url ──────────────────
+
+    async def test_rotate_target_redis_calls_reload_url(
+        self, config: DatabaseSecurityConfig,
+    ) -> None:
+        """rotate_target('redis') calls pool.reload_url() with the
+        URL from the resolver."""
+        from araxys.db_security.secrets import EnvVarResolver
+
+        manager = DatabaseSecurityManager(config=config, on_audit=None)
+        # Replace pool with mock
+        manager._pool = MagicMock()
+        manager._pool.reload_url = AsyncMock()
+        manager._pool.url = "redis://test:6379"
+
+        # Set a resolver on the manager so rotate_target can use it
+        resolver = EnvVarResolver(prefix="TEST__")
+        manager._resolver = resolver
+
+        with patch.object(resolver, "resolve", new=AsyncMock(
+            return_value="redis://rotated:6379",
+        )) as mock_resolve:
+            await manager.rotate_target("redis")
+
+        mock_resolve.assert_awaited_once_with("redis")
+        manager._pool.reload_url.assert_awaited_once_with("redis://rotated:6379")
+
+    # ── 3.7 test_rotate_target_database_calls_reload_dsn ───────────────
+
+    async def test_rotate_target_database_calls_reload_dsn(
+        self, config: DatabaseSecurityConfig,
+    ) -> None:
+        """rotate_target('postgres') calls pg_pool.reload_dsn() with the
+        DSN from the resolver."""
+        from araxys.db_security.secrets import EnvVarResolver
+
+        manager = DatabaseSecurityManager(config=config, on_audit=None)
+        # Replace pool and pg_pool with mocks
+        manager._pool = MagicMock()
+        manager._pool.reload_url = AsyncMock()
+        mock_pg = MagicMock()
+        mock_pg.reload_dsn = AsyncMock()
+        manager._pg_pool = mock_pg
+
+        # Set a resolver so rotate_target can use it
+        resolver = EnvVarResolver(prefix="TEST__")
+        manager._resolver = resolver
+
+        with patch.object(resolver, "resolve", new=AsyncMock(
+            return_value="postgresql://rotated:5432/test",
+        )) as mock_resolve:
+            await manager.rotate_target("postgres")
+
+        mock_resolve.assert_awaited_once_with("postgres")
+        mock_pg.reload_dsn.assert_awaited_once_with("postgresql://rotated:5432/test")
+        manager._pool.reload_url.assert_not_awaited()
+
+
+class TestDatabaseSecurityManagerResolverProperty:
+    """Task 3.6 — resolver property exposes the internal resolver."""
+
+    @pytest.fixture
+    def config(self) -> DatabaseSecurityConfig:
+        return DatabaseSecurityConfig(
+            enabled=True,
+            redis_pool=RedisPoolConfig(url="redis://test:6379"),
+            tls=TLSConfig(enabled=False),
+            query_audit=QueryAuditConfig(enabled=False),
+        )
+
+    def test_resolver_property_returns_resolver(
+        self, config: DatabaseSecurityConfig,
+    ) -> None:
+        """manager.resolver returns the internal _resolver."""
+        from araxys.db_security.secrets import ConnectionStringResolver
+
+        manager = DatabaseSecurityManager(config=config, on_audit=None)
+        resolver = manager.resolver
+        # The manager always creates at least an EnvVarResolver
+        assert resolver is not None
+        assert isinstance(resolver, ConnectionStringResolver)
+
+
+# =============================================================================
 # Dependencies — get_db_pool, get_query_auditor
 # =============================================================================
 
