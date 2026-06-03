@@ -54,6 +54,7 @@ dependencies = [
     { name = "bleach" },
     { name = "cryptography" },
     { name = "fastapi" },
+    { name = "graphql-core" },
     { name = "httpx" },
     { name = "openpyxl" },
     { name = "pillow" },
@@ -74,6 +75,7 @@ all = [
     { name = "boto3" },
     { name = "cbor2" },
     { name = "defusedxml" },
+    { name = "graphql-core" },
     { name = "httpx" },
     { name = "hvac" },
     { name = "openpyxl" },
@@ -84,6 +86,7 @@ all = [
     { name = "pypdf" },
     { name = "python-docx" },
     { name = "redis" },
+    { name = "strawberry-graphql" },
 ]
 audit = [
     { name = "aiofiles" },
@@ -103,6 +106,10 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "ruff" },
     { name = "uvicorn" },
+]
+graphql = [
+    { name = "graphql-core" },
+    { name = "strawberry-graphql" },
 ]
 opentelemetry = [
     { name = "opentelemetry-api" },
@@ -151,7 +158,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiofiles", marker = "extra == 'audit'", specifier = ">=24.0" },
-    { name = "araxys", extras = ["redis", "opentelemetry", "prometheus", "webhooks", "audit", "vault", "aws-secrets", "webauthn", "prompt-guard-image", "prompt-guard-pdf", "prompt-guard-office", "xxe", "aws-waf"], marker = "extra == 'all'" },
+    { name = "araxys", extras = ["redis", "opentelemetry", "prometheus", "webhooks", "audit", "vault", "aws-secrets", "webauthn", "prompt-guard-image", "prompt-guard-pdf", "prompt-guard-office", "xxe", "aws-waf", "graphql"], marker = "extra == 'all'" },
     { name = "bleach", specifier = ">=6.0" },
     { name = "boto3", marker = "extra == 'aws-secrets'", specifier = ">=1.34" },
     { name = "boto3", marker = "extra == 'aws-waf'", specifier = ">=1.34" },
@@ -160,6 +167,8 @@ requires-dist = [
     { name = "defusedxml", marker = "extra == 'xxe'", specifier = ">=0.7.1" },
     { name = "fakeredis", marker = "extra == 'dev'", specifier = ">=2.21" },
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "graphql-core", specifier = ">=3.2.8" },
+    { name = "graphql-core", marker = "extra == 'graphql'", specifier = ">=3.2" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'webhooks'", specifier = ">=0.27" },
@@ -186,11 +195,12 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.11" },
     { name = "sqlparse", specifier = ">=0.5.0" },
+    { name = "strawberry-graphql", marker = "extra == 'graphql'", specifier = ">=0.200" },
     { name = "structlog", specifier = ">=24.0" },
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", marker = "extra == 'dev'", specifier = ">=0.30" },
 ]
-provides-extras = ["redis", "opentelemetry", "prometheus", "webhooks", "audit", "dev", "vault", "aws-secrets", "aws-waf", "webauthn", "prompt-guard-image", "prompt-guard-pdf", "prompt-guard-office", "xxe", "all"]
+provides-extras = ["redis", "opentelemetry", "prometheus", "webhooks", "audit", "dev", "vault", "aws-secrets", "aws-waf", "webauthn", "prompt-guard-image", "prompt-guard-pdf", "prompt-guard-office", "xxe", "graphql", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -720,6 +730,18 @@ toml = [
 ]
 
 [[package]]
+name = "cross-web"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4a/a0/bdb8370215987cc5bde497cb8b976b17ab14841566ecef2aab6ae3e6c7b0/cross_web-0.7.0.tar.gz", hash = "sha256:15fbc8b9a824a055db8127fd6e43e0773074f620fdecb6b2b587d3d0a2bdd459", size = 332407, upload-time = "2026-05-19T14:18:48.849Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7a/4a/78b52ec2edcbd9b123638f4e0421fd8699ebe653ebf63ac5f82abd2665bc/cross_web-0.7.0-py3-none-any.whl", hash = "sha256:ddea9be3c68b48eaf16561847a5831a559786949c544b3701432e00a4e8d19d9", size = 25207, upload-time = "2026-05-19T14:18:47.614Z" },
+]
+
+[[package]]
 name = "cryptography"
 version = "48.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -841,6 +863,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b5/fe/997687a931ab51049acce6fa1f23e8f01216374ea81374ddee763c493db5/filelock-3.29.0.tar.gz", hash = "sha256:69974355e960702e789734cb4871f884ea6fe50bd8404051a3530bc07809cf90", size = 57571, upload-time = "2026-04-19T15:39:10.068Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/47/dd9a212ef6e343a6857485ffe25bba537304f1913bdbed446a23f7f592e1/filelock-3.29.0-py3-none-any.whl", hash = "sha256:96f5f6344709aa1572bbf631c640e4ebeeb519e08da902c39a001882f30ac258", size = 39812, upload-time = "2026-04-19T15:39:08.752Z" },
+]
+
+[[package]]
+name = "graphql-core"
+version = "3.2.8"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/68/c5/36aa96205c3ecbb3d34c7c24189e4553c7ca2ebc7e1dd07432339b980272/graphql_core-3.2.8.tar.gz", hash = "sha256:015457da5d996c924ddf57a43f4e959b0b94fb695b85ed4c29446e508ed65cf3", size = 513181, upload-time = "2026-03-05T19:55:37.332Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/86/41/cb887d9afc5dabd78feefe6ccbaf83ff423c206a7a1b7aeeac05120b2125/graphql_core-3.2.8-py3-none-any.whl", hash = "sha256:cbee07bee1b3ed5e531723685369039f32ff815ef60166686e0162f540f1520c", size = 207349, upload-time = "2026-03-05T19:55:35.911Z" },
 ]
 
 [[package]]
@@ -1879,6 +1910,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/81/69/17425771797c36cded50b7fe44e850315d039f28b15901ab44839e70b593/starlette-1.0.0.tar.gz", hash = "sha256:6a4beaf1f81bb472fd19ea9b918b50dc3a77a6f2e190a12954b25e6ed5eea149", size = 2655289, upload-time = "2026-03-22T18:29:46.779Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0b/c9/584bc9651441b4ba60cc4d557d8a547b5aff901af35bda3a4ee30c819b82/starlette-1.0.0-py3-none-any.whl", hash = "sha256:d3ec55e0bb321692d275455ddfd3df75fff145d009685eb40dc91fc66b03d38b", size = 72651, upload-time = "2026-03-22T18:29:45.111Z" },
+]
+
+[[package]]
+name = "strawberry-graphql"
+version = "0.316.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cross-web" },
+    { name = "graphql-core" },
+    { name = "packaging" },
+    { name = "python-dateutil" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cf/09/f189fd3c70544322eeba0398ccaa980d17857894c0a66d447aa0b5704686/strawberry_graphql-0.316.0.tar.gz", hash = "sha256:bee5ce0e20d522325bd1ed2db186c812c03c2ea7db29f997b35e7d694649820c", size = 223985, upload-time = "2026-05-19T17:06:10.443Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/dd/b2cf54803cbd0d37e3ce73c7274bdb144ba83743bc83351b5790eb2a5fad/strawberry_graphql-0.316.0-py3-none-any.whl", hash = "sha256:222e16fbbf953f5a1fa75f62bf9a8e95f274180f928f70bec459b566053aa2cb", size = 326530, upload-time = "2026-05-19T17:06:07.844Z" },
 ]
 
 [[package]]

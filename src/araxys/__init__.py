@@ -103,7 +103,8 @@ from araxys.db_security import (
     get_db_pool,
     get_query_auditor,
 )
-
+from araxys.graphql.config import GraphQLSecurityConfig
+from araxys.graphql.middleware import GraphQLSecurityMiddleware
 from araxys.ip_access.backends import IPAccessBackend
 from araxys.ip_access.middleware import IPAccessMiddleware
 from araxys.jwt_auth.dependencies import create_jwks_router
@@ -303,5 +304,7 @@ __all__ = [
     "ThreatIntelScheduler",
     "FeedConfig",
     "FEED_DEFAULTS",
-    # (v0.14 GraphQL — committed separately)
+    # v0.14 — GraphQL Security
+    "GraphQLSecurityConfig",
+    "GraphQLSecurityMiddleware",
 ]

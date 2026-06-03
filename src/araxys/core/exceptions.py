@@ -244,6 +244,31 @@ class OIDCDiscoveryError(AraxysError):
         super().__init__(message or "".join(parts))
 
 
+class SecretRotationError(AraxysError):
+    """Raised when a dynamic secrets rotation operation fails.
+
+    Attributes
+    ----------
+    target:
+        The secret target that failed to rotate (e.g. ``redis``, ``postgres``).
+    reason:
+        Human-readable description of the failure.
+    """
+
+    def __init__(
+        self,
+        target: str,
+        *,
+        reason: str = "Unknown error",
+        message: str | None = None,
+    ) -> None:
+        self.target = target
+        self.reason = reason
+        super().__init__(
+            message or f"Secret rotation failed for '{target}': {reason}"
+        )
+
+
 # Re-export WebAuthnError for public API convenience.
 # Import is here (not at top) to avoid circular imports since
 # webauthn.exceptions itself imports AraxysError from this module.

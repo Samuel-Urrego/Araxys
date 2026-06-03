@@ -49,7 +49,15 @@ class TestSecurityEventType:
             # v0.14 — Threat Intelligence Feeds
             "threat_intel_loaded",
             "threat_intel_match",
-            # (v0.14+ features — GraphQL, Headers Audit, Rotation — committed separately)
+            # v0.14 — GraphQL Security
+            "graphql_blocked",
+            # v0.14 — Security Headers Audit
+            "header_audit_warning",
+            "header_audit_fail",
+            # v0.14 — Dynamic Secrets Rotation
+            "secret_rotating",
+            "secret_rotated",
+            "secret_rotation_failed",
         }
         assert values == expected
 
@@ -365,4 +373,89 @@ class TestOIDCDiscoveryError:
         assert issubclass(OIDCDiscoveryError, AraxysError)
 
 
-# (Rotation PR 1 test classes — committed separately)
+class TestSecretRotationEventTypes:
+    """SecretRotation event enum values (v0.14)."""
+
+    def test_secret_rotating_exists(self) -> None:
+        assert SecurityEventType.SECRET_ROTATING.value == "secret_rotating"
+
+    def test_secret_rotated_exists(self) -> None:
+        assert SecurityEventType.SECRET_ROTATED.value == "secret_rotated"
+
+    def test_secret_rotation_failed_exists(self) -> None:
+        assert (
+            SecurityEventType.SECRET_ROTATION_FAILED.value
+            == "secret_rotation_failed"
+        )
+
+    def test_secret_rotating_in_security_event(self) -> None:
+        event = SecurityEvent(
+            event_type=SecurityEventType.SECRET_ROTATING,
+            severity="info",
+            message="Rotating secrets",
+        )
+        assert event.event_type == SecurityEventType.SECRET_ROTATING
+
+    def test_secret_rotated_in_security_event(self) -> None:
+        event = SecurityEvent(
+            event_type=SecurityEventType.SECRET_ROTATED,
+            severity="info",
+            message="Rotation complete",
+        )
+        assert event.event_type == SecurityEventType.SECRET_ROTATED
+
+    def test_secret_rotation_failed_in_security_event(self) -> None:
+        event = SecurityEvent(
+            event_type=SecurityEventType.SECRET_ROTATION_FAILED,
+            severity="critical",
+            message="Rotation failed",
+        )
+        assert event.event_type == SecurityEventType.SECRET_ROTATION_FAILED
+
+    def test_all_rotation_values_are_str_enum(self) -> None:
+        assert isinstance(SecurityEventType.SECRET_ROTATING.value, str)
+        assert isinstance(SecurityEventType.SECRET_ROTATED.value, str)
+        assert isinstance(SecurityEventType.SECRET_ROTATION_FAILED.value, str)
+
+
+class TestSecretRotationError:
+    """SecretRotationError exception (v0.14)."""
+
+    def test_is_araxys_error(self) -> None:
+        from araxys.core.exceptions import SecretRotationError
+
+        exc = SecretRotationError(target="redis")
+        assert isinstance(exc, AraxysError)
+
+    def test_default_message(self) -> None:
+        from araxys.core.exceptions import SecretRotationError
+
+        exc = SecretRotationError(target="redis")
+        assert "redis" in str(exc)
+        assert "Secret rotation failed" in str(exc)
+
+    def test_with_reason(self) -> None:
+        from araxys.core.exceptions import SecretRotationError
+
+        exc = SecretRotationError(
+            target="postgres",
+            reason="Connection refused",
+        )
+        assert exc.target == "postgres"
+        assert exc.reason == "Connection refused"
+        assert "postgres" in str(exc)
+        assert "Connection refused" in str(exc)
+
+    def test_custom_message(self) -> None:
+        from araxys.core.exceptions import SecretRotationError
+
+        exc = SecretRotationError(
+            target="redis",
+            message="Custom rotation error",
+        )
+        assert str(exc) == "Custom rotation error"
+
+    def test_exception_hierarchy(self) -> None:
+        from araxys.core.exceptions import SecretRotationError
+
+        assert issubclass(SecretRotationError, AraxysError)

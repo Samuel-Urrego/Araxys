@@ -983,3 +983,95 @@ class TestAccountProtectionInAraxysConfig:
         assert c.account_protection.enabled is True
         assert c.account_protection.fake_hash_work_factor == 8
         assert c.account_protection.enumeration_threshold == 3
+
+
+class TestSecretsRotationConfig:
+    """SecretsRotationConfig — config model for dynamic secrets rotation."""
+
+    def test_defaults(self) -> None:
+        from araxys.core.config import SecretsRotationConfig
+
+        c = SecretsRotationConfig()
+        assert c.enabled is False
+        assert c.interval_seconds == 300
+        assert c.targets == ["redis", "postgres"]
+        assert c.fail_closed is False
+        assert c.emit_events is True
+
+    def test_custom_values(self) -> None:
+        from araxys.core.config import SecretsRotationConfig
+
+        c = SecretsRotationConfig(
+            enabled=True,
+            interval_seconds=600,
+            targets=["redis", "postgres", "vault"],
+            fail_closed=True,
+            emit_events=False,
+        )
+        assert c.enabled is True
+        assert c.interval_seconds == 600
+        assert c.targets == ["redis", "postgres", "vault"]
+        assert c.fail_closed is True
+        assert c.emit_events is False
+
+    def test_empty_targets(self) -> None:
+        from araxys.core.config import SecretsRotationConfig
+
+        c = SecretsRotationConfig(targets=[])
+        assert c.targets == []
+
+    def test_min_interval_30s(self) -> None:
+        import pytest
+        from araxys.core.config import SecretsRotationConfig
+
+        with pytest.raises(Exception):
+            SecretsRotationConfig(interval_seconds=0)
+
+    def test_disabled_by_default(self) -> None:
+        from araxys.core.config import SecretsRotationConfig
+
+        c = SecretsRotationConfig()
+        assert c.enabled is False
+
+    def test_missing_target_ok(self) -> None:
+        """Missing key — the model has default targets, so it's fine."""
+        from araxys.core.config import SecretsRotationConfig
+
+        c = SecretsRotationConfig()
+        assert len(c.targets) > 0
+
+    def test_on_araxys_config_defaults_to_none(self) -> None:
+        c = AraxysConfig(secret_key="test-secret-key-must-be-32-chars!!")
+        assert c.rotation is None
+
+    def test_on_araxys_config_explicit_none(self) -> None:
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            rotation=None,
+        )
+        assert c.rotation is None
+
+    def test_on_araxys_config_enabled(self) -> None:
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            rotation={},  # type: ignore[arg-type]
+        )
+        assert c.rotation is not None
+        assert c.rotation.enabled is False
+        assert c.rotation.interval_seconds == 300
+
+    def test_on_araxys_config_custom(self) -> None:
+        c = AraxysConfig(
+            secret_key="test-secret-key-must-be-32-chars!!",
+            rotation={  # type: ignore[arg-type]
+                "enabled": True,
+                "interval_seconds": 600,
+                "targets": ["redis"],
+                "fail_closed": True,
+            },
+        )
+        assert c.rotation is not None
+        assert c.rotation.enabled is True
+        assert c.rotation.interval_seconds == 600
+        assert c.rotation.targets == ["redis"]
+        assert c.rotation.fail_closed is True

@@ -40,6 +40,8 @@ from araxys.db_security.manager import DatabaseSecurityManager
 from araxys.db_security.pool import (
     ConnectionPool,  # noqa: TC001 — runtime annotation for db_pool property
 )
+from araxys.graphql.middleware import GraphQLSecurityMiddleware
+from araxys.headers.audit_middleware import AuditHeadersMiddleware
 from araxys.headers.middleware import SecureHeadersMiddleware
 from araxys.honeypot.middleware import HoneypotMiddleware
 from araxys.honeypot.trap import HoneypotTrap
@@ -273,6 +275,16 @@ class AraxysShield:
                 )
                 logger.info("araxys.waf_escalation_initialized")
 
+            # v0.14 — GraphQL Security event wiring
+            import araxys.graphql.middleware as _gql_mw
+
+            _gql_mw._event_bus = self.event_bus
+
+            # v0.14 — Headers Audit event wiring
+            import araxys.headers.audit_middleware as _ha_mw
+
+            _ha_mw._event_bus = self.event_bus
+
         # v0.14 — Threat Intelligence Feeds
         if config.threat_intel is not None and config.threat_intel.enabled:
             self._register_threat_intel(app, config)
@@ -362,6 +374,7 @@ class AraxysShield:
         self._register_sanitize(app, config)
         self._register_xxe(app, config)  # between sanitize (inner) and prompt_injection
         self._register_prompt_injection(app, config)
+        self._register_graphql(app, config)  # between prompt_injection and malware
         self._register_malware(app, config)
         self._register_honeypot(app, config)
         self._register_account_protection(app, config)
@@ -371,6 +384,7 @@ class AraxysShield:
         self._register_telemetry(app, config)
         self._register_csrf(app, config)
         self._register_secure_headers(app, config)
+        self._register_headers_audit(app, config)
         self._register_cors(app, config)
 
         _modules = [
@@ -399,6 +413,11 @@ class AraxysShield:
                 "xxe",
                 config.xxe is not None,
             ),
+            (
+                "graphql",
+                config.graphql_security is not None
+                and config.graphql_security.enabled,
+            ),
             ("audit", config.audit.enabled),
             ("sessions", config.session is not None and config.session.enabled),
             ("webhooks", config.webhooks is not None and config.webhooks.enabled),
@@ -409,6 +428,11 @@ class AraxysShield:
             (
                 "webauthn",
                 config.webauthn is not None and config.webauthn.enabled,
+            ),
+            (
+                "headers_audit",
+                config.headers_audit is not None
+                and config.headers_audit.enabled,
             ),
         ]
         logger.info(
@@ -468,6 +492,20 @@ class AraxysShield:
         if not config.secure_headers.enabled:
             return
         app.add_middleware(SecureHeadersMiddleware, config=config.secure_headers)
+
+    def _register_headers_audit(self, app: FastAPI, config: AraxysConfig) -> None:
+        """Register Headers Audit middleware (between SecureHeaders and CORS).
+
+        Audits response security headers against OWASP recommendations
+        and emits findings to the event bus.  Only registered when
+        ``config.headers_audit`` is not ``None`` and enabled.
+        """
+        if config.headers_audit is None or not config.headers_audit.enabled:
+            return
+        app.add_middleware(
+            AuditHeadersMiddleware,
+            config=config.headers_audit,
+        )
 
     def _register_honeypot(self, app: FastAPI, config: AraxysConfig) -> None:
         if not config.honeypot.enabled:
@@ -540,6 +578,25 @@ class AraxysShield:
             MalwareMiddleware,
             config=config.malware,
         )
+
+    def _register_graphql(self, app: FastAPI, config: AraxysConfig) -> None:
+        """Register GraphQL security middleware (between PromptInjection and Malware).
+
+        Validates GraphQL queries against depth, breadth, cost, and
+        introspection limits.  Returns GraphQL-compliant error responses.
+        Only registered when ``config.graphql_security`` is not ``None``
+        and ``config.graphql_security.enabled`` is ``True``.
+        """
+        if config.graphql_security is None or not config.graphql_security.enabled:
+            return
+        app.add_middleware(
+            GraphQLSecurityMiddleware,
+            config=config.graphql_security,
+        )
+        # Wire event bus for GRAPHQL_BLOCKED events
+        import araxys.graphql.middleware as _gql_mw
+
+        _gql_mw._event_bus = self.event_bus
 
     def _register_threat_intel(
         self, app: FastAPI, config: AraxysConfig,

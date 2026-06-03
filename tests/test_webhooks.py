@@ -261,7 +261,10 @@ class TestWebhookDelivery:
             message="hp triggered",
         )
         await bus.emit(event)
-        await asyncio.sleep(0.1)
+        for _ in range(20):
+            if mock_post.await_count >= 2:
+                break
+            await asyncio.sleep(0.05)
 
         assert mock_post.await_count == 2
         await bus.stop()
