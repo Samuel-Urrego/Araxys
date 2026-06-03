@@ -44,8 +44,17 @@ class TestSecurityEventType:
             # v0.13 — XXE Protection
             "xxe_detected",
             "account_enumeration_detected",
+            # v0.13 — WAF Bridge
+            "waf_escalated",
+            # v0.14 — Threat Intelligence Feeds
+            "threat_intel_loaded",
+            "threat_intel_match",
+            # (v0.14+ features — GraphQL, Headers Audit, Rotation — committed separately)
         }
         assert values == expected
+
+    def test_waf_escalated_value(self) -> None:
+        assert SecurityEventType.WAF_ESCALATED.value == "waf_escalated"
 
     def test_account_enumeration_detected_value(self) -> None:
         assert (
@@ -354,3 +363,6 @@ class TestOIDCDiscoveryError:
         from araxys.core.exceptions import OIDCDiscoveryError
 
         assert issubclass(OIDCDiscoveryError, AraxysError)
+
+
+# (Rotation PR 1 test classes — committed separately)
