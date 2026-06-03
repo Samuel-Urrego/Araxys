@@ -68,6 +68,12 @@ class SecurityEventType(StrEnum):
     # v0.13 — XXE Protection
     XXE_DETECTED = "xxe_detected"
     ACCOUNT_ENUMERATION_DETECTED = "account_enumeration_detected"
+    # v0.13 — AWS WAF Bridge
+    WAF_ESCALATED = "waf_escalated"
+    # v0.14 — Threat Intelligence Feeds
+    THREAT_INTEL_LOADED = "threat_intel_loaded"
+    THREAT_INTEL_MATCH = "threat_intel_match"
+    # (v0.14+ features — GraphQL, Headers Audit, Rotation — committed separately)
 
 
 @dataclass(frozen=True, slots=True)

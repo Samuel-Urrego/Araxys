@@ -77,6 +77,7 @@ if TYPE_CHECKING:
 
     from araxys.core.config import AraxysConfig
     from araxys.core.types import AuditEntry
+    from araxys.threat_intel.scheduler import ThreatIntelScheduler
 
 logger = structlog.get_logger("araxys.shield")
 
@@ -204,6 +205,8 @@ class AraxysShield:
 
         # Metrics registry (subscribes to event bus, mounts /metrics)
         self._metrics_registry: MetricsRegistry | None = None
+        self._waf_escalation: object | None = None
+        self._threat_intel_scheduler: ThreatIntelScheduler | None = None
         if config.metrics is not None and config.metrics.enabled:
             self._metrics_registry = MetricsRegistry(config.metrics)
             if self.event_bus is not None:
@@ -226,6 +229,53 @@ class AraxysShield:
             import araxys.csrf.middleware as _csrf_mw
 
             _csrf_mw._event_bus = self.event_bus
+
+            # v0.13 — AWS WAF Bridge event wiring
+            import araxys.honeypot.trap as _hp_trap
+            import araxys.rate_limit.middleware as _rl_mw
+            import araxys.sanitize.middleware as _san_mw
+
+            _rl_mw._event_bus = self.event_bus
+            _san_mw._event_bus = self.event_bus
+            _hp_trap._event_bus = self.event_bus
+
+            # Init escalation subscriber if enabled
+            if config.waf_escalation is not None and config.waf_escalation.enabled:
+                waf_client = None
+                if (
+                    not config.waf_escalation.dry_run
+                    and config.aws_waf is not None
+                ):
+                    try:
+                        from araxys.waf.aws_client import WafClient
+
+                        waf_client = WafClient(
+                            region_name=config.aws_waf.region
+                        )
+                    except ImportError:
+                        logger.warning(
+                            "araxys.waf_escalation_active_without_boto3 — "
+                            "WAF escalation will run in dry-run mode "
+                            "(no boto3 available)"
+                        )
+                else:
+                    logger.info(
+                        "araxys.waf_escalation_mode",
+                        dry_run=config.waf_escalation.dry_run,
+                    )
+
+                from araxys.waf.escalation import WafEscalationSubscriber
+
+                self._waf_escalation = WafEscalationSubscriber(
+                    config.waf_escalation,
+                    self.event_bus,
+                    waf_client=waf_client,
+                )
+                logger.info("araxys.waf_escalation_initialized")
+
+        # v0.14 — Threat Intelligence Feeds
+        if config.threat_intel is not None and config.threat_intel.enabled:
+            self._register_threat_intel(app, config)
 
         # Set module-level config for account_protection
         if config.account_protection is not None and config.account_protection.enabled:
@@ -491,6 +541,87 @@ class AraxysShield:
             config=config.malware,
         )
 
+    def _register_threat_intel(
+        self, app: FastAPI, config: AraxysConfig,
+    ) -> None:
+        """Register Threat Intelligence Feeds (v0.14).
+
+        Creates a :class:`ThreatIntelScheduler` with feed fetchers for each
+        enabled feed, wires it to the IP Access backend and event bus,
+        and starts the background loop.
+
+        Only registered when ``config.threat_intel`` is not ``None`` and
+        ``enabled`` is ``True``.
+        """
+        ti_cfg = config.threat_intel
+        if ti_cfg is None or not ti_cfg.enabled:
+            return
+
+        from araxys.threat_intel.feeds import FeedSource  # noqa: TC001
+        from araxys.threat_intel.feeds.abuseipdb import AbuseIPDBFeedFetcher
+        from araxys.threat_intel.feeds.alienvault import AlienVaultFeedFetcher
+        from araxys.threat_intel.feeds.plaintext import PlaintextFeedFetcher
+        from araxys.threat_intel.scheduler import ThreatIntelScheduler
+
+        # Build the IP access backend (reuse existing pattern)
+        backend = self._create_ip_backend(config)
+
+        # Build feed fetchers from config
+        feeds: list[FeedSource] = []
+        _FEED_MAP: list[tuple[str, type[FeedSource], bool]] = [
+            ("firehol_level1", PlaintextFeedFetcher,
+             ti_cfg.firehol_level1 is not None),
+            ("firehol_level2", PlaintextFeedFetcher,
+             ti_cfg.firehol_level2 is not None),
+            ("firehol_level3", PlaintextFeedFetcher,
+             ti_cfg.firehol_level3 is not None),
+            ("spamhaus_drop", PlaintextFeedFetcher,
+             ti_cfg.spamhaus_drop is not None),
+            ("spamhaus_edrop", PlaintextFeedFetcher,
+             ti_cfg.spamhaus_edrop is not None),
+            ("blocklist_de", PlaintextFeedFetcher,
+             ti_cfg.blocklist_de is not None),
+            ("abuseipdb", AbuseIPDBFeedFetcher,
+             ti_cfg.abuseipdb is not None),
+            ("alienvault_otx", AlienVaultFeedFetcher,
+             ti_cfg.alienvault_otx is not None),
+        ]
+        for feed_name, fetcher_cls, is_enabled in _FEED_MAP:
+            if not is_enabled:
+                continue
+            feed_cfg = getattr(ti_cfg, feed_name)
+            if feed_cfg is not None and feed_cfg.enabled:
+                instance = fetcher_cls()
+                instance.name = feed_name
+                feeds.append(instance)
+
+        if not feeds:
+            logger.warning(
+                "araxys.threat_intel_no_feeds_enabled",
+                message="threat_intel.enabled=True but no feeds configured",
+            )
+            return
+
+        scheduler = ThreatIntelScheduler(
+            config=ti_cfg,
+            backend=backend,
+            event_bus=self.event_bus,
+            feeds=feeds,
+        )
+        scheduler.start()
+        self._threat_intel_scheduler = scheduler
+
+        # Pass threat intel tracked IPs to IP Access middleware
+        # so it can emit THREAT_INTEL_MATCH when blocking.
+        import araxys.ip_access.middleware as _ip_mw
+
+        _ip_mw._threat_intel_ips = scheduler.resolver.tracked_ips
+
+        logger.info(
+            "araxys.threat_intel_initialized",
+            feeds=[getattr(f, "name", "?") for f in feeds],
+        )
+
     # ── New v0.3 registration methods ────────────────────────────────────
 
     def _register_cors(self, app: FastAPI, config: AraxysConfig) -> None:
@@ -659,6 +790,10 @@ class AraxysShield:
         # Stop DLQ consumer
         if hasattr(self, "_dlq_consumer") and self._dlq_consumer is not None:
             await self._dlq_consumer.stop()
+
+        # v0.14 — Stop threat intel scheduler
+        if self._threat_intel_scheduler is not None:
+            await self._threat_intel_scheduler.stop()
 
         logger.info("araxys.shield_shutdown_complete")
 

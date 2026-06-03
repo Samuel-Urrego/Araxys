@@ -1145,6 +1145,114 @@ class OIDCDiscoveryConfig(BaseModel):
     )
 
 
+class FeedConfig(BaseModel):
+    """Configuration for a single threat intelligence feed.
+
+    Each feed can be enabled/disabled individually, has its own refresh
+    interval and TTL, and supports optional API key and URL override.
+    """
+
+    enabled: bool = True
+    refresh_interval_seconds: int = Field(
+        default=3600,
+        ge=60,
+        description="How often to fetch this feed, in seconds (min 60)",
+    )
+    ttl_seconds: int = Field(
+        default=86400,
+        ge=3600,
+        description="How long IPs from this feed stay blocked, in seconds",
+    )
+    api_key: str | None = Field(
+        default=None,
+        description="API key for feeds that require authentication",
+    )
+    url: str | None = Field(
+        default=None,
+        description="Override the built-in feed URL (None = use default)",
+    )
+
+
+class ThreatIntelConfig(BaseModel):
+    """Configuration for the Threat Intelligence Feeds module.
+
+    When ``None`` on :class:`AraxysConfig`, the entire module is disabled.
+    Each feed is independently enabled via its sub-config.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Master switch — off by default",
+    )
+    refresh_interval_seconds: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        description="Default refresh interval for all feeds, in seconds",
+    )
+    exclude_ips: list[str] = Field(
+        default_factory=list,
+        description="IPs/CIDRs to never block (false positive mitigation)",
+    )
+    firehol_level1: FeedConfig | None = Field(default=None)
+    firehol_level2: FeedConfig | None = Field(default=None)
+    firehol_level3: FeedConfig | None = Field(default=None)
+    spamhaus_drop: FeedConfig | None = Field(default=None)
+    spamhaus_edrop: FeedConfig | None = Field(default=None)
+    blocklist_de: FeedConfig | None = Field(default=None)
+    abuseipdb: FeedConfig | None = Field(default=None)
+    alienvault_otx: FeedConfig | None = Field(default=None)
+
+    def enabled_feeds(self) -> list[dict[str, object]]:
+        """Return metadata for every enabled feed.
+
+        Each dict has ``"name"`` (str) and the feed's :class:`FeedConfig`.
+        """
+        feed_fields = [
+            "firehol_level1", "firehol_level2", "firehol_level3",
+            "spamhaus_drop", "spamhaus_edrop", "blocklist_de",
+            "abuseipdb", "alienvault_otx",
+        ]
+        result: list[dict[str, object]] = []
+        for name in feed_fields:
+            cfg = getattr(self, name)
+            if cfg is not None and cfg.enabled:
+                result.append({"name": name, "config": cfg})
+        return result
+
+
+class WafRuleConfig(BaseModel):
+    """Configuration for AWS WAF rule generation.
+
+    Controls OpenAPI schema ingestion and WAF rule output settings.
+    """
+
+    enabled: bool = False
+    openapi_file: str | None = None
+    output_file: str | None = None
+    web_acl_name: str = "AraxysWaf"
+    region: str = "us-east-1"
+
+
+class WafEscalationConfig(BaseModel):
+    """Configuration for AWS WAF escalation subscriber.
+
+    Controls multi-strike threshold, dry-run toggle, TTL eviction,
+    and IP set targeting for automated WAF blocking.
+    """
+
+    enabled: bool = False
+    dry_run: bool = False
+    multi_strike_count: int = Field(default=3, ge=1)
+    multi_strike_window_seconds: int = Field(default=60, ge=1)
+    ttl_seconds: int = Field(default=86400, ge=1)
+    allowed_event_types: list[str] = Field(
+        default=["rate_limit_exceeded", "sanitize_blocked",
+                 "brute_force_lockout", "honeypot_triggered"])
+    ip_set_id: str | None = None
+    ip_set_name: str = "AraxysBlockedIPs"
+
+
 class AccountProtectionConfig(BaseModel):
     """Configuration for account enumeration prevention.
 
@@ -1296,3 +1404,19 @@ class AraxysConfig(BaseSettings):
             "username/identifier enumeration attacks."
         ),
     )
+    # v0.13 — AWS WAF Bridge
+    aws_waf: WafRuleConfig | None = Field(
+        default=None,
+        description="AWS WAF rule generation config (None = feature disabled).",
+    )
+    waf_escalation: WafEscalationConfig | None = Field(
+        default=None,
+        description="AWS WAF escalation subscriber config (None = feature disabled).",
+    )
+    # v0.14 — Threat Intelligence Feeds
+    threat_intel: ThreatIntelConfig | None = Field(
+        default=None,
+        description="Threat intelligence feeds config (None = feature disabled).",
+    )
+    # v0.16 — Dynamic Secrets Rotation
+    # (reserved for future use)
