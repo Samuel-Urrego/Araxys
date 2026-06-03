@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from araxys.core.config import AraxysConfig, SessionConfig
+from araxys.core.config import (
+    AraxysConfig,
+    DatabaseSecurityConfig,
+    RedisPoolConfig,
+    SecretsRotationConfig,
+    SessionConfig,
+)
 from araxys.core.types import Scope
 
 
@@ -125,3 +133,177 @@ class TestAdminRouter:
                 headers={"X-API-Key": admin_key},
             )
             assert resp.status_code == 404
+
+
+# ── v0.14 — Dynamic Secrets Rotation Admin Endpoints ────────────────────────
+
+
+@pytest.fixture
+async def rotation_admin_setup() -> tuple[FastAPI, str, object]:
+    """Create app with rotation admin router; returns (app, admin_key, shield).
+    
+    Creates a minimal shield, then manually attaches a mock SecretsRotationScheduler
+    to enable the /admin/secrets endpoints without requiring real Redis.
+    """
+    import asyncio
+
+    app = FastAPI()
+    config = AraxysConfig(secret_key="test-key-32-chars-long!!!!!!!!!!!!")
+    from araxys.shield import AraxysShield
+    shield = AraxysShield(app, config)
+
+    # Manually attach a fake rotation scheduler
+    from araxys.db_security.rotation import SecretsRotationScheduler
+    from unittest.mock import MagicMock
+
+    mock_manager = MagicMock()
+    mock_resolver = MagicMock()
+    mock_config = SecretsRotationConfig(
+        enabled=True,
+        interval_seconds=60,
+        targets=["redis", "postgres"],
+    )
+    scheduler = SecretsRotationScheduler(
+        manager=mock_manager,
+        resolver=mock_resolver,
+        config=mock_config,
+    )
+    # Set mock stats for deterministic output
+    scheduler._stats = {  # noqa: SLF001
+        "redis": {
+            "last_success": 0.1, "last_error": None,
+            "last_rotated": 1717500000.0, "rotations": 3, "failures": 0,
+        },
+        "postgres": {
+            "last_success": None, "last_error": 2.5,
+            "last_rotated": None, "rotations": 0, "failures": 1,
+        },
+    }
+    shield._rotation_scheduler = scheduler  # noqa: SLF001
+
+    result = await shield.api_key_manager.create_key(
+        owner="test-admin",
+        scopes=[Scope.ADMIN],
+        label="test",
+        key_type="secret",
+    )
+
+    from araxys.admin import create_admin_router
+    app.include_router(create_admin_router(shield))
+    return (app, result.raw_key, shield)
+
+
+class TestSecretsRotationAdmin:
+    """Admin endpoints for dynamic secrets rotation."""
+
+    async def test_secrets_status_returns_config_and_stats(
+        self, rotation_admin_setup: tuple[FastAPI, str, object],
+    ) -> None:
+        """GET /admin/secrets/status returns enabled, interval, targets, stats."""
+        app, admin_key, shield = rotation_admin_setup
+        transport = ASGITransport(app=app)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(
+                "/admin/secrets/status", headers={"X-API-Key": admin_key}
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["enabled"] is True
+            assert data["interval_seconds"] == 60
+            assert data["targets"] == ["redis", "postgres"]
+            assert data["per_target"]["redis"]["rotations"] == 3
+            assert data["per_target"]["postgres"]["failures"] == 1
+
+    async def test_secrets_rotate_manual_trigger(
+        self, rotation_admin_setup: tuple[FastAPI, str, object],
+    ) -> None:
+        """POST /admin/secrets/rotate triggers rotate_targets and returns results."""
+        app, admin_key, shield = rotation_admin_setup
+        transport = ASGITransport(app=app)
+
+        # Patch rotate_targets to avoid actual rotation (needs Redis)
+        async def mock_rotate(targets: list[str]) -> None:
+            pass
+
+        with patch.object(
+            shield._rotation_scheduler, "rotate_targets",  # noqa: SLF001
+            side_effect=mock_rotate,
+        ):
+            async with AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as client:
+                resp = await client.post(
+                    "/admin/secrets/rotate",
+                    json={"targets": ["redis"]},
+                    headers={"X-API-Key": admin_key},
+                )
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["status"] == "completed"
+                assert "redis" in data["results"]
+
+    async def test_secrets_rotate_invalid_target(
+        self, rotation_admin_setup: tuple[FastAPI, str, object],
+    ) -> None:
+        """POST /admin/secrets/rotate returns error for unknown target."""
+        app, admin_key, shield = rotation_admin_setup
+        transport = ASGITransport(app=app)
+
+        # Let the real rotate_targets run — it will fail on unknown target
+        # Patch _rotate_one to avoid actual Redis connection
+        async def mock_rotate_one(target: str) -> None:
+            raise ValueError(f"Unknown target: {target}")
+
+        with patch.object(
+            shield._rotation_scheduler, "_rotate_one", side_effect=mock_rotate_one,  # noqa: SLF001
+        ):
+            async with AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as client:
+                resp = await client.post(
+                    "/admin/secrets/rotate",
+                    json={"targets": ["unknown-target"]},
+                    headers={"X-API-Key": admin_key},
+                )
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["status"] == "completed"
+                assert "unknown-target" in data["results"]
+                assert data["results"]["unknown-target"] == "error"
+
+    async def test_secrets_endpoints_require_admin(self) -> None:
+        """Secrets endpoints return 401/403 without valid admin credentials."""
+        import asyncio
+
+        app = FastAPI()
+        config = AraxysConfig(secret_key="test-key-32-chars-long!!!!!!!!!!!!")
+        from araxys.shield import AraxysShield
+        shield = AraxysShield(app, config)
+
+        # Manually attach a fake scheduler (no Redis needed)
+        from araxys.db_security.rotation import SecretsRotationScheduler
+        from unittest.mock import MagicMock
+
+        scheduler = SecretsRotationScheduler(
+            manager=MagicMock(),
+            resolver=MagicMock(),
+            config=SecretsRotationConfig(
+                enabled=True, interval_seconds=60, targets=["redis"],
+            ),
+        )
+        shield._rotation_scheduler = scheduler  # noqa: SLF001
+
+        from araxys.admin import create_admin_router
+        app.include_router(create_admin_router(shield))
+        transport = ASGITransport(app=app)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # No auth headers
+            resp = await client.get("/admin/secrets/status")
+            assert resp.status_code == 401  # noqa: S101
+
+            resp = await client.post(
+                "/admin/secrets/rotate", json={"targets": ["redis"]}
+            )
+            assert resp.status_code == 401  # noqa: S101

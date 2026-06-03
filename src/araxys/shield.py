@@ -40,6 +40,7 @@ from araxys.db_security.manager import DatabaseSecurityManager
 from araxys.db_security.pool import (
     ConnectionPool,  # noqa: TC001 — runtime annotation for db_pool property
 )
+from araxys.db_security.rotation import SecretsRotationScheduler
 from araxys.graphql.middleware import GraphQLSecurityMiddleware
 from araxys.headers.audit_middleware import AuditHeadersMiddleware
 from araxys.headers.middleware import SecureHeadersMiddleware
@@ -211,6 +212,21 @@ class AraxysShield:
             if self.event_bus is not None:
                 self._metrics_registry.subscribe_to_event_bus(self.event_bus)
             mount_metrics(app, config.metrics, self._metrics_registry)
+
+        # v0.14 — Dynamic Secrets Rotation
+        self._rotation_scheduler: SecretsRotationScheduler | None = None
+        if (
+            config.rotation is not None
+            and config.rotation.enabled
+            and self._db_security is not None
+        ):
+            self._rotation_scheduler = SecretsRotationScheduler(
+                manager=self._db_security,
+                resolver=self._db_security.resolver,
+                config=config.rotation,
+                event_bus=self.event_bus,
+            )
+            self._rotation_scheduler.start()
 
         # Set module-level event bus references so middlewares can emit events
         if self.event_bus is not None:
@@ -695,7 +711,11 @@ class AraxysShield:
 
     async def shutdown(self) -> None:
         """Graceful shutdown of all background tasks and services."""
-        # v0.5 — close db pool first
+        # v0.14 — stop rotation scheduler first
+        if self._rotation_scheduler is not None:
+            self._rotation_scheduler.stop()
+
+        # v0.5 — close db pool
         if self._db_security is not None:
             await self._db_security.shutdown()
 
