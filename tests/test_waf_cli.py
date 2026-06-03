@@ -54,13 +54,20 @@ class TestWafSubAppExists:
 class TestWafGenerateCommand:
     """The `araxys waf generate` command must produce valid WAF JSON."""
 
+    @staticmethod
+    def _strip_ansi(text: str) -> str:
+        """Remove ANSI escape sequences from text (Rich formatting)."""
+        import re
+        return re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
+
     def test_generate_help_shows_options(self) -> None:
         """`araxys waf generate --help` shows --input, --output, --pretty."""
         result = runner.invoke(app, ["waf", "generate", "--help"])
         assert result.exit_code == 0
-        assert "--input" in result.stdout
-        assert "--output" in result.stdout
-        assert "--pretty" in result.stdout
+        clean = self._strip_ansi(result.stdout)
+        assert "--input" in clean
+        assert "--output" in clean
+        assert "--pretty" in clean
 
     def test_generate_with_input_file(self, tmp_path: str) -> None:
         """Given an OpenAPI JSON file, generate WAF rules to a file."""
@@ -164,10 +171,11 @@ class TestWafApplyCommand:
         """`araxys waf apply --help` shows --ip-set-id, --ip, --region, --dry-run."""
         result = runner.invoke(app, ["waf", "apply", "--help"])
         assert result.exit_code == 0
-        assert "--ip-set-id" in result.stdout
-        assert "--ip" in result.stdout
-        assert "--region" in result.stdout
-        assert "--dry-run" in result.stdout
+        clean = TestWafGenerateCommand._strip_ansi(result.stdout)
+        assert "--ip-set-id" in clean
+        assert "--ip" in clean
+        assert "--region" in clean
+        assert "--dry-run" in clean
 
     def test_apply_help_mentions_boto3_requirement(self) -> None:
         """`araxys waf apply --help` must mention boto3 requirement."""
