@@ -35,6 +35,7 @@ from araxys.core.config import (
     BruteForceConfig,
     CORSConfig,
     CSRFConfig,
+    # (v0.14 graphql config — committed separately)
     HoneypotConfig,
     IPControlConfig,
     JWTConfig,
@@ -127,6 +128,24 @@ from araxys.sessions.storage import (
 )
 from araxys.shield import AraxysShield
 from araxys.telemetry.tracer import AraxysTracer
+
+# v0.14 — Threat Intelligence Feeds
+from araxys.threat_intel import (
+    FEED_DEFAULTS,
+    FeedConfig,
+    ThreatIntelConfig,
+    ThreatIntelScheduler,
+)
+
+# v0.13 — AWS WAF Bridge
+from araxys.waf import (
+    SchemaReader,
+    WafClient,
+    WafEscalationConfig,
+    WafEscalationSubscriber,
+    WafRuleConfig,
+    WafRuleGenerator,
+)
 from araxys.webauthn import CredentialRecord, RelyingPartyConfig, WebAuthnManager
 from araxys.webhooks.dlq import DLQConsumer, WebhookDLQBackend
 from araxys.webhooks.emitter import SecurityEventBus
@@ -165,6 +184,7 @@ __all__ = [
     # OIDC Discovery
     "OIDCDiscoveryConfig",
     # v0.12 configs
+    # (v0.14 graphql — committed separately)
     # Types
     "AuditEntry",
     "AuditEventType",
@@ -272,7 +292,19 @@ __all__ = [
     # v0.13 OIDC Discovery (RFC 8414)
     "OIDCDiscoveryClient",
     "OIDCProviderMetadata",
-    # v0.14 GraphQL Security
+    # v0.13 — AWS WAF Bridge
+    "WafClient",
+    "WafEscalationConfig",
+    "WafEscalationSubscriber",
+    "WafRuleConfig",
+    "WafRuleGenerator",
+    "SchemaReader",
+    # v0.14 — Threat Intelligence Feeds
+    "ThreatIntelConfig",
+    "ThreatIntelScheduler",
+    "FeedConfig",
+    "FEED_DEFAULTS",
+    # v0.14 — GraphQL Security
     "GraphQLSecurityConfig",
     "GraphQLSecurityMiddleware",
 ]

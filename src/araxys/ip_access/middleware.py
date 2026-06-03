@@ -26,6 +26,13 @@ if TYPE_CHECKING:
 # This avoids circular imports on startup.
 _event_bus: Any = None
 
+# Module-level threat intel IP set — set by shield.py when
+# threat intel feeds are enabled. The scheduler's IPResolver
+# maintains and updates this set; the middleware reads it to
+# emit THREAT_INTEL_MATCH events.  ``None`` means threat intel
+# is disabled.
+_threat_intel_ips: set[str] | None = None
+
 
 class IPAccessMiddleware(BaseHTTPMiddleware):
     """IP Access Control middleware.
@@ -94,7 +101,17 @@ class IPAccessMiddleware(BaseHTTPMiddleware):
     async def _deny(self, ip: str, *, event_type: SecurityEventType) -> Response:
         """Return a 403 response and emit a security event."""
         detail = "IP not allowed" if self._config.mode == "allow" else "IP blocked"
+
+        # Emit the standard IP_BLOCKED / IP_NOT_ALLOWED event
         await self._emit_event(ip, event_type)
+
+        # If the IP is also in the threat intel set, emit THREAT_INTEL_MATCH
+        if _threat_intel_ips is not None and ip in _threat_intel_ips:
+            await self._emit_event(
+                ip,
+                event_type=SecurityEventType.THREAT_INTEL_MATCH,
+            )
+
         return JSONResponse(
             status_code=403,
             content={"detail": detail, "ip": ip},
