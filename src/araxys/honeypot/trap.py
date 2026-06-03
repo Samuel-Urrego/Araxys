@@ -8,19 +8,28 @@ from __future__ import annotations
 
 import json
 import typing
+from datetime import UTC, datetime
 
 import structlog
 from fastapi import FastAPI, Request  # noqa: TC002
 from starlette.responses import JSONResponse
 
 from araxys.core.ip import get_client_ip
-from araxys.core.types import AuditEntry, AuditEventType
+from araxys.core.types import (
+    AuditEntry,
+    AuditEventType,
+    SecurityEvent,
+    SecurityEventType,
+)
 
 if typing.TYPE_CHECKING:
     from araxys.core.config import HoneypotConfig
     from araxys.rate_limit.backends import RateLimitBackend
 
 logger = structlog.get_logger("araxys.honeypot")
+
+# Module-level event bus reference — set by shield.py on init.
+_event_bus: typing.Any = None
 
 
 class HoneypotTrap:
@@ -83,6 +92,22 @@ class HoneypotTrap:
         # Ban the IP
         await self._backend.ban(ip, self._config.ban_duration_seconds)
         logger.warning("honeypot.triggered", ip=ip, path=path)
+
+        # Emit security event
+        if _event_bus is not None:
+            await _event_bus.emit(
+                SecurityEvent(
+                    event_type=SecurityEventType.HONEYPOT_TRIGGERED,
+                    severity="warning",
+                    message=f"Honeypot triggered: {ip} on {path}",
+                    timestamp=datetime.now(UTC),
+                    source_ip=ip,
+                    metadata={
+                        "path": path,
+                        "method": request.method,
+                    },
+                )
+            )
 
         # Emit audit event
         if self._on_audit:

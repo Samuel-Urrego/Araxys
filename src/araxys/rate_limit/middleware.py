@@ -8,6 +8,7 @@ when the limit is exceeded.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -15,6 +16,7 @@ from starlette.responses import JSONResponse, Response
 
 from araxys.core.exceptions import RateLimitExceeded
 from araxys.core.ip import get_client_ip
+from araxys.core.types import SecurityEvent, SecurityEventType
 from araxys.rate_limit.identity import extract_api_key, extract_user_id
 from araxys.rate_limit.limiter import RateLimiter
 
@@ -23,6 +25,9 @@ if TYPE_CHECKING:
 
     from araxys.core.config import RateLimitConfig
     from araxys.rate_limit.backends import RateLimitBackend
+
+# Module-level event bus reference — set by shield.py on init.
+_event_bus: Any = None
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -77,6 +82,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 ip, path, user_id=user_id, api_key=api_key
             )
         except RateLimitExceeded as exc:
+            if _event_bus is not None:
+                await _event_bus.emit(
+                    SecurityEvent(
+                        event_type=SecurityEventType.RATE_LIMIT_EXCEEDED,
+                        severity="warning",
+                        message=f"Rate limit exceeded: {ip} on {path}",
+                        timestamp=datetime.now(UTC),
+                        source_ip=ip,
+                        metadata={
+                            "path": request.url.path,
+                            "method": request.method,
+                            "retry_after": exc.retry_after,
+                        },
+                    )
+                )
             return JSONResponse(
                 status_code=429,
                 content={

@@ -10,6 +10,7 @@ SQL injection and XSS.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode
 
@@ -17,6 +18,8 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import JSONResponse, Response
 
 from araxys.core.exceptions import SanitizationError
+from araxys.core.ip import get_client_ip
+from araxys.core.types import SecurityEvent, SecurityEventType
 from araxys.sanitize.filters import sanitize_payload
 from araxys.sanitize.scanner import scan_headers, scan_query_params, scan_value
 
@@ -24,6 +27,9 @@ if TYPE_CHECKING:
     from starlette.requests import Request
 
     from araxys.core.config import SanitizeConfig
+
+# Module-level event bus reference — set by shield.py on init.
+_event_bus: Any = None
 
 
 class SanitizeMiddleware(BaseHTTPMiddleware):
@@ -86,6 +92,28 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
             },
         )
 
+    async def _emit_and_block(
+        self, request: Request, threat_type: str
+    ) -> JSONResponse:
+        """Emit a SANITIZE_BLOCKED event, then return a block response."""
+        if _event_bus is not None:
+            ip = get_client_ip(request)
+            await _event_bus.emit(
+                SecurityEvent(
+                    event_type=SecurityEventType.SANITIZE_BLOCKED,
+                    severity="warning",
+                    message=f"Sanitization blocked: {threat_type}",
+                    timestamp=datetime.now(UTC),
+                    source_ip=ip,
+                    metadata={
+                        "path": request.url.path,
+                        "method": request.method,
+                        "threat_type": threat_type,
+                    },
+                )
+            )
+        return self._block_response(threat_type)
+
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
@@ -97,13 +125,13 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
         if self._config.scan_headers:
             threat = scan_headers(request, self._config)
             if threat is not None:
-                return self._block_response(threat)
+                return await self._emit_and_block(request, threat)
 
         # Phase 2 — Query param scanning (all methods)
         if self._config.scan_query_params:
             threat = scan_query_params(request, self._config)
             if threat is not None:
-                return self._block_response(threat)
+                return await self._emit_and_block(request, threat)
 
         # Skip methods without body for body sanitization
         if request.method not in self.METHODS_WITH_BODY:
@@ -182,7 +210,7 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
         if self._scanning_enabled:
             threat = self._scan_body_leaves(sanitized, self._config)
             if threat is not None:
-                return self._block_response(threat)
+                return await self._emit_and_block(request, threat)
 
         sanitized_bytes = json.dumps(sanitized).encode()
         request.state._araxys_sanitized_body = sanitized_bytes
@@ -207,11 +235,11 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
             for key, values in parsed.items():
                 threat = scan_value(key, self._config)
                 if threat:
-                    return self._block_response(threat)
+                    return await self._emit_and_block(request, threat)
                 for value in values:
                     threat = scan_value(value, self._config)
                     if threat:
-                        return self._block_response(threat)
+                        return await self._emit_and_block(request, threat)
 
         # XSS strip and SQLi-aware sanitize on form values
         if self._config.strip_xss or self._config.block_sqli:
@@ -281,7 +309,7 @@ class SanitizeMiddleware(BaseHTTPMiddleware):
             if self._scanning_enabled:
                 threat = scan_value(str_value, self._config)
                 if threat:
-                    return self._block_response(threat)
+                    return await self._emit_and_block(request, threat)
             try:
                 s = sanitize_payload(
                     str_value,

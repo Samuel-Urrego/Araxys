@@ -157,3 +157,25 @@ class RedisIPAccessBackend:
 
     async def remove_from_blocklist(self, ip: str) -> None:
         await self._redis.srem(self._BLOCKLIST_KEY, ip)  # type: ignore[misc]
+
+    async def add_bulk_to_blocklist(self, ips: list[str]) -> None:
+        """Add multiple IPs to the blocklist using a Redis pipeline.
+
+        IPs are batched in groups of 1000 to avoid blocking the event
+        loop on large feed loads (e.g. 20K IPs from Blocklist.de).
+
+        Parameters
+        ----------
+        ips:
+            IP addresses or CIDR ranges to add to the blocklist.
+        """
+        if not ips:
+            return
+
+        BATCH_SIZE = 1000
+        for i in range(0, len(ips), BATCH_SIZE):
+            batch = ips[i : i + BATCH_SIZE]
+            pipe = self._redis.pipeline()
+            for ip in batch:
+                pipe.sadd(self._BLOCKLIST_KEY, ip)
+            await pipe.execute()

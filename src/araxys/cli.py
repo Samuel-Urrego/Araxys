@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import typer
@@ -15,6 +17,14 @@ from araxys.api_keys.manager import APIKeyManager
 from araxys.api_keys.storage import RedisAPIKeyStorage
 from araxys.core.types import Scope
 from araxys.headers.auditor import audit_headers
+from araxys.threat_intel.cli import (
+    _ti_feeds,
+    _ti_purge,
+    _ti_refresh,
+    _ti_stats,
+)
+from araxys.waf.rule_generator import WafRuleGenerator
+from araxys.waf.schema_reader import SchemaReader
 
 if TYPE_CHECKING:
     from araxys.api_keys.models import APIKeyRecord, APIKeyResponse
@@ -26,6 +36,18 @@ app = typer.Typer(
 )
 keys_app = typer.Typer(help="🔑 Manage API Keys", no_args_is_help=True)
 app.add_typer(keys_app, name="keys")
+
+waf_app = typer.Typer(
+    help="🛡️ AWS WAF Bridge — Generate and apply WAF rules from OpenAPI schemas.",
+    no_args_is_help=True,
+)
+app.add_typer(waf_app, name="waf")
+
+threat_intel_app = typer.Typer(
+    help="🛡️ Threat Intelligence — Fetch and manage threat intel feeds.",
+    no_args_is_help=True,
+)
+app.add_typer(threat_intel_app, name="threat-intel")
 
 console = Console()
 
@@ -143,7 +165,11 @@ def revoke_key(
         console.print(f"[bold red]❌ Key {prefix} not found.[/bold red]")
 
 
-audit_headers_app = typer.Typer(help="🔍 Audit HTTP response security headers")
+# ---------------------------------------------------------------------------
+# Headers Audit CLI
+# ---------------------------------------------------------------------------
+
+audit_headers_app = typer.Typer(help="Audit HTTP response security headers")
 app.add_typer(audit_headers_app, name="audit-headers")
 
 
@@ -189,7 +215,7 @@ def audit_headers_command(
         table.add_row(
             f.header_name,
             status_text,
-            f.found_value or "—",
+            f.found_value or "\u2014",
             f.detail or "",
         )
 
@@ -213,7 +239,7 @@ def audit_headers_command(
 # ── v0.14 — Secrets Rotation CLI ────────────────────────────────────────────
 
 secrets_app = typer.Typer(
-    help="🔄 Manage dynamic secrets rotation",
+    help="Manage dynamic secrets rotation",
     no_args_is_help=True,
 )
 app.add_typer(secrets_app, name="secrets")
@@ -264,10 +290,10 @@ def secrets_rotate(
         console.print(f"[bold red]Rotation failed:[/bold red] {e}")
         raise typer.Exit(code=1)
 
-    console.print("[bold green]✅ Rotation triggered successfully[/bold green]")
+    console.print("[bold green]Rotation triggered successfully[/bold green]")
     for tgt, status in result.get("results", {}).items():
         color = "green" if status == "ok" else "red"
-        icon = "✅" if status == "ok" else "❌"
+        icon = "\u2705" if status == "ok" else "\u274c"
         console.print(f"  {icon} [{color}]{tgt}: {status}[/{color}]")
 
 
@@ -321,10 +347,10 @@ def secrets_status() -> None:
     per_target: dict[str, dict[str, Any]] = data.get("per_target", {})
     for tgt, stats in per_target.items():
         last_success = (
-            f"{stats['last_success']:.2f}s" if stats["last_success"] else "—"
+            f"{stats['last_success']:.2f}s" if stats["last_success"] else "\u2014"
         )
         last_error = (
-            f"{stats['last_error']:.2f}s" if stats["last_error"] else "—"
+            f"{stats['last_error']:.2f}s" if stats["last_error"] else "\u2014"
         )
         table.add_row(
             tgt,
@@ -337,5 +363,292 @@ def secrets_status() -> None:
     console.print(table)
 
 
+# ---------------------------------------------------------------------------
+# AWS WAF Bridge commands
+# ---------------------------------------------------------------------------
+
+
+@waf_app.command("generate")
+def waf_generate(
+    input_file: str = typer.Option(
+        ...,
+        "--input",
+        "-i",
+        help="Path to an OpenAPI JSON file.",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+    ),
+    output: str | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output file path (default: stdout).",
+    ),
+    pretty: bool = typer.Option(
+        True,
+        "--pretty / --no-pretty",
+        help="Pretty-print the JSON output with 2-space indentation.",
+    ),
+) -> None:
+    """Generate AWS WAF v2 rules from an OpenAPI schema.
+
+    Reads an OpenAPI JSON file (e.g. the output of ``app.openapi()``)
+    and produces IP sets, regex pattern sets, rule groups, and a Web
+    ACL ready for AWS WAF v2.
+
+    WAF rules are a snapshot of your OpenAPI schema.
+    Regenerate after API changes.
+    """
+    reader = SchemaReader(file_path=input_file)
+    generator = WafRuleGenerator(reader)
+    output_text = generator.to_json(pretty=pretty)
+
+    if output:
+        Path(output).write_text(output_text, encoding="utf-8")
+        console.print(f"[green]WAF rules written to {output}[/green]")
+    else:
+        sys.stdout.write(output_text)
+
+
+@waf_app.command("apply")
+def waf_apply(
+    ip_set_id: str = typer.Option(
+        ...,
+        "--ip-set-id",
+        "-s",
+        help="AWS WAF IP set UUID (returned by create_ip_set or the console).",
+    ),
+    ip_set_name: str = typer.Option(
+        "AraxysBlockedIPs",
+        "--ip-set-name",
+        "-n",
+        help="Friendly name of the IP set (default: AraxysBlockedIPs).",
+    ),
+    ip: str = typer.Option(
+        ...,
+        "--ip",
+        "-i",
+        help="IP address to add (CIDR /32 suffix auto-appended).",
+    ),
+    region: str = typer.Option(
+        "us-east-1",
+        "--region",
+        "-r",
+        help="AWS region (default: us-east-1).",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Log the action without calling AWS.",
+    ),
+) -> None:
+    """Apply a blocked IP to an AWS WAF IP set.
+
+    Adds an IP address (auto-suffixed as /32) to an existing AWS WAF
+    IP set using optimistic locking via boto3.
+
+    Requires the IP set UUID (--ip-set-id) and optionally the name
+    (--ip-set-name, defaults to "AraxysBlockedIPs").
+
+    Requires boto3 to be installed:
+        pip install araxys[aws_waf]
+    """
+    try:
+        import boto3  # noqa: F401
+    except ImportError:
+        console.print(
+            "[bold red]Error:[/bold red] boto3 not installed. "
+            "Install with: pip install araxys[aws_waf]"
+        )
+        raise typer.Exit(code=1) from None
+
+    from araxys.waf.aws_client import WafClient
+
+    cidr = f"{ip}/32"
+
+    async def _apply() -> None:
+        client = WafClient(region_name=region)
+
+        # Read current state (optimistic locking)
+        current = await client.get_ip_set(
+            ip_set_id=ip_set_id, ip_set_name=ip_set_name,
+        )
+        lock_token = current.get("IPSet", {}).get("LockToken")
+        if not lock_token:
+            console.print(
+                "[bold red]Error:[/bold red] No LockToken returned. "
+                "Is the IP set ID correct?"
+            )
+            raise typer.Exit(code=1) from None
+
+        current_addrs: list[str] = current.get("IPSet", {}).get("Addresses", [])
+        if cidr in current_addrs:
+            console.print(
+                f"[yellow]IP {cidr} is already in IP set {ip_set_id}.[/yellow]"
+            )
+            return
+
+        if dry_run:
+            console.print(
+                f"[yellow]DRY RUN:[/yellow] would add {cidr} to IP set {ip_set_id}"
+            )
+            return
+
+        new_addrs = [*current_addrs, cidr]
+        await client.update_ip_set(
+            ip_set_id=ip_set_id,
+            ip_set_name=ip_set_name,
+            ip_addresses=new_addrs,
+            lock_token=lock_token,
+        )
+        console.print(
+            f"[green]Added {cidr} to IP set {ip_set_id} "
+            f"({len(new_addrs)} total addresses)[/green]"
+        )
+
+    asyncio.run(_apply())
+
+
 if __name__ == "__main__":
     app()
+
+# ── Security Headers Audit Command ────────────────────────────────────────
+
+
+def _audit_headers_command(
+    url: str,
+    output_format: str = "table",
+    fail_on: str | None = None,
+) -> bool:
+    """Audit HTTP security headers for a URL.
+
+    Fetches headers from *url*, runs the audit, and prints results
+    as JSON or a Rich table.
+
+    Returns ``True`` if the audit passed the *fail_on* threshold,
+    ``False`` otherwise.
+    """
+    import httpx
+
+    try:
+        client = httpx.Client(timeout=10, follow_redirects=True)
+        response = client.get(url)
+        if response.status_code >= 400:
+            console.print(
+                f"[bold red]Error fetching {url}:[/bold red] "
+                f"HTTP {response.status_code}"
+            )
+            return False
+    except httpx.HTTPError as exc:
+        console.print(f"[bold red]Error fetching {url}:[/bold red] {exc}")
+        return False
+
+    findings = audit_headers(dict(response.headers))
+
+    if output_format == "json":
+        import json
+
+        result = {
+            "url": url,
+            "status_code": response.status_code,
+            "findings": [
+                {
+                    "header": f.header,
+                    "status": f.status,
+                    "severity": f.severity,
+                    "message": f.message,
+                    "recommendation": f.recommendation,
+                    "current_value": f.current_value,
+                    "expected": f.expected,
+                }
+                for f in findings
+            ],
+        }
+        console.print(json.dumps(result, indent=2))
+    else:
+        # Rich table output
+        table = Table(
+            title=f"Security Headers Audit — [bold]{url}[/bold]",
+            header_style="bold magenta",
+        )
+        table.add_column("Header", style="cyan")
+        table.add_column("Status")
+        table.add_column("Severity")
+        table.add_column("Message")
+        table.add_column("Recommendation", style="dim")
+
+        for f in findings:
+            status_color = {
+                "pass": "green",
+                "warn": "yellow",
+                "fail": "red",
+            }.get(f.status, "white")
+
+            severity_color = {
+                "CRITICAL": "red",
+                "HIGH": "yellow",
+                "WARNING": "yellow",
+                "INFO": "dim",
+            }.get(f.severity, "white")
+
+            table.add_row(
+                f.header,
+                f"[{status_color}]{f.status}[/{status_color}]",
+                f"[{severity_color}]{f.severity}[/{severity_color}]",
+                f.message,
+                f.recommendation or "-",
+            )
+
+        console.print(table)
+
+    # Check fail-on threshold
+    if fail_on:
+        _severity_rank = {"CRITICAL": 0, "HIGH": 1, "WARNING": 2, "INFO": 3}
+        threshold = _severity_rank.get(fail_on.upper(), 99)
+        for f in findings:
+            if _severity_rank.get(f.severity, 99) <= threshold and f.status != "pass":
+                return False
+
+    return True
+
+
+@app.command("audit-headers")
+def audit_headers_cli(
+    url: str = typer.Argument(..., help="URL to audit HTTP security headers for."),
+    output_format: str = typer.Option(
+        "table",
+        "--format",
+        "-f",
+        help="Output format: 'table' or 'json'.",
+    ),
+    fail_on: str | None = typer.Option(
+        None,
+        "--fail-on",
+        help="Exit with non-zero if findings at or above this severity "
+        "(CRITICAL, HIGH, WARNING, INFO).",
+    ),
+) -> None:
+    """Audit HTTP security headers for a given URL.
+
+    Fetches the URL, runs security header checks against OWASP best
+    practices, and displays findings as a table or JSON.
+
+    Use --fail-on to make CI/CD pipelines fail on insecure headers:
+        araxys audit-headers https://example.com --fail-on HIGH
+    """
+    success = _audit_headers_command(
+        url=url,
+        output_format=output_format,
+        fail_on=fail_on,
+    )
+    if not success:
+        raise typer.Exit(code=1)
+
+
+# ── Threat Intel commands (registered on threat_intel_app) ──────────────────
+
+threat_intel_app.command("refresh")(_ti_refresh)
+threat_intel_app.command("feeds")(_ti_feeds)
+threat_intel_app.command("stats")(_ti_stats)
+threat_intel_app.command("purge")(_ti_purge)
