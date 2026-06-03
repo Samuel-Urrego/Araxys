@@ -38,6 +38,7 @@ from redis.asyncio.sentinel import Sentinel
 from araxys.core.exceptions import (
     ConfigurationError,
     ConnectionError,
+    SecretRotationError,
     TLSConfigurationError,
 )
 
@@ -76,6 +77,28 @@ class ConnectionPool(Protocol):
 
     async def close(self) -> None:
         """Close all connections and release resources."""
+
+    async def reload_url(self, url: str) -> None:
+        """Reload the pool with a new connection URL.
+
+        Called during dynamic secrets rotation when the credential store
+        provides a new URL for the database. Implementations must:
+
+        * Validate the new URL is reachable (PING before swapping).
+        * Acquire the reconnect lock to serialize with health-loop
+          reconnect attempts.
+        * Atomically swap the underlying client and close the old one.
+        * Raise :exc:`araxys.core.exceptions.SecretRotationError` if
+          the new URL is unreachable.
+        * Be a no-op if the URL matches the currently active URL.
+
+        Parameters
+        ----------
+        url:
+            The new connection URL to load (may contain refreshed
+            credentials from Vault, etc.).
+        """
+        ...
 
     def validate_query(
         self,
@@ -151,6 +174,10 @@ class InMemoryPool:
         """Mark the pool as closed and reset active count."""
         self._closed = True
         self._active = 0
+
+    async def reload_url(self, url: str) -> None:
+        """No-op — InMemoryPool has no persistent connection to reload."""
+        return
 
 
 class RedisPool:
@@ -378,7 +405,47 @@ class RedisPool:
                 logger.warning("db_pool.reconnect_failed")
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Dynamic secrets rotation — reload_url
+    # ------------------------------------------------------------------
+
+    async def reload_url(self, url: str) -> None:
+        """Reload the pool with a new Redis connection URL.
+
+        Validates the new URL with a PING before swapping, serializes
+        with :attr:`_reconnect_lock` to prevent races with the
+        background health loop.
+
+        Raises :exc:`SecretRotationError` if the new URL is unreachable.
+        """
+        if url == self.url:
+            return
+
+        # Validate the new URL by attempting a connect + PING.
+        temp = None
+        try:
+            temp = Redis.from_url(url, ssl_context=self._ssl_context)
+            await temp.ping()  # type: ignore[misc]
+        except Exception as exc:
+            raise SecretRotationError(
+                "redis", reason=f"New URL unreachable: {exc}",
+            ) from exc
+        finally:
+            if temp is not None:
+                await temp.aclose()
+
+        # Serialize with health-loop reconnects.
+        async with self._reconnect_lock:
+            old = self._redis
+            self._redis = Redis.from_url(
+                url, ssl_context=self._ssl_context,
+            )
+            self.url = url
+            self._closed = False
+            await old.aclose()
+            logger.info("db_pool.reload_url", url=url)
+
+    # ------------------------------------------------------------------
+    # Internal helpers (RedisPool)
     # ------------------------------------------------------------------
 
     def _check_leak(self) -> None:
@@ -668,6 +735,51 @@ class RedisClusterPool:
                 logger.warning("db_pool.reconnect_failed", pool_type="cluster")
 
     # ------------------------------------------------------------------
+    # Dynamic secrets rotation — reload_url
+    # ------------------------------------------------------------------
+
+    async def reload_url(self, url: str) -> None:
+        """Reload the cluster pool with a new connection URL.
+
+        Validates the new URL with a PING before swapping, serializes
+        with :attr:`_reconnect_lock`.
+
+        Raises :exc:`SecretRotationError` if the new URL is unreachable.
+        """
+        if url == self.url:
+            return
+
+        # Validate the new URL by attempting a connect + PING.
+        temp = None
+        try:
+            temp = RedisCluster.from_url(
+                url,
+                read_from_replicas=self.read_from_replicas,
+                ssl_context=self._ssl_context,
+            )
+            await temp.ping()  # type: ignore[misc]
+        except Exception as exc:
+            raise SecretRotationError(
+                "redis-cluster", reason=f"New URL unreachable: {exc}",
+            ) from exc
+        finally:
+            if temp is not None:
+                await temp.aclose()
+
+        # Serialize with health-loop reconnects.
+        async with self._reconnect_lock:
+            old = self._client
+            self._client = RedisCluster.from_url(
+                url,
+                read_from_replicas=self.read_from_replicas,
+                ssl_context=self._ssl_context,
+            )
+            self.url = url
+            self._closed = False
+            await old.aclose()
+            logger.info("db_pool.reload_url", pool_type="cluster", url=url)
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
@@ -908,7 +1020,87 @@ class RedisSentinelPool:
                 logger.warning("db_pool.reconnect_failed", pool_type="sentinel")
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Dynamic secrets rotation — reload_url
+    # ------------------------------------------------------------------
+
+    async def reload_url(self, url: str) -> None:
+        """Reload the sentinel pool with a new connection URL.
+
+        Parses the URL into sentinel nodes and master name, validates
+        connectivity with a PING, then atomically swaps the sentinel
+        and health client under :attr:`_reconnect_lock`.
+
+        Raises :exc:`SecretRotationError` if the new URL is unreachable.
+        """
+        from urllib.parse import parse_qs, urlparse
+
+        parsed = urlparse(url)
+        # Parse sentinel hosts from netloc (e.g. "host1:26379,host2:26380").
+        hosts = parsed.netloc.split(",")
+        sentinel_nodes: list[tuple[str, int]] = []
+        for h in hosts:
+            if not h:
+                continue
+            if ":" in h:
+                host, port_str = h.rsplit(":", 1)
+                sentinel_nodes.append((host, int(port_str)))
+            else:
+                sentinel_nodes.append((h, 26379))
+
+        params = parse_qs(parsed.query)
+        master_name = params.get("master", [None])[0]
+        if master_name is None:
+            raise SecretRotationError(
+                "redis-sentinel",
+                reason="URL must include ?master=<name> parameter",
+            )
+
+        # Build a candidate new URL key for sameness check.
+        new_url_key = (
+            f"sentinel://{','.join(f'{h}:{p}' for h, p in sentinel_nodes)}"
+            f"?master={master_name}"
+        )
+        existing_key = (
+            f"sentinel://{','.join(f'{h}:{p}' for h, p in self.sentinels)}"
+            f"?master={self.master_name}"
+        )
+        if new_url_key == existing_key:
+            return
+
+        # Validate connectivity with a temp sentinel + PING.
+        temp_sentinel = Sentinel(  # type: ignore[no-untyped-call]
+            sentinel_nodes,
+            ssl_context=self._ssl_context,
+        )
+        temp_client = temp_sentinel.master_for(master_name)
+        try:
+            await temp_client.ping()  # type: ignore[misc]
+        except Exception as exc:
+            raise SecretRotationError(
+                "redis-sentinel",
+                reason=f"New URL unreachable: {exc}",
+            ) from exc
+
+        # Serialize with health-loop reconnects.
+        async with self._reconnect_lock:
+            old_client = self._health_client
+            self.sentinels = sentinel_nodes
+            self.master_name = master_name
+            self._sentinel = Sentinel(  # type: ignore[no-untyped-call]
+                sentinel_nodes,
+                ssl_context=self._ssl_context,
+            )
+            self._health_client = self._sentinel.master_for(master_name)
+            self._closed = False
+            await old_client.aclose()
+            logger.info(
+                "db_pool.reload_url",
+                pool_type="sentinel",
+                url=new_url_key,
+            )
+
+    # ------------------------------------------------------------------
+    # Internal helpers (RedisSentinelPool)
     # ------------------------------------------------------------------
 
     def _check_leak(self) -> None:

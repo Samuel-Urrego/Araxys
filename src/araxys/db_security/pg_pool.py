@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from araxys.core.exceptions import ConnectionError
+from araxys.core.exceptions import ConnectionError, SecretRotationError
 
 if TYPE_CHECKING:
     import ssl
@@ -187,6 +187,64 @@ class PGPool:
                     consecutive_failures = 0
             except Exception:
                 logger.exception("pg_pool.health_loop_error")
+
+    # ── Dynamic secrets rotation — reload_dsn ─────────────────────────
+
+    async def reload_dsn(self, dsn: str) -> None:
+        """Reload the pool with a new PostgreSQL DSN.
+
+        Validates the new DSN by creating a temporary pool and executing
+        ``SELECT 1``. On success, closes the old pool, creates a new
+        one with the configured ``min_size`` (pre-warming), and swaps.
+
+        Raises :exc:`SecretRotationError` if the new DSN is unreachable.
+        """
+        if dsn == self._dsn:
+            return
+
+        # Validate the new DSN with a temporary pool + SELECT 1.
+        try:
+            import asyncpg
+        except ImportError as exc:
+            raise ImportError(
+                "PGPool requires the 'asyncpg' package. "
+                "Install it with: pip install asyncpg"
+            ) from exc
+
+        new_kwargs = dict(self._pool_kwargs)
+        new_kwargs["dsn"] = dsn
+
+        temp_pool = None
+        try:
+            temp_pool = await asyncpg.create_pool(**new_kwargs)
+            async with temp_pool.acquire() as conn:
+                result = await conn.fetchval("SELECT 1")
+                if result != 1:
+                    raise SecretRotationError(
+                        "postgres",
+                        reason=f"New DSN health check failed: SELECT 1 returned {result}",
+                    )
+        except SecretRotationError:
+            raise
+        except Exception as exc:
+            raise SecretRotationError(
+                "postgres", reason=f"New DSN unreachable: {exc}",
+            ) from exc
+        finally:
+            if temp_pool is not None:
+                await temp_pool.close()
+
+        # Swap: close old pool, replace with new.
+        old_pool = self._pool
+        self._dsn = dsn
+        self._pool_kwargs = new_kwargs
+        self._pool = await asyncpg.create_pool(**self._pool_kwargs)
+        self._running = True
+        if old_pool is not None:
+            await old_pool.close()
+        logger.info("pg_pool.reload_dsn", dsn=dsn)
+
+    # ── Properties ────────────────────────────────────────────────────
 
     @property
     def pool(self) -> Any | None:
