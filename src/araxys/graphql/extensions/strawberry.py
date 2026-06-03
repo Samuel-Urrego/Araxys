@@ -10,8 +10,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from graphql.language import parse as graphql_parse
-
 from araxys.graphql.cost import calculate_cost
 
 if TYPE_CHECKING:

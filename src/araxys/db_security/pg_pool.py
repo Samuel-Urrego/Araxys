@@ -222,7 +222,10 @@ class PGPool:
                 if result != 1:
                     raise SecretRotationError(
                         "postgres",
-                        reason=f"New DSN health check failed: SELECT 1 returned {result}",
+                        reason=(
+                            "New DSN health check failed:"
+                            f" SELECT 1 returned {result}"
+                        ),
                     )
         except SecretRotationError:
             raise

@@ -158,7 +158,7 @@ class IPResolver:
             import asyncio
 
             # Ensure we're dealing with an async-compatible call
-            bulk_fn = getattr(backend, "add_bulk_to_blocklist")
+            bulk_fn = backend.add_bulk_to_blocklist
             if asyncio.iscoroutinefunction(bulk_fn):
                 for i in range(0, len(ips), BATCH_SIZE):
                     batch = ips[i : i + BATCH_SIZE]

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from araxys.core.config import FeedConfig
+if TYPE_CHECKING:
+    from araxys.core.config import FeedConfig
 
 
 @dataclass

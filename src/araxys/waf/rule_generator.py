@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from araxys.waf.schema_reader import SchemaReader
+if TYPE_CHECKING:
+    from araxys.waf.schema_reader import SchemaReader
 
 
 class WafRuleGenerator:
@@ -64,7 +65,7 @@ class WafRuleGenerator:
         ip_set = self._build_ip_set()
 
         # Build regex pattern sets — one for paths, one for methods
-        regex_sets = self._build_regex_pattern_sets(unique_paths, methods, content_types)
+        regex_sets = self._build_regex_pattern_sets(unique_paths, methods, content_types)  # noqa: E501  # noqa: E501
 
         # Build rule group
         rule_group = self._build_rule_group(regex_sets, len(unique_paths), len(methods))

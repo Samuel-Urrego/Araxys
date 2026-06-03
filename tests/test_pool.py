@@ -647,7 +647,7 @@ class TestRedisPoolReloadUrl:
             await p.close()
 
     async def test_reload_url_ping_failure_preserves_client(self) -> None:
-        """When new URL PING fails, old client is preserved and SecretRotationError is raised."""
+        """When new URL PING fails, old client is preserved and SecretRotationError is raised."""  # noqa: E501
         from unittest.mock import AsyncMock, patch
 
         from araxys.core.exceptions import SecretRotationError
@@ -670,9 +670,8 @@ class TestRedisPoolReloadUrl:
                 side_effect=lambda url, ssl_context=None: bad_client
                 if "unreachable" in url
                 else original,
-            ):
-                with pytest.raises(SecretRotationError, match="redis"):
-                    await p.reload_url("redis://unreachable:6379")
+            ), pytest.raises(SecretRotationError, match="redis"):
+                await p.reload_url("redis://unreachable:6379")
 
             # Old client is still in place
             assert p._redis is original  # noqa: SLF001
@@ -682,8 +681,8 @@ class TestRedisPoolReloadUrl:
             await p.close()
 
     async def test_reload_url_atomic_swap(self) -> None:
-        """Old client is closed, new client is swapped in place after successful reload."""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        """Old client is closed, new client is swapped in place after successful reload."""  # noqa: E501
+        from unittest.mock import AsyncMock, patch
 
         from araxys.db_security.pool import RedisPool
 
@@ -692,7 +691,6 @@ class TestRedisPoolReloadUrl:
             health_check_interval_seconds=0,
         )
         try:
-            old_client = p._redis  # noqa: SLF001
             old_client_aclose = AsyncMock()
             p._redis.aclose = old_client_aclose  # type: ignore[method-assign]  # noqa: SLF001
 
@@ -827,8 +825,6 @@ class TestRedisSentinelPoolReloadUrl:
                 health_check_interval_seconds=0,
             )
         try:
-            old_health_clone = p._health_client  # noqa: SLF001
-            old_sentinel_clone = p._sentinel  # noqa: SLF001
 
             # Mock the new sentinel for the URL swap
             new_sentinel_mock = MagicMock()
@@ -890,7 +886,7 @@ class TestRedisClusterPoolReloadUrl:
             await p.close()
 
     async def test_reload_url_ping_failure_preserves_client(self) -> None:
-        """When new URL PING fails, old client preserved and SecretRotationError raised."""
+        """When new URL PING fails, old client preserved and SecretRotationError raised."""  # noqa: E501
         from unittest.mock import AsyncMock, patch
 
         from araxys.core.exceptions import SecretRotationError

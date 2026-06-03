@@ -6,7 +6,7 @@ import asyncio
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import typer
 from rich.console import Console
@@ -195,7 +195,7 @@ def audit_headers_command(
             response = client.get(url)
     except httpx.RequestError as e:
         console.print(f"[bold red]Error fetching {url}:[/bold red] {e}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
     headers_dict = dict(response.headers)
     findings = audit_headers(headers_dict)
@@ -219,9 +219,7 @@ def audit_headers_command(
             f.detail or "",
         )
 
-        if f.status == "fail":
-            has_issues = True
-        elif f.status == "warn" and fail_on == "warn":
+        if f.status == "fail" or f.status == "warn" and fail_on == "warn":
             has_issues = True
 
     console.print(table)
@@ -288,7 +286,7 @@ def secrets_rotate(
         result = asyncio.run(_run())
     except Exception as e:
         console.print(f"[bold red]Rotation failed:[/bold red] {e}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
     console.print("[bold green]Rotation triggered successfully[/bold green]")
     for tgt, status in result.get("results", {}).items():
@@ -319,7 +317,7 @@ def secrets_status() -> None:
         data = asyncio.run(_run())
     except Exception as e:
         console.print(f"[bold red]Failed to fetch status:[/bold red] {e}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
     # Configuration panel
     enabled_text = (

@@ -1,7 +1,5 @@
 """Tests for GraphQL security middleware ASGI integration."""
 
-import asyncio
-import json
 
 import pytest
 from fastapi import FastAPI

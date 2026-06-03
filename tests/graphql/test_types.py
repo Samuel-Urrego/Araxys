@@ -32,11 +32,11 @@ class TestGraphQLSecurityConfig:
     def test_depth_limit_ge_1(self) -> None:
         import pytest
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017  # noqa: B017
             GraphQLSecurityConfig(depth_limit=0)
 
     def test_breadth_limit_ge_1(self) -> None:
         import pytest
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017  # noqa: B017
             GraphQLSecurityConfig(breadth_limit=0)

@@ -59,9 +59,8 @@ class AuditHeadersMiddleware(BaseHTTPMiddleware):
                 return response
 
         # Sampling
-        if self._sample_rate < 1.0:
-            if random.random() > self._sample_rate:
-                return response
+        if self._sample_rate < 1.0 and random.random() > self._sample_rate:
+            return response
 
         # Audit headers
         headers_dict = dict(response.headers)

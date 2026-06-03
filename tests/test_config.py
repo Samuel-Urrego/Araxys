@@ -1022,9 +1022,10 @@ class TestSecretsRotationConfig:
 
     def test_min_interval_30s(self) -> None:
         import pytest
+
         from araxys.core.config import SecretsRotationConfig
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             SecretsRotationConfig(interval_seconds=0)
 
     def test_disabled_by_default(self) -> None:

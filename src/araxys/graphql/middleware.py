@@ -11,9 +11,10 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from starlette.responses import JSONResponse
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 if TYPE_CHECKING:
+    from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
     from araxys.graphql.config import GraphQLSecurityConfig
     from araxys.webhooks.emitter import SecurityEventBus
 
@@ -210,12 +211,9 @@ def _calculate_cost(document: Any) -> float:
 def _query_depth(document: Any) -> int:
     """Calculate the maximum nesting depth of a GraphQL document."""
     from graphql.language import (
-        FieldNode,
-        FragmentSpreadNode,
-        InlineFragmentNode,
+        FragmentDefinitionNode,
         OperationDefinitionNode,
     )
-    from graphql.language import FragmentDefinitionNode
 
     fragments: dict[str, Any] = {}
     for definition in getattr(document, "definitions", []):
@@ -259,23 +257,20 @@ def _calc_depth(
                     frag.selection_set, fragments, current + 1
                 )
                 max_child = max(max_child, child_depth)
-        elif isinstance(sel, InlineFragmentNode):
-            if sel.selection_set:
-                child_depth = _calc_depth(
-                    sel.selection_set, fragments, current + 1
-                )
-                max_child = max(max_child, child_depth)
+        elif isinstance(sel, InlineFragmentNode) and sel.selection_set:
+            child_depth = _calc_depth(
+                sel.selection_set, fragments, current + 1
+            )
+            max_child = max(max_child, child_depth)
     return max_child
 
 
 def _query_breadth(document: Any) -> int:
     """Calculate the maximum selection set breadth of a GraphQL document."""
     from graphql.language import (
-        FragmentSpreadNode,
-        InlineFragmentNode,
+        FragmentDefinitionNode,
         OperationDefinitionNode,
     )
-    from graphql.language import FragmentDefinitionNode
 
     fragments: dict[str, Any] = {}
     for definition in getattr(document, "definitions", []):
@@ -326,9 +321,8 @@ def _is_introspection(document: Any) -> bool:
     for definition in getattr(document, "definitions", []):
         if hasattr(definition, "selection_set"):
             for sel in _iter_fields(definition.selection_set):
-                if isinstance(sel, FieldNode):
-                    if sel.name.value.startswith("__"):
-                        return True
+                if isinstance(sel, FieldNode) and sel.name.value.startswith("__"):  # noqa: SIM102
+                    return True
     return False
 
 

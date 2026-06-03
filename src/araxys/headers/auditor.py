@@ -7,7 +7,7 @@ a specific header and returns an :class:`AuditFinding` dataclass.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -241,7 +241,7 @@ def _audit_xss_protection(headers: dict[str, str]) -> AuditFinding:
         status="warn",
         found_value=value,
         severity="low",
-        detail="X-XSS-Protection is enabled. Consider disabling (0) and relying on CSP.",
+        detail="X-XSS-Protection is enabled. Consider disabling (0) and relying on CSP.",  # noqa: E501  # noqa: E501
         recommended_value="0",
     )
 

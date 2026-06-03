@@ -8,6 +8,7 @@ controlled via the ``threat-intel`` CLI.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -101,10 +102,8 @@ class ThreatIntelScheduler:
         self._running = False
         if self._task is not None and not self._task.done():
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         self._task = None
 
     # ── Background loop ──────────────────────────────────────────────────

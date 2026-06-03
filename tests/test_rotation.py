@@ -8,20 +8,16 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
 
-from araxys.core.config import DatabaseSecurityConfig, RedisPoolConfig, \
-    SecretsRotationConfig, TLSConfig, QueryAuditConfig
-from araxys.core.types import SecurityEvent, SecurityEventType
+from araxys.core.config import (
+    SecretsRotationConfig,
+)
+from araxys.core.types import SecurityEventType
 from araxys.db_security.manager import DatabaseSecurityManager
 from araxys.db_security.pool import ConnectionPool
-
-if TYPE_CHECKING:
-    pass
-
 
 # =============================================================================
 # Task 3.2 — Scheduler lifecycle tests (RED)
@@ -272,7 +268,9 @@ class TestRotationLoop:
             call for call in event_bus.emit.call_args_list
             if call[0][0].event_type == SecurityEventType.SECRET_ROTATION_FAILED
         ]
-        assert len(fail_events) >= 1, "Expected at least one SECRET_ROTATION_FAILED event"
+        assert len(fail_events) >= 1, (
+            "Expected at least one SECRET_ROTATION_FAILED event"
+        )
 
         # The scheduler should still be running (not crashed)
         assert scheduler._task is not None

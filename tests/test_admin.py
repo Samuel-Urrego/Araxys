@@ -10,8 +10,6 @@ from httpx import ASGITransport, AsyncClient
 
 from araxys.core.config import (
     AraxysConfig,
-    DatabaseSecurityConfig,
-    RedisPoolConfig,
     SecretsRotationConfig,
     SessionConfig,
 )
@@ -145,7 +143,6 @@ async def rotation_admin_setup() -> tuple[FastAPI, str, object]:
     Creates a minimal shield, then manually attaches a mock SecretsRotationScheduler
     to enable the /admin/secrets endpoints without requiring real Redis.
     """
-    import asyncio
 
     app = FastAPI()
     config = AraxysConfig(secret_key="test-key-32-chars-long!!!!!!!!!!!!")
@@ -154,7 +151,6 @@ async def rotation_admin_setup() -> tuple[FastAPI, str, object]:
 
     # Manually attach a fake rotation scheduler
     from araxys.db_security.rotation import SecretsRotationScheduler
-    from unittest.mock import MagicMock
 
     mock_manager = MagicMock()
     mock_resolver = MagicMock()
@@ -274,7 +270,6 @@ class TestSecretsRotationAdmin:
 
     async def test_secrets_endpoints_require_admin(self) -> None:
         """Secrets endpoints return 401/403 without valid admin credentials."""
-        import asyncio
 
         app = FastAPI()
         config = AraxysConfig(secret_key="test-key-32-chars-long!!!!!!!!!!!!")
@@ -283,7 +278,6 @@ class TestSecretsRotationAdmin:
 
         # Manually attach a fake scheduler (no Redis needed)
         from araxys.db_security.rotation import SecretsRotationScheduler
-        from unittest.mock import MagicMock
 
         scheduler = SecretsRotationScheduler(
             manager=MagicMock(),

@@ -203,7 +203,7 @@ class TestWebhookDelivery:
         )
         await bus.emit(event)
         # Give the fire-and-forget asyncio.create_task time to execute.
-        # This can be tight under heavy test-suite load — generous wait prevents flakiness.
+        # This prevents flakiness under heavy test-suite load.
         for _ in range(20):
             if mock_post.await_count > 0:
                 break

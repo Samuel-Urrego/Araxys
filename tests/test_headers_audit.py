@@ -320,7 +320,7 @@ class TestAuditConfig:
 
         from araxys.headers.config import AuditConfig
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017  # noqa: B017
             AuditConfig(sample_rate=-0.1)
 
     def test_sample_rate_le_1(self) -> None:
@@ -328,5 +328,5 @@ class TestAuditConfig:
 
         from araxys.headers.config import AuditConfig
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017  # noqa: B017
             AuditConfig(sample_rate=1.1)

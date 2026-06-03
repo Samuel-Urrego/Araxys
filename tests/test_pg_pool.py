@@ -127,7 +127,7 @@ class TestPGPoolReloadDsn:
                 await pool.shutdown()
 
     async def test_reload_dsn_ping_failure_preserves_pool(self) -> None:
-        """When new DSN PING fails, old pool is preserved and SecretRotationError raised."""
+        """When new DSN PING fails, old pool is preserved and SecretRotationError raised."""  # noqa: E501
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from araxys.core.exceptions import SecretRotationError
@@ -165,7 +165,7 @@ class TestPGPoolReloadDsn:
                 await pool.shutdown()
 
     async def test_reload_dsn_prewarms_min_size(self) -> None:
-        """Successful reload creates new pool with min_size connections and closes old."""
+        """Successful reload creates new pool with min_size connections and closes old."""  # noqa: E501
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from araxys.db_security.pg_pool import PGPool
@@ -210,7 +210,7 @@ class TestPGPoolReloadDsn:
                 assert pool._pool is new_pool  # noqa: SLF001
                 # New DSN stored
                 assert pool._dsn == "postgresql://newhost/test"
-                # Second create_pool call was made (temp for validation + permanent = 2 more)
+                # Second create_pool call was made (temp + permanent = 2 more)
                 assert create_pool_calls[0] == 3
                 # Third call (permanent pool) used min_size from original config
                 new_pool_kwargs = created_pools[2]

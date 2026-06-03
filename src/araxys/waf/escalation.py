@@ -8,13 +8,11 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from araxys.core.config import WafEscalationConfig
-from araxys.core.types import SecurityEvent, SecurityEventType
-
 if TYPE_CHECKING:
-    from araxys.webhooks.emitter import SecurityEventBus
-
+    from araxys.core.config import WafEscalationConfig
+    from araxys.core.types import SecurityEvent
     from araxys.waf.aws_client import WafClient
+    from araxys.webhooks.emitter import SecurityEventBus
 
 logger = structlog.get_logger("araxys.waf.escalation")
 

@@ -78,7 +78,10 @@ class SecretsRotationScheduler:
         if self._task is not None and not self._task.done():
             return
         self._task = asyncio.create_task(self._run())
-        logger.info("rotation_scheduler.started", interval=self._config.interval_seconds)
+        logger.info(
+            "rotation_scheduler.started",
+            interval=self._config.interval_seconds,
+        )
 
     def stop(self) -> None:
         """Cancel the background task and wait for graceful exit."""
@@ -209,7 +212,10 @@ class SecretsRotationScheduler:
                 logger.critical(
                     "rotation_scheduler.fail_closed",
                     target=target,
-                    msg=f"fail_closed=True — stopping scheduler after failure for '{target}'",
+                    msg=(
+                        "fail_closed=True — stopping scheduler after failure"
+                        f" for '{target}'"
+                    ),
                 )
                 if self._task is not None:
                     self._task.cancel()

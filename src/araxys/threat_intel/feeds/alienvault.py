@@ -6,10 +6,14 @@ IPv4 indicators.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import httpx
 
-from araxys.core.config import FeedConfig
 from araxys.threat_intel.feeds import FeedResult
+
+if TYPE_CHECKING:
+    from araxys.core.config import FeedConfig
 
 
 class AlienVaultFeedFetcher:
