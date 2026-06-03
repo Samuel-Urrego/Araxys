@@ -48,7 +48,7 @@ class TestThreatIntelConfig:
         """Setting a FeedConfig dict on a feed enables it."""
         c = ThreatIntelConfig(
             firehol_level1={"enabled": True},
-        )  # type: ignore[arg-type]
+        )  # type: ignore[arg-type]  # noqa: E501
         assert c.firehol_level1 is not None
         assert c.firehol_level1.enabled is True
         assert c.firehol_level1.refresh_interval_seconds == 3600  # default
@@ -59,7 +59,7 @@ class TestThreatIntelConfig:
         c = ThreatIntelConfig(
             spamhaus_drop={"enabled": True, "ttl_seconds": 86400},
             blocklist_de={"enabled": True, "refresh_interval_seconds": 600},
-        )  # type: ignore[arg-type]
+        )
         assert c.spamhaus_drop is not None
         assert c.spamhaus_drop.enabled is True
         assert c.spamhaus_drop.ttl_seconds == 86400
@@ -97,7 +97,7 @@ class TestThreatIntelConfig:
             firehol_level1={"enabled": True},
             blocklist_de={"enabled": True},
             abuseipdb={"enabled": True, "api_key": "test-key"},
-        )  # type: ignore[arg-type]
+        )
         feeds = c.enabled_feeds()
         assert len(feeds) == 3
         feed_names = [f["name"] for f in feeds]
@@ -109,7 +109,7 @@ class TestThreatIntelConfig:
         c = ThreatIntelConfig(
             firehol_level1={"enabled": True},
             spamhaus_drop={"enabled": False},
-        )  # type: ignore[arg-type]
+        )
         feeds = c.enabled_feeds()
         assert len(feeds) == 1
         assert feeds[0]["name"] == "firehol_level1"

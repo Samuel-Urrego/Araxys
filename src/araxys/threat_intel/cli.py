@@ -15,7 +15,7 @@ from rich.console import Console
 from rich.table import Table
 
 if hasattr(typer, "Option"):
-    Option = typer.Option  # type: ignore[misc]
+    Option = typer.Option
 else:
     from typing import Annotated as _Annotated
 

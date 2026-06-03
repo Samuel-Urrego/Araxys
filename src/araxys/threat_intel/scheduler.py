@@ -191,7 +191,8 @@ class ThreatIntelScheduler:
                     "last_fetch": None,
                 }
             cnt = per_feed[fn].get("ip_count", 0)
-            per_feed[fn]["ip_count"] = int(cnt) + 1  # type: ignore[operator]
+            if isinstance(cnt, (int, str)):
+                per_feed[fn]["ip_count"] = int(cnt) + 1
 
         return {
             "total_ips": len(self._resolver._seen_ips),
@@ -234,7 +235,7 @@ class ThreatIntelScheduler:
 
         # Fetch
         try:
-            result = await feed.fetch(feed_cfg)
+            result = await feed.fetch(feed_cfg)  # type: ignore[arg-type]
         except Exception as exc:
             logger.warning(
                 "threat_intel.fetch_exception",
