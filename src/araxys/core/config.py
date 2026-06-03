@@ -14,6 +14,8 @@ from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings
 
 from araxys.core.exceptions import ConfigurationError
+from araxys.graphql.config import GraphQLSecurityConfig  # noqa: TC001
+from araxys.headers.config import AuditConfig as HeadersAuditConfig  # noqa: TC001
 from araxys.websocket.config import WebSocketConfig  # noqa: TC001
 from araxys.xxe.config import XXEConfig  # noqa: TC001
 
@@ -1210,6 +1212,39 @@ class AccountProtectionConfig(BaseModel):
     )
 
 
+class SecretsRotationConfig(BaseModel):
+    """Configuration for dynamic secrets rotation.
+
+    When ``None`` on :class:`AraxysConfig`, the rotation feature is disabled.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable dynamic secrets rotation (master switch)",
+    )
+    interval_seconds: int = Field(
+        default=300,
+        ge=30,
+        description="Rotation interval in seconds (default 5 min)",
+    )
+    targets: list[str] = Field(
+        default_factory=lambda: ["redis", "postgres"],
+        description="Secret targets to rotate (e.g. redis, postgres, vault)",
+    )
+    fail_closed: bool = Field(
+        default=False,
+        description=(
+            "If True, a rotation failure prevents the next credential "
+            "resolution and raises an error. If False (default), the "
+            "last valid credentials are reused."
+        ),
+    )
+    emit_events: bool = Field(
+        default=True,
+        description="Emit rotation events to the security event bus",
+    )
+
+
 class AraxysConfig(BaseSettings):
     """Master configuration for the Araxys security shield.
 
@@ -1295,4 +1330,19 @@ class AraxysConfig(BaseSettings):
             "Normalizes auth error messages and timing to prevent "
             "username/identifier enumeration attacks."
         ),
+    )
+    # v0.14 — GraphQL Security
+    graphql_security: GraphQLSecurityConfig | None = Field(
+        default=None,
+        description="GraphQL security config (None = feature disabled)",
+    )
+    # v0.14 — Security Headers Audit
+    headers_audit: HeadersAuditConfig | None = Field(
+        default=None,
+        description="Security headers audit config (None = feature disabled)",
+    )
+    # v0.14 — Dynamic Secrets Rotation
+    rotation: SecretsRotationConfig | None = Field(
+        default=None,
+        description="Dynamic secrets rotation config (None = feature disabled)",
     )

@@ -14,6 +14,7 @@ from rich.table import Table
 from araxys.api_keys.manager import APIKeyManager
 from araxys.api_keys.storage import RedisAPIKeyStorage
 from araxys.core.types import Scope
+from araxys.headers.auditor import audit_headers
 
 if TYPE_CHECKING:
     from araxys.api_keys.models import APIKeyRecord, APIKeyResponse
@@ -140,6 +141,73 @@ def revoke_key(
         console.print(f"[bold green]✅ Key {prefix} has been revoked.[/bold green]")
     else:
         console.print(f"[bold red]❌ Key {prefix} not found.[/bold red]")
+
+
+audit_headers_app = typer.Typer(help="🔍 Audit HTTP response security headers")
+app.add_typer(audit_headers_app, name="audit-headers")
+
+
+@audit_headers_app.command("check")
+def audit_headers_command(
+    url: str = typer.Argument(..., help="URL to audit (e.g. https://example.com)"),
+    fail_on: str = typer.Option(
+        "fail",
+        "--fail-on",
+        help="Minimum severity to fail on: warn or fail",
+    ),
+) -> None:
+    """Audit security headers of a remote URL.
+
+    Fetches the URL, extracts response headers, and checks them against
+    OWASP security header recommendations.
+    """
+    import httpx
+
+    console.print(f"[bold]Auditing headers for:[/bold] {url}")
+    try:
+        with httpx.Client(follow_redirects=True, timeout=10) as client:
+            response = client.get(url)
+    except httpx.RequestError as e:
+        console.print(f"[bold red]Error fetching {url}:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+    headers_dict = dict(response.headers)
+    findings = audit_headers(headers_dict)
+
+    table = Table(title=f"Security Headers Audit — {url}")
+    table.add_column("Header", style="cyan")
+    table.add_column("Status", style="bold")
+    table.add_column("Found Value", style="dim")
+    table.add_column("Detail", style="yellow")
+
+    has_issues = False
+    for f in findings:
+        status_color = "green" if f.status == "pass" else (
+            "yellow" if f.status == "warn" else "red"
+        )
+        status_text = f"[{status_color}]{f.status.upper()}[/{status_color}]"
+        table.add_row(
+            f.header_name,
+            status_text,
+            f.found_value or "—",
+            f.detail or "",
+        )
+
+        if f.status == "fail":
+            has_issues = True
+        elif f.status == "warn" and fail_on == "warn":
+            has_issues = True
+
+    console.print(table)
+
+    if has_issues:
+        console.print(
+            "[bold red]Issues found![/bold red] "
+            "Review the findings above."
+        )
+        raise typer.Exit(code=1)
+    else:
+        console.print("[bold green]All checks passed![/bold green]")
 
 
 if __name__ == "__main__":

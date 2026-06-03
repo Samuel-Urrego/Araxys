@@ -68,6 +68,15 @@ class SecurityEventType(StrEnum):
     # v0.13 — XXE Protection
     XXE_DETECTED = "xxe_detected"
     ACCOUNT_ENUMERATION_DETECTED = "account_enumeration_detected"
+    # v0.14 — GraphQL Security
+    GRAPHQL_BLOCKED = "graphql_blocked"
+    # v0.14 — Security Headers Audit
+    HEADER_AUDIT_WARNING = "header_audit_warning"
+    HEADER_AUDIT_FAIL = "header_audit_fail"
+    # v0.14 — Dynamic Secrets Rotation
+    SECRET_ROTATING = "secret_rotating"
+    SECRET_ROTATED = "secret_rotated"
+    SECRET_ROTATION_FAILED = "secret_rotation_failed"
 
 
 @dataclass(frozen=True, slots=True)
