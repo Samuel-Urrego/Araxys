@@ -236,6 +236,133 @@ def audit_headers_command(
         console.print("[bold green]All checks passed![/bold green]")
 
 
+# ── v0.14 — Secrets Rotation CLI ────────────────────────────────────────────
+
+secrets_app = typer.Typer(
+    help="Manage dynamic secrets rotation",
+    no_args_is_help=True,
+)
+app.add_typer(secrets_app, name="secrets")
+
+
+def _get_secrets_client() -> tuple[str, str]:
+    """Get API key and base URL from environment variables."""
+    api_key = os.getenv("ARAXYS_API_KEY")
+    if not api_key:
+        console.print(
+            "[bold red]Error:[/bold red] ARAXYS_API_KEY environment variable not set."
+        )
+        raise typer.Exit(code=1)
+    base_url = os.getenv("ARAXYS_BASE_URL", "http://localhost:8000")
+    return (api_key, base_url)
+
+
+@secrets_app.command("rotate")
+def secrets_rotate(
+    target: str | None = typer.Option(
+        None, "--target", "-t",
+        help="Specific target to rotate (e.g. redis, postgres). "
+             "If not set, all configured targets are rotated.",
+    ),
+) -> None:
+    """Manually trigger secrets rotation for one or all targets."""
+    import httpx
+
+    api_key, base_url = _get_secrets_client()
+
+    body: dict[str, list[str]] = {"targets": [target] if target else []}
+
+    async def _run() -> dict[str, Any]:
+        async with httpx.AsyncClient(
+            base_url=base_url, timeout=30.0,
+        ) as client:
+            resp = await client.post(
+                "/admin/secrets/rotate",
+                json=body,
+                headers={"X-API-Key": api_key},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    try:
+        result = asyncio.run(_run())
+    except Exception as e:
+        console.print(f"[bold red]Rotation failed:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+    console.print("[bold green]Rotation triggered successfully[/bold green]")
+    for tgt, status in result.get("results", {}).items():
+        color = "green" if status == "ok" else "red"
+        icon = "\u2705" if status == "ok" else "\u274c"
+        console.print(f"  {icon} [{color}]{tgt}: {status}[/{color}]")
+
+
+@secrets_app.command("status")
+def secrets_status() -> None:
+    """Show secrets rotation configuration and per-target stats."""
+    import httpx
+
+    api_key, base_url = _get_secrets_client()
+
+    async def _run() -> dict[str, Any]:
+        async with httpx.AsyncClient(
+            base_url=base_url, timeout=30.0,
+        ) as client:
+            resp = await client.get(
+                "/admin/secrets/status",
+                headers={"X-API-Key": api_key},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    try:
+        data = asyncio.run(_run())
+    except Exception as e:
+        console.print(f"[bold red]Failed to fetch status:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+    # Configuration panel
+    enabled_text = (
+        "[green]Yes[/green]" if data["enabled"]
+        else "[red]No[/red]"
+    )
+    console.print(
+        Panel.fit(
+            f"[bold]Enabled:[/bold] {enabled_text}\n"
+            f"[bold]Interval:[/bold] {data['interval_seconds']}s\n"
+            f"[bold]Targets:[/bold] {', '.join(data['targets'])}",
+            title="Secrets Rotation Config",
+            border_style="blue",
+        )
+    )
+
+    # Per-target stats table
+    table = Table(title="Per-Target Rotation Stats", header_style="bold magenta")
+    table.add_column("Target", style="cyan")
+    table.add_column("Rotations", justify="right")
+    table.add_column("Failures", justify="right", style="red")
+    table.add_column("Last Success", style="green")
+    table.add_column("Last Error", style="yellow")
+
+    per_target: dict[str, dict[str, Any]] = data.get("per_target", {})
+    for tgt, stats in per_target.items():
+        last_success = (
+            f"{stats['last_success']:.2f}s" if stats["last_success"] else "\u2014"
+        )
+        last_error = (
+            f"{stats['last_error']:.2f}s" if stats["last_error"] else "\u2014"
+        )
+        table.add_row(
+            tgt,
+            str(stats.get("rotations", 0)),
+            str(stats.get("failures", 0)),
+            last_success,
+            last_error,
+        )
+
+    console.print(table)
+
+
 # ---------------------------------------------------------------------------
 # AWS WAF Bridge commands
 # ---------------------------------------------------------------------------

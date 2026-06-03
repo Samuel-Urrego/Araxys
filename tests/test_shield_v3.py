@@ -12,6 +12,7 @@ Tests cover:
 - Middleware chain order correct (check app middleware stack)
 - Metrics endpoint mounted when enabled
 - Webhook delivery subscribed when enabled
+- v0.14 — rotation scheduler creation + shutdown
 """
 
 from __future__ import annotations
@@ -28,8 +29,11 @@ from araxys.core.config import (
     BruteForceConfig,
     CORSConfig,
     CSRFConfig,
+    DatabaseSecurityConfig,
     IPControlConfig,
     MetricsConfig,
+    RedisPoolConfig,
+    SecretsRotationConfig,
     SessionConfig,
     TelemetryConfig,
     WebhookConfig,
@@ -335,3 +339,90 @@ class TestShieldPoolAccessor:
         assert hasattr(pool, "get_redis_client")
         client = pool.get_redis_client()
         assert client is not None
+
+
+# ── v0.14 — Dynamic Secrets Rotation Scheduler ─────────────────────────────
+
+
+class TestRotationSchedulerWiring:
+    """Shield creates and manages SecretsRotationScheduler."""
+
+    @pytest.fixture
+    def rotation_config(self) -> AraxysConfig:
+        """Config with db_security + rotation enabled."""
+        return AraxysConfig(
+            secret_key="test-secret-key-1234567890abcdef",
+            db_security=DatabaseSecurityConfig(
+                enabled=True,
+                redis_pool=RedisPoolConfig(url="redis://localhost:6379"),
+            ),
+            rotation=SecretsRotationConfig(
+                enabled=True,
+                interval_seconds=60,
+                targets=["redis"],
+            ),
+        )
+
+    @pytest.fixture
+    def rotation_disabled_config(self) -> AraxysConfig:
+        """Config with db_security but no rotation."""
+        return AraxysConfig(
+            secret_key="test-secret-key-1234567890abcdef",
+            db_security=DatabaseSecurityConfig(
+                enabled=True,
+                redis_pool=RedisPoolConfig(url="redis://localhost:6379"),
+            ),
+            rotation=SecretsRotationConfig(enabled=False),
+        )
+
+    async def test_rotation_enabled_creates_scheduler(
+        self, rotation_config: AraxysConfig,
+    ) -> None:
+        """Shield creates _rotation_scheduler when rotation.enabled=True."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, rotation_config)
+        assert shield._rotation_scheduler is not None  # noqa: SLF001
+        # Verify it has the expected API
+        scheduler = shield._rotation_scheduler  # noqa: SLF001
+        assert hasattr(scheduler, "start")
+        assert hasattr(scheduler, "stop")
+        assert hasattr(scheduler, "rotate_targets")
+        assert hasattr(scheduler, "stats")
+
+    def test_rotation_disabled_no_scheduler(
+        self, rotation_disabled_config: AraxysConfig,
+    ) -> None:
+        """Shield does NOT create scheduler when rotation is disabled."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, rotation_disabled_config)
+        assert shield._rotation_scheduler is None  # noqa: SLF001
+
+    def test_rotation_none_no_scheduler(
+        self, minimal_config: AraxysConfig,
+    ) -> None:
+        """Shield does NOT create scheduler when rotation config is None."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, minimal_config)
+        assert shield._rotation_scheduler is None  # noqa: SLF001
+
+    async def test_shutdown_stops_scheduler(
+        self, rotation_config: AraxysConfig,
+    ) -> None:
+        """Shield.shutdown() calls scheduler.stop()."""
+        app = FastAPI()
+        from araxys import AraxysShield
+
+        shield = AraxysShield(app, rotation_config)
+        scheduler = shield._rotation_scheduler  # noqa: SLF001
+        assert scheduler is not None
+
+        # Patch stop() to verify it's called
+        with patch.object(scheduler, "stop", wraps=scheduler.stop) as mock_stop:
+            await shield.shutdown()
+            mock_stop.assert_called_once()

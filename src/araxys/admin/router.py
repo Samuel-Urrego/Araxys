@@ -312,6 +312,60 @@ def create_admin_router(
 
         return stats
 
+    # ── v0.14 — Secrets Rotation ─────────────────────────────────
+
+    @router.post("/secrets/rotate")
+    async def secrets_rotate(body: dict[str, Any]) -> dict[str, Any]:
+        """Manually trigger secrets rotation for one or more targets.
+
+        Request body: ``{"targets": ["redis", "postgres"]}``
+        """
+        scheduler = getattr(shield, "_rotation_scheduler", None)
+        if scheduler is None:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                "Secrets rotation is not enabled — configure rotation in AraxysConfig",
+            )
+
+        targets: list[str] = body.get("targets", [])
+        if not targets:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Missing required field: targets",
+            )
+
+        # Execute rotation for each target, collecting results
+        results: dict[str, str] = {}
+        for target in targets:
+            try:
+                await scheduler.rotate_targets([target])
+                results[target] = "ok"
+            except Exception:
+                results[target] = "error"
+
+        return {
+            "status": "completed",
+            "results": results,
+        }
+
+    @router.get("/secrets/status")
+    async def secrets_status() -> dict[str, Any]:
+        """Return secrets rotation configuration and per-target stats."""
+        scheduler = getattr(shield, "_rotation_scheduler", None)
+        if scheduler is None:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                "Secrets rotation is not enabled — configure rotation in AraxysConfig",
+            )
+
+        target_stats = scheduler.stats()
+        return {
+            "enabled": True,
+            "interval_seconds": scheduler._config.interval_seconds,  # noqa: SLF001
+            "targets": list(target_stats.keys()),
+            "per_target": target_stats,
+        }
+
     return router
 
 
