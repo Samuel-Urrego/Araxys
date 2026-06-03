@@ -614,6 +614,369 @@ class TestRedisSentinelPool:
 # ── v0.9 — RedisClusterPool (Task 4.3) ──────────────────────────────────────
 
 
+# ── v0.14 — Dynamic Secrets Rotation: Pool Reload ──────────────────────────
+
+
+class TestRedisPoolReloadUrl:
+    """Tests for RedisPool.reload_url() (PR 2 Pool Reload — Task 2.2)."""
+
+    async def test_reload_url_same_url_is_noop(self) -> None:
+        """Same URL skips reload — no client swap, no close, no lock contention."""
+        from unittest.mock import AsyncMock
+
+        from araxys.db_security.pool import RedisPool
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            health_check_interval_seconds=0,
+        )
+        try:
+            original = p._redis  # noqa: SLF001
+            original_aclose = AsyncMock()
+            p._redis.aclose = original_aclose  # type: ignore[method-assign]  # noqa: SLF001
+
+            await p.reload_url("redis://localhost:6379")
+
+            # Client unchanged
+            assert p._redis is original  # noqa: SLF001
+            # Old client was NOT closed
+            original_aclose.assert_not_awaited()
+            # URL unchanged
+            assert p.url == "redis://localhost:6379"
+        finally:
+            await p.close()
+
+    async def test_reload_url_ping_failure_preserves_client(self) -> None:
+        """When new URL PING fails, old client is preserved and SecretRotationError is raised."""
+        from unittest.mock import AsyncMock, patch
+
+        from araxys.core.exceptions import SecretRotationError
+        from araxys.db_security.pool import RedisPool
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            health_check_interval_seconds=0,
+        )
+        try:
+            original = p._redis  # noqa: SLF001
+
+            # Make Redis.from_url return a mock that fails on PING for the new URL
+            bad_client = AsyncMock()
+            bad_client.ping = AsyncMock(side_effect=OSError("Connection refused"))
+            bad_client.aclose = AsyncMock()
+
+            with patch(
+                "araxys.db_security.pool.Redis.from_url",
+                side_effect=lambda url, ssl_context=None: bad_client
+                if "unreachable" in url
+                else original,
+            ):
+                with pytest.raises(SecretRotationError, match="redis"):
+                    await p.reload_url("redis://unreachable:6379")
+
+            # Old client is still in place
+            assert p._redis is original  # noqa: SLF001
+            # URL unchanged
+            assert p.url == "redis://localhost:6379"
+        finally:
+            await p.close()
+
+    async def test_reload_url_atomic_swap(self) -> None:
+        """Old client is closed, new client is swapped in place after successful reload."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from araxys.db_security.pool import RedisPool
+
+        p = RedisPool(
+            url="redis://localhost:6379",
+            health_check_interval_seconds=0,
+        )
+        try:
+            old_client = p._redis  # noqa: SLF001
+            old_client_aclose = AsyncMock()
+            p._redis.aclose = old_client_aclose  # type: ignore[method-assign]  # noqa: SLF001
+
+            # Simulate the temp client (for pre-swap PING validation)
+            temp_client = AsyncMock()
+            temp_client.ping = AsyncMock(return_value=True)
+            temp_client.aclose = AsyncMock()
+
+            # The permanent new client that replaces self._redis after swap
+            new_client = AsyncMock()
+            new_client.ping = AsyncMock(return_value=True)
+            new_client.aclose = AsyncMock()
+
+            call_count = [0]
+
+            def from_url_side_effect(url: str, ssl_context=None) -> object:
+                # First call: temp client for PING validation (outside lock)
+                # Second call: permanent client inside lock
+                if call_count[0] == 0:
+                    call_count[0] += 1
+                    return temp_client
+                else:
+                    return new_client
+
+            with patch(
+                "araxys.db_security.pool.Redis.from_url",
+                side_effect=from_url_side_effect,
+            ):
+                await p.reload_url("redis://newhost:6380")
+
+            # Old client was closed
+            old_client_aclose.assert_awaited_once()
+            # New client is in place
+            assert p._redis is new_client  # noqa: SLF001
+            # URL updated
+            assert p.url == "redis://newhost:6380"
+            # Pool is not closed
+            assert p._closed is False  # noqa: SLF001
+            # Temp client was also closed after validation
+            temp_client.aclose.assert_awaited_once()
+        finally:
+            await p.close()
+
+
+# ── v0.14 — Sentinel/Cluster/InMemory reload_url ────────────────────────────
+
+
+class TestRedisSentinelPoolReloadUrl:
+    """Tests for RedisSentinelPool.reload_url() (Task 2.9)."""
+
+    async def test_reload_url_same_url_is_noop(self) -> None:
+        """Same sentinel URL skips reload — no client swap."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from araxys.db_security.pool import RedisSentinelPool
+
+        sentinel_mock = MagicMock()
+        health_client = AsyncMock()
+        health_client.ping = AsyncMock(return_value=True)
+        sentinel_mock.master_for.return_value = health_client
+
+        with patch(
+            "araxys.db_security.pool.Sentinel", return_value=sentinel_mock,
+        ):
+            p = RedisSentinelPool(
+                sentinels=[("localhost", 26379)],
+                master_name="mymaster",
+                health_check_interval_seconds=0,
+            )
+        try:
+            original_sentinel = p._sentinel  # noqa: SLF001
+            await p.reload_url(
+                "sentinel://localhost:26379?master=mymaster",
+            )
+            # Sentinel unchanged
+            assert p._sentinel is original_sentinel  # noqa: SLF001
+        finally:
+            await p.close()
+
+    async def test_reload_url_ping_failure_preserves_state(self) -> None:
+        """When new URL PING fails, old sentinel is preserved and error raised."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from araxys.core.exceptions import SecretRotationError
+        from araxys.db_security.pool import RedisSentinelPool
+
+        sentinel_mock = MagicMock()
+        health_client = AsyncMock()
+        health_client.ping = AsyncMock(return_value=True)
+        sentinel_mock.master_for.return_value = health_client
+
+        with patch(
+            "araxys.db_security.pool.Sentinel", return_value=sentinel_mock,
+        ):
+            p = RedisSentinelPool(
+                sentinels=[("localhost", 26379)],
+                master_name="mymaster",
+                health_check_interval_seconds=0,
+            )
+        try:
+            original_sentinel = p._sentinel  # noqa: SLF001
+
+            with pytest.raises(SecretRotationError, match="redis-sentinel"):
+                # New URL's host is unreachable — Sentinel will fail PING
+                await p.reload_url(
+                    "sentinel://unreachable:9999?master=mymaster",
+                )
+
+            # Old sentinel still in place
+            assert p._sentinel is original_sentinel  # noqa: SLF001
+        finally:
+            await p.close()
+
+    async def test_reload_url_atomic_swap(self) -> None:
+        """Old sentinel closed, new sentinel swapped in after successful reload."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from araxys.db_security.pool import RedisSentinelPool
+
+        old_sentinel_mock = MagicMock()
+        old_health = AsyncMock()
+        old_health.ping = AsyncMock(return_value=True)
+        old_health.aclose = AsyncMock()
+        old_sentinel_mock.master_for.return_value = old_health
+
+        with patch(
+            "araxys.db_security.pool.Sentinel", return_value=old_sentinel_mock,
+        ):
+            p = RedisSentinelPool(
+                sentinels=[("localhost", 26379)],
+                master_name="mymaster",
+                health_check_interval_seconds=0,
+            )
+        try:
+            old_health_clone = p._health_client  # noqa: SLF001
+            old_sentinel_clone = p._sentinel  # noqa: SLF001
+
+            # Mock the new sentinel for the URL swap
+            new_sentinel_mock = MagicMock()
+            new_health = AsyncMock()
+            new_health.ping = AsyncMock(return_value=True)
+            new_health.aclose = AsyncMock()
+            new_sentinel_mock.master_for.return_value = new_health
+
+            with patch(
+                "araxys.db_security.pool.Sentinel", return_value=new_sentinel_mock,
+            ):
+                await p.reload_url(
+                    "sentinel://newhost:26380?master=newmaster",
+                )
+
+            # Old health client was closed
+            old_health.aclose.assert_awaited_once()
+            # New sentinel is in place
+            assert p._sentinel is new_sentinel_mock  # noqa: SLF001
+            # New health client is in place
+            assert p._health_client is new_health  # noqa: SLF001
+            # Sentinel nodes updated
+            assert p.sentinels == [("newhost", 26380)]
+            # Master name updated
+            assert p.master_name == "newmaster"
+            # Pool not closed
+            assert p._closed is False  # noqa: SLF001
+        finally:
+            await p.close()
+
+
+class TestRedisClusterPoolReloadUrl:
+    """Tests for RedisClusterPool.reload_url() (Task 2.9)."""
+
+    async def test_reload_url_same_url_is_noop(self) -> None:
+        """Same cluster URL skips reload."""
+        from unittest.mock import AsyncMock, patch
+
+        from araxys.db_security.pool import RedisClusterPool
+
+        mock_cluster = AsyncMock()
+        mock_cluster.ping = AsyncMock(return_value=True)
+        mock_cluster.aclose = AsyncMock()
+
+        with patch(
+            "araxys.db_security.pool.RedisCluster.from_url",
+            return_value=mock_cluster,
+        ):
+            p = RedisClusterPool(
+                url="redis://localhost:7000",
+                health_check_interval_seconds=0,
+            )
+        try:
+            original = p._client  # noqa: SLF001
+            await p.reload_url("redis://localhost:7000")
+            # Client unchanged
+            assert p._client is original  # noqa: SLF001
+        finally:
+            await p.close()
+
+    async def test_reload_url_ping_failure_preserves_client(self) -> None:
+        """When new URL PING fails, old client preserved and SecretRotationError raised."""
+        from unittest.mock import AsyncMock, patch
+
+        from araxys.core.exceptions import SecretRotationError
+        from araxys.db_security.pool import RedisClusterPool
+
+        mock_cluster = AsyncMock()
+        mock_cluster.ping = AsyncMock(return_value=True)
+        mock_cluster.aclose = AsyncMock()
+
+        with patch(
+            "araxys.db_security.pool.RedisCluster.from_url",
+            return_value=mock_cluster,
+        ):
+            p = RedisClusterPool(
+                url="redis://localhost:7000",
+                health_check_interval_seconds=0,
+            )
+        try:
+            original = p._client  # noqa: SLF001
+
+            with pytest.raises(SecretRotationError, match="redis-cluster"):
+                await p.reload_url(
+                    "redis://unreachable:7001",
+                )
+
+            # Old client preserved
+            assert p._client is original  # noqa: SLF001
+        finally:
+            await p.close()
+
+    async def test_reload_url_atomic_swap(self) -> None:
+        """Old client closed, new client swapped after successful cluster reload."""
+        from unittest.mock import AsyncMock, patch
+
+        from araxys.db_security.pool import RedisClusterPool
+
+        old_cluster = AsyncMock()
+        old_cluster.ping = AsyncMock(return_value=True)
+        old_cluster.aclose = AsyncMock()
+
+        with patch(
+            "araxys.db_security.pool.RedisCluster.from_url",
+            return_value=old_cluster,
+        ):
+            p = RedisClusterPool(
+                url="redis://localhost:7000",
+                health_check_interval_seconds=0,
+            )
+        try:
+            new_cluster = AsyncMock()
+            new_cluster.ping = AsyncMock(return_value=True)
+            new_cluster.aclose = AsyncMock()
+
+            with patch(
+                "araxys.db_security.pool.RedisCluster.from_url",
+                return_value=new_cluster,
+            ):
+                await p.reload_url(
+                    "redis://newhost:7001",
+                )
+
+            # Old client closed
+            old_cluster.aclose.assert_awaited_once()
+            # New client in place
+            assert p._client is new_cluster  # noqa: SLF001
+            # URL updated
+            assert p.url == "redis://newhost:7001"
+            # Pool not closed
+            assert p._closed is False  # noqa: SLF001
+        finally:
+            await p.close()
+
+
+class TestInMemoryPoolReloadUrl:
+    """Tests for InMemoryPool.reload_url() (Task 2.9)."""
+
+    async def test_reload_url_is_noop(self) -> None:
+        """InMemoryPool.reload_url is a no-op."""
+        from araxys.db_security.pool import InMemoryPool
+
+        pool = InMemoryPool()
+        # Should not raise, should do nothing
+        await pool.reload_url("redis://anything:6379")
+        assert await pool.health() is True
+
+
 class TestRedisClusterPool:
     """Tests for RedisClusterPool (Cluster-backed connection pool)."""
 
