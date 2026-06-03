@@ -56,6 +56,16 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 | `OIDCProviderMetadata` | `araxys.oidc.models` | Pydantic model for OIDC provider metadata. |
 | `MalwareGuard` | `araxys.malware.dependencies` | FastAPI `Depends` factory — scans uploaded files against malware detectors. |
 | `MalwareMiddleware` | `araxys.malware.middleware` | Read-only ASGI middleware for multipart file upload scanning. |
+| `SchemaReader` | `araxys.aws_waf.schema` | Reads OpenAPI 3.0/3.1 schemas, extracts paths/methods/security schemes. |
+| `WafRuleGenerator` | `araxys.aws_waf.generator` | Converts OpenAPI data to AWS WAF IP sets, regex patterns, rule groups, Web ACL JSON. |
+| `WafClient` | `araxys.aws_waf.client` | Lazy boto3 WAFv2 client — create/update IP sets, rule groups, Web ACLs. Semaphore-guarded. |
+| `WafEscalationSubscriber` | `araxys.aws_waf.escalation` | Multi-strike auto-escalation: threshold, dry-run, TTL eviction, event-driven. |
+| `ThreatIntelManager` | `araxys.threat_intel.manager` | 8 feed sources, staggered scheduler, refresh/stats/purge API. |
+| `IPResolver` | `araxys.threat_intel.ip_resolver` | Cross-feed dedup, CIDR exclusion, in-memory TTL tracking, bulk sync. |
+| `GraphQLSecurityMiddleware` | `araxys.graphql_security.middleware` | ASGI middleware — depth/breadth/cost/introspection validation, GRAPHQL_BLOCKED events. |
+| `AuditHeadersMiddleware` | `araxys.headers.auditor` | Sampling middleware — 9 OWASP security header checks, CLI integration. |
+| `SecretsRotationConfig` | `araxys.secret_rotation.config` | Rotation configuration: interval, targets, pre-rotation hooks. |
+| `SecretsRotationScheduler` | `araxys.secret_rotation.scheduler` | Background asyncio.Task loop that re-resolves secrets on interval. |
 | `DatabaseSecurityManager` | `araxys.db_security.manager` | Shared Redis/PG pool lifecycle, secret resolver chain, TLS cert pinning, query auditing. |
 | `ConnectionPool` | `araxys.db_security.pool` | Protocol for Redis connection pools — InMemoryPool + RedisPool + RedisClusterPool + RedisSentinelPool. |
 | `QueryValidator` | `araxys.db_security.query_validator` | sqlparse-based detection of inline SQL literals vs parameterized queries. |
@@ -110,6 +120,11 @@ Araxys uses an **Orchestrator Pattern** (`AraxysShield`) to wire specialized mid
 - **CSRF Auto-Middleware (v0.13)**: `CSRFMiddleware` is a Starlette `BaseHTTPMiddleware` registered by shield. It intercepts PUT/POST/DELETE/PATCH automatically. Original per-route `csrf_protected` Depends still works and takes precedence. The auto middleware runs OUTSIDE the auth middleware chain — it validates the CSRF cookie before authentication. Safe methods (GET, HEAD, OPTIONS, TRACE) are never checked. Path exclusion via `exclude_paths` list.
 - **Account Protection (v0.13)**: `AccountProtectionMiddleware` is registered between Honeypot and IP Access in the middleware chain. It normalizes 401/403 `detail` fields to a generic message and adds configurable timing jitter (uniform distribution, ±50% of `jitter_delay_ms`). `enumeration_paths` config list controls which paths are monitored for enumeration detection. Fake hash pre-lookup is injected into `APIKeyManager` — existing key lookups always return a fake result for non-existent keys.
 - **OIDC Discovery (v0.13)**: `OIDCDiscoveryClient` is a standalone utility — no middleware, no shield registration. `OAuth2Provider.from_issuer()` is an async classmethod, so endpoints using it must be async. Cache is in-memory dict with wall-clock TTL (no Redis). httpx was promoted to core dependency in v0.13.
+- **AWS WAF Bridge (v0.14)**: `WafClient` uses lazy boto3 import — never imported at module level, only on first `apply()` call. Semaphore max_concurrent=1 guards against API rate limits. Dry-run mode in `WafEscalationSubscriber` logs actions without applying. boto3 is an optional dependency (`araxys[aws_waf]`).
+- **Threat Intel Feeds (v0.14)**: 8 feed sources run as staggered asyncio.Tasks with configurable intervals. `IPResolver` dedup is O(n) across feeds — avoid 100k+ IP loads per cycle. `THREAT_INTEL_MATCH` events are emitted by the middleware on request match, not by the resolver. AbuseIPDB and AlienVault OTX require API keys via `THREAT_INTEL_ABUSEIPDB_KEY` / `THREAT_INTEL_ALIENVAULT_KEY` env vars.
+- **GraphQL Security (v0.14)**: `GraphQLSecurityMiddleware` intercepts `POST` to paths matching `graphql_paths` (default `["/graphql"]`). Uses graphql-core `parse()` and `validate()` — errors are returned as GraphQL-formatted JSON (not HTTP 4xx). Optional dep `araxys[graphql]`. Refresh tokens and introspection queries are blocked when `disable_introspection=True`.
+- **Headers Audit (v0.14)**: `AuditHeadersMiddleware` samples requests at `sample_rate` (default 0.1). Results logged via structlog. CLI `araxys audit-headers check <url>` runs an independent HTTP check against a target URL. Does NOT modify responses — read-only middleware.
+- **Secrets Rotation (v0.14)**: `SecretsRotationScheduler` uses `asyncio.Task` and must be started via `start()` / `stop()`. Rotation validates the new credential BEFORE swapping via PING on pool connections. `reload_url()` and `reload_dsn()` are atomic — they never leave the pool in a half-swapped state. Pre-rotation hooks can raise to abort a rotation. Admin endpoints are registered under `/admin/secrets/`.
 - **Python Version (v0.13)**: Minimum Python 3.11. Uses `datetime.timezone.utc` (not `datetime.UTC`) and `(str, Enum)` (not `StrEnum`) for compatibility. `from __future__ import annotations` is required in all module files.
 
 ## 🛠️ Common Usage Patterns
@@ -284,6 +299,10 @@ The `araxys` CLI is the preferred way for agents to perform environment manageme
 - **Set Context**: `export ARAXYS_REDIS_URL="redis://..."`
 - **Key Creation**: `araxys keys create --owner "name" --scopes "read,write"`
 - **Key Revocation**: `araxys keys revoke <prefix>`
+- **WAF Operations** (v0.14): `araxys waf generate <openapi.json>` / `araxys waf apply <web-acl.json>`
+- **Threat Intel** (v0.14): `araxys threat-intel refresh|stats|purge|feeds`
+- **Headers Audit** (v0.14): `araxys audit-headers check <url> [--format json|rich]`
+- **Secrets Rotation** (v0.14): `araxys secrets rotate [--target NAME]` / `araxys secrets status`
 
 ## 🧪 Testing Guidelines
 - **Storage**: Use `fakeredis.aioredis.FakeRedis` for testing Redis-dependent modules.
@@ -294,10 +313,10 @@ The `araxys` CLI is the preferred way for agents to perform environment manageme
 - **OTEL mocks**: Use `unittest.mock` to mock `opentelemetry` imports — never require the real SDK in tests.
 - **HIBP tests**: Mock `httpx.AsyncClient` responses for `check_hibp()` — never hit the real API in tests.
 
-## 📊 Test Coverage (v0.13)
-- **1,490 tests** across 54 test files covering all 28 modules
-- Unit: ~600 tests (backends, stateless logic, pure functions, detectors, scanners, sqlparser, pool, query_validator)
-- Integration: ~400 tests (middleware via `httpx.AsyncClient` + `TestClient`)
-- E2E: ~150 tests (full middleware chain, file upload scanning, prompt injection file detection)
-- Key pure functions: `build_csp_header()`, `mask_pii()`, `detect_nosql_injection()`, `detect_command_injection()`, `detect_path_traversal()`, `extract_user_id()`, `extract_api_key()`, `match_path()`, `SqlInjectionAnalyzer.analyze()`, `QueryValidator.validate()`, `detect_magic_bytes_mismatch()`, `detect_archive_bomb()`, `detect_polyglot()`, `detect_direct_injection()`, `detect_jailbreak()`, `detect_hidden_text()`
+## 📊 Test Coverage (v0.14)
+- **1,958 tests** across 65+ test files covering all 33 modules
+- Unit: ~800 tests (backends, stateless logic, pure functions, detectors, scanners, sqlparser, pool, query_validator, waf, threat_intel, graphql, headers, secret_rotation)
+- Integration: ~600 tests (middleware via `httpx.AsyncClient` + `TestClient`)
+- E2E: ~200 tests (full middleware chain, file upload scanning, prompt injection file detection, WAF apply dry-run, threat intel feed sync)
+- Key pure functions: `build_csp_header()`, `mask_pii()`, `detect_nosql_injection()`, `detect_command_injection()`, `detect_path_traversal()`, `extract_user_id()`, `extract_api_key()`, `match_path()`, `SqlInjectionAnalyzer.analyze()`, `QueryValidator.validate()`, `detect_magic_bytes_mismatch()`, `detect_archive_bomb()`, `detect_polyglot()`, `detect_direct_injection()`, `detect_jailbreak()`, `detect_hidden_text()`, `SchemaReader.read()`, `WafRuleGenerator.generate()`, `IPResolver.resolve()`, `validate_graphql_query()`, `audit_headers()`
 - Ruff + mypy strict enforced in CI (124 source files, 0 errors)

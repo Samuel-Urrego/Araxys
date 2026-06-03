@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Plug & Play Security for FastAPI</strong><br>
-  <em>CORS · CSRF · Rate Limiting · JWT · API Keys · MFA · OAuth2 · RBAC · WebAuthn · Sessions · Prompt Injection · Malware Scan · XXE · Account Enumeration Prevention · OIDC Discovery · Webhooks + DLQ · Honeypots · Audit · DB Security · Redis Sentinel/Cluster</em>
+  <em>CORS · CSRF · Rate Limiting · JWT · API Keys · MFA · OAuth2 · RBAC · WebAuthn · Sessions · Prompt Injection · Malware Scan · XXE · Account Enumeration Prevention · OIDC Discovery · AWS WAF Bridge · Threat Intelligence Feeds · GraphQL Security · Headers Audit · Dynamic Secrets Rotation · Webhooks + DLQ · Honeypots · Audit · DB Security</em>
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Pydantic-v2-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic">
   <img src="https://img.shields.io/badge/uv-package%20manager-DE5FE9?style=for-the-badge&logo=uv&logoColor=white" alt="uv">
   <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/version-0.13.0-blue?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.14.0-blue?style=for-the-badge" alt="Version">
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
   <img src="https://img.shields.io/badge/OpenTelemetry-optional-8B5CF6?style=flat-square&logo=opentelemetry&logoColor=white" alt="OTEL">
   <img src="https://img.shields.io/badge/Prometheus-optional-E6522C?style=flat-square&logo=prometheus&logoColor=white" alt="Prometheus">
   <img src="https://img.shields.io/badge/structlog-logging-4B8BBE?style=flat-square" alt="structlog">
-  <img src="https://img.shields.io/badge/tests-1490%20passed-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-1958%20passed-brightgreen?style=flat-square" alt="Tests">
 </p>
 
 ---
@@ -32,7 +32,7 @@
 
 **Araxys** is a comprehensive security library for [FastAPI](https://fastapi.tiangolo.com/) that provides enterprise-grade protection with a plug & play architecture. Add security to your API with **three lines of code** — no rewrites, no boilerplate.
 
-> **v0.13.0** adds XXE protection (regex + entity expansion detection, ASGI middleware), account enumeration prevention (unified error messages, timing jitter, fake hash pre-lookup), automatic CSRF middleware (no per-route `Depends` wiring), and OIDC Discovery client (RFC 8414, `OAuth2Provider.from_issuer()` sugar). **v0.12.0** added heuristic malware scanning. [1490 tests](https://github.com/Samuel-Urrego/Araxys/actions).
+> **v0.14.0** adds AWS WAF Bridge (OpenAPI → WAF rule generation + boto3 apply), Threat Intelligence Feeds (8 sources, IPResolver, background scheduler), GraphQL Security (depth/breadth/cost/introspection validation), Security Headers Audit (9 OWASP checks, CLI audit-headers), and Dynamic Secrets Rotation (background credential rotation, pool hot-swap, admin endpoints, CLI). **v0.13.0** added XXE protection, account enumeration prevention, CSRF auto-middleware, and OIDC Discovery. [1958 tests](https://github.com/Samuel-Urrego/Araxys/actions).
 
 ```python
 from fastapi import FastAPI
@@ -71,10 +71,15 @@ shield = AraxysShield(app, AraxysConfig(secret_key="your-32-char-secret-key-here
 | 🛡️ **Account Enumeration** | Unified error messages, timing jitter, fake hash pre-lookup, middleware | 🆕 v0.13 |
 | 🌐 **OIDC Discovery** | RFC 8414 async client, in-memory TTL cache, `OAuth2Provider.from_issuer()` | 🆕 v0.13 |
 | 🦠 **Malware Scan** | Heuristic file-upload scanning (magic bytes, MIME, archive bombs, macros, polyglots, double ext, path traversal) | ✅ v0.12 |
+| 🛡️ **AWS WAF Bridge** | OpenAPI → WAF rule generation, boto3 IP set/Web ACL apply, multi-strike escalation | 🆕 v0.14 |
+| 🕵️ **Threat Intelligence** | 8 feed sources (Firehol, Spamhaus, Blocklist.de, AbuseIPDB, AlienVault OTX), IPResolver, background scheduler | 🆕 v0.14 |
+| 📊 **GraphQL Security** | Depth/breadth/cost/introspection validation via graphql-core AST, GRAPHQL_BLOCKED events | 🆕 v0.14 |
+| 🔍 **Headers Audit** | 9 OWASP security header checks, sampling middleware, CLI `araxys audit-headers` | 🆕 v0.14 |
+| 🔄 **Secrets Rotation** | Background credential rotation, pool hot-swap, admin endpoints, CLI `araxys secrets` | 🆕 v0.14 |
 | 📋 **Audit Logging** | AES-256-GCM encrypted, async I/O, hash-chain integrity, PII masking | ✅ Ready |
 | 📡 **OpenTelemetry** | Graceful span tracing (opt-in, no-op fallback) | ✅ v0.3 |
 | 📊 **Prometheus Metrics** | 9 counters + histogram + /metrics endpoint | ✅ v0.3 |
-| 💻 **Admin API** | Session/IP ban/API key management, DLQ inspection + replay | ✅ v0.9 |
+| 💻 **Admin API** | Session/IP ban/API key management, secrets rotation, DLQ inspection + replay | ✅ v0.9 / 🆕 v0.14 |
 
 ---
 
@@ -95,6 +100,12 @@ pip install araxys[prometheus]
 
 # With webhook delivery support
 pip install araxys[webhooks]
+
+# With AWS WAF support (boto3)
+pip install araxys[aws_waf]
+
+# With GraphQL security support
+pip install araxys[graphql]
 
 # With prompt injection file scanning support
 pip install araxys[prompt-guard-image,prompt-guard-pdf,prompt-guard-office]
@@ -534,6 +545,43 @@ CORS → SecureHeaders → Telemetry → CSRF → RateLimit → BruteForce → H
 - **OAuth2Provider integration**: `OAuth2Provider.from_issuer()` classmethod for auto-discovery
 - **Graceful error handling**: Timeout, invalid JSON, missing fields → `OIDCDiscoveryError`
 
+### AWS WAF Bridge (v0.14)
+
+- **OpenAPI → WAF rules**: `SchemaReader` + `WafRuleGenerator` produce IP sets, regex pattern sets, rule groups, Web ACL JSON
+- **boto3 apply**: `WafClient` with lazy boto3, semaphore-guarded, supports create/update IP sets, rule groups, Web ACLs
+- **Multi-strike escalation**: `WafEscalationSubscriber` with configurable threshold, dry-run, TTL eviction, auto-adds blocked IPs to AWS
+- **CLI**: `araxys waf generate`, `araxys waf apply`
+
+### Threat Intelligence Feeds (v0.14)
+
+- **8 feed sources**: Firehol (levels 1–3), Spamhaus DROP/EDROP, Blocklist.de, AbuseIPDB, AlienVault OTX
+- **IPResolver**: Cross-feed dedup, CIDR exclusion, in-memory TTL tracking with eviction, bulk sync to backend
+- **Background scheduler**: Staggered feed loops, per-feed asyncio.Tasks, refresh/stats/purge API
+- **Security events**: `THREAT_INTEL_LOADED`, `THREAT_INTEL_MATCH` emitted on IP match
+- **CLI**: `araxys threat-intel refresh|stats|purge|feeds`
+
+### GraphQL Security (v0.14)
+
+- **4 validators**: Depth limit, breadth limit, cost limit, introspection disable
+- **graphql-core AST**: Parses and validates queries via `graphql-core` before processing
+- **ASGI middleware**: Intercepts `POST /graphql`, returns GraphQL-formatted errors on violations
+- **Security events**: `GRAPHQL_BLOCKED` emitted on query violation
+- **Optional dependency**: `araxys[graphql]`
+
+### Security Headers Audit (v0.14)
+
+- **9 OWASP checks**: HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, COOP, COEP, X-XSS-Protection
+- **Sampling middleware**: `AuditHeadersMiddleware` with configurable sample rate
+- **CLI**: `araxys audit-headers check <url>` with Rich table or JSON output
+
+### Dynamic Secrets Rotation (v0.14)
+
+- **Background credential rotation**: `SecretsRotationScheduler` re-resolves secrets via `ChainedResolver` on configurable interval
+- **Pool hot-swap**: `reload_url()`/`reload_dsn()` on RedisPool, SentinelPool, ClusterPool, InMemoryPool, and PGPool — PING validates new URL before atomic swap
+- **Security events**: `SECRET_ROTATING`, `SECRET_ROTATED`, `SECRET_ROTATION_FAILED`
+- **Admin API**: `POST /admin/secrets/rotate`, `GET /admin/secrets/status`
+- **CLI**: `araxys secrets rotate [--target NAME]`, `araxys secrets status`
+
 ### Payload Sanitization
 
 - **16 SQL injection patterns**: UNION, DROP, blind injection, time-based, etc.
@@ -604,7 +652,7 @@ uv run pytest tests/ -v
 uv run pytest tests/ --cov=araxys --cov-report=term-missing
 ```
 
-**1490 tests** covering all 28 modules — CORS, IP access, CSRF, brute force, sessions, telemetry, webhooks, DLQ, WebAuthn, MFA, OAuth2/OIDC, RBAC, admin, metrics, rate limiting, honeypots, API keys, JWT, headers, sanitization, prompt injection, malware scanning, XXE protection, account enumeration prevention, OIDC Discovery, audit logging, and database security.
+**1958 tests** covering all 33 modules — CORS, IP access, CSRF, brute force, sessions, telemetry, webhooks, DLQ, WebAuthn, MFA, OAuth2/OIDC, RBAC, admin, metrics, rate limiting, honeypots, API keys, JWT, headers, sanitization, prompt injection, malware scanning, XXE protection, account enumeration prevention, OIDC Discovery, AWS WAF Bridge, threat intelligence feeds, GraphQL security, headers audit, secrets rotation, audit logging, and database security.
 
 ---
 
